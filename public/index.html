@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>cvoid</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%2302030e'/%3E%3Crect x='5' y='5' width='6' height='6' fill='none' stroke='%235f8cff'/%3E%3C/svg%3E">
+<style>
+  html, body { margin: 0; height: 100%; background: #02030e; overflow: hidden; }
+  body {
+    color: #cfdcff; font: 300 13px/1.5 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    letter-spacing: .12em; user-select: none; -webkit-user-select: none; touch-action: none;
+  }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  #start {
+    position: fixed; inset: 0; display: grid; place-content: center; text-align: center; cursor: pointer;
+    background: radial-gradient(ellipse at center, rgba(2,3,14,0) 0%, rgba(2,3,14,.75) 100%);
+    transition: opacity 2.5s ease;
+  }
+  #start h1 { margin: 0; font-weight: 200; font-size: clamp(40px, 9vw, 110px); letter-spacing: .5em; text-indent: .5em; text-shadow: 0 0 40px #5f8cff; }
+  #start p { margin: 2.5em 0 0; opacity: .7; text-transform: lowercase; animation: breathe 3s ease-in-out infinite; }
+  #start.gone { opacity: 0; pointer-events: none; }
+  @keyframes breathe { 50% { opacity: .25; } }
+
+  #hud { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity 3s ease 1.5s; }
+  #hud.on { opacity: 1; }
+  #sector { position: absolute; left: 6vw; bottom: 14vh; max-width: 80vw; text-shadow: 0 0 18px rgba(0,0,0,.8); }
+  #name { font-weight: 200; font-size: clamp(26px, 4.6vw, 60px); letter-spacing: .32em; line-height: 1.15; }
+  #inscription { margin-top: .6em; font-size: clamp(12px, 1.3vw, 16px); opacity: .8; letter-spacing: .16em; }
+  #sector.enter #name { animation: reveal 2.6s cubic-bezier(.2,.7,.2,1) both; }
+  #sector.enter #inscription { animation: reveal 2.6s .5s cubic-bezier(.2,.7,.2,1) both; }
+  @keyframes reveal { from { opacity: 0; letter-spacing: .7em; filter: blur(6px); } }
+  #meta { position: absolute; left: 6vw; bottom: 5.5vh; font-size: 11px; opacity: .7; text-transform: lowercase; font-variant-numeric: tabular-nums; }
+  #entity {
+    position: absolute; left: 8vw; right: 8vw; top: 60%; text-align: center; color: #eef2ff;
+    font-size: clamp(15px, 1.7vw, 23px); letter-spacing: .34em; text-transform: lowercase;
+    text-shadow: 0 0 22px rgba(170, 195, 255, .65); opacity: 0; filter: blur(5px);
+    transition: opacity 1.8s ease, filter 1.8s ease;
+  }
+  #entity.show { opacity: .92; filter: blur(0); }
+  #waits { font-size: 12px; color: #eef2ff; margin-bottom: .5em; letter-spacing: .16em; min-height: 1.5em; }
+  #coords { font-size: 13px; margin-bottom: .3em; letter-spacing: .14em; }
+  #map { opacity: 0; pointer-events: none; transition: opacity .25s ease; }
+  #map.on { opacity: 1; }
+  #sector, #help { transition: opacity .25s ease; }
+  .mapping #sector, .mapping #help { opacity: 0; }
+  #meta .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: .7em; background: currentColor; vertical-align: 1px; }
+  #meta.waiting .dot { animation: breathe 1s ease-in-out infinite; }
+  #help { position: absolute; right: 6vw; bottom: 7vh; max-width: 46vw; font-size: 11px; opacity: .4; text-align: right; text-transform: lowercase; }
+  @media (max-width: 700px) { #help { display: none; } }
+</style>
+<script type="importmap">
+{ "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+<canvas id="view"></canvas>
+<canvas id="map"></canvas>
+<div id="hud">
+  <div id="sector"><div id="name"></div><div id="inscription"></div></div>
+  <div id="entity"></div>
+  <div id="meta"><div id="waits"></div><div id="coords"></div><span class="dot"></span><span id="status"></span></div>
+  <div id="help"></div>
+</div>
+<div id="start"><div><h1>cvoid</h1><p id="prompt">click to materialize</p></div></div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
