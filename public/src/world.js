@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { hashCoords, mulberry32 } from "./noise.js";
 import { ORIGIN, localSpec, voidSpec, normalizeSpec } from "./spec.js";
 import { population } from "./population.js";
+import { REALM, GATE_SECTOR, GATE_SPEC, marderSpec } from "./marderchen.js";
 import { PRIMITIVES, buildLayers, buildBlueprint } from "./structures.js";
 import { CELL, UNIT, SIGHT } from "./constants.js";
 import {
@@ -59,7 +60,7 @@ class Cell {
     this.structures = [];
 
     // faint dust so an unmaterialized sector is not pure nothing
-    const dust = this.points(320, mulberry32(this.seed ^ 0x51ed), {
+    const dust = this.points(1400, mulberry32(this.seed ^ 0x51ed), {
       uColor: { value: new THREE.Color("#8fa0c8") }, uSize: { value: 0.7 }, uDrift: { value: new THREE.Vector3(0, 1.5, 0) },
       uOrbit: { value: 0 }, uMat: { value: 0.5 },
     });
@@ -81,7 +82,7 @@ class Cell {
     geometry.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
     const material = new THREE.ShaderMaterial({
       vertexShader: MOTE_VERT, fragmentShader: MOTE_FRAG,
-      uniforms: { uTime: G.uTime, uPx: G.uPx, uFogDensity: G.uFogDensity, uLight: G.uLight, uHigh: G.uHigh, uCell: { value: CELL }, ...uniforms },
+      uniforms: { uTime: G.uTime, uPx: G.uPx, uFogDensity: G.uFogDensity, uLight: G.uLight, uHigh: G.uHigh, uCell: { value: CELL }, uRainbow: { value: 0 }, uMad: G.uMad, ...uniforms },
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
     const points = new THREE.Points(geometry, material);
@@ -115,13 +116,14 @@ class Cell {
     }
     if (!spec.partial) this.addBlueprint(spec);
 
-    const moteCount = Math.round(spec.motes.density * 2600);
+    const moteCount = Math.round(spec.motes.density * 9000);
     if (moteCount) {
       const speed = spec.motes.speed * 28;
       const drift = new THREE.Vector3(...DRIFT[spec.motes.drift]).multiplyScalar(speed);
       this.group.add(this.points(moteCount, r, {
         uColor: { value: glow.clone().lerp(accent, 0.3) }, uSize: { value: spec.motes.size }, uDrift: { value: drift },
         uOrbit: { value: spec.motes.drift === "orbit" ? spec.motes.speed * 0.25 : 0 }, uMat: this.mat,
+        uRainbow: { value: spec.rainbow },
       }));
     }
 
@@ -163,7 +165,7 @@ class Cell {
       defines: { ...(primitive === "cube" ? {} : { BARY: 1 }), ...(fractal ? { FRACTAL: 1 } : {}) },
       uniforms: {
         uFogColor: G.uFogColor, uFogDensity: G.uFogDensity, uLight: G.uLight, uTime: G.uTime, uMat: mat, uWarp: { value: warp },
-        uMid: G.uMid, uBeat: G.uBeat, uNear: { value: 1e5 }, uUnit: { value: UNIT },
+        uMid: G.uMid, uBeat: G.uBeat, uNear: { value: 1e5 }, uUnit: { value: UNIT }, uRainbow: { value: spec.rainbow }, uChan: G.uChan, uMad: G.uMad,
         uDeep: { value: new THREE.Color(spec.palette.deep) }, uGlow: { value: new THREE.Color(spec.palette.glow) },
         uAccent: { value: new THREE.Color(spec.palette.accent) }, uBands: { value: bands },
       },
@@ -336,6 +338,8 @@ export class World {
       uTime: { value: 0 }, uPx: { value: 1 }, uLight: { value: 1 },
       // what the sound is doing right now; each drives a different part of the picture
       uBass: { value: 0 }, uMid: { value: 0 }, uHigh: { value: 0 }, uBeat: { value: 0 },
+      uChan: { value: new Float32Array(18).fill(0.5) },
+      uMad: { value: 0 }, // 0..1: marderchen has turned up in the void and it has taken his colours
       uFogColor: { value: new THREE.Color(ORIGIN.palette.fog) }, uFogDensity: { value: 0.0022 / SIGHT },
       uDeep: { value: new THREE.Color(ORIGIN.palette.deep) }, uGlow: { value: new THREE.Color(ORIGIN.palette.glow) },
       uAccent: { value: new THREE.Color(ORIGIN.palette.accent) },
@@ -345,7 +349,8 @@ export class World {
       glow: this.G.uGlow.value.clone(), accent: this.G.uAccent.value.clone(), density: 0.0022 / SIGHT,
     };
     this.cells = new Map();
-    this.specs = new Map([[key(0, 0, 0), normalizeSpec(ORIGIN)]]);
+    this.realm = "void"; // or marderchen's dimension, a separate grid reached through the ring above the hub
+    this.specs = new Map([["0,0,0", normalizeSpec(ORIGIN)], [GATE_SECTOR.join(","), normalizeSpec(GATE_SPEC)]]);
     this.probed = new Set();
     this.probing = new Set();
     this.pending = new Set();
@@ -358,6 +363,49 @@ export class World {
     this.fogBoost = 1;
     this.slow = 1; // flight speed factor, lowered near a recursion
     this.sky = new Sky(this);
+
+    // Fine dust that is always around you, wherever you are: it drifts past as you fly, so that
+    // even the emptiest stretch has texture and a sense of speed. It wraps round the traveller,
+    // so it never runs out.
+    const n = 2600, box = 1800, at = new Float32Array(n * 3), seed = new Float32Array(n);
+    for (let i = 0; i < n * 3; i++) at[i] = (Math.random() - 0.5) * box;
+    for (let i = 0; i < n; i++) seed[i] = Math.random();
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(at, 3));
+    g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
+    this.dust = new THREE.Points(g, new THREE.ShaderMaterial({
+      uniforms: { uTime: this.G.uTime, uPx: this.G.uPx, uBox: { value: box }, uCam: { value: new THREE.Vector3() }, uGlow: this.G.uGlow, uLight: this.G.uLight },
+      vertexShader: `attribute float aSeed; uniform float uTime, uPx, uBox; uniform vec3 uCam; varying float vA;
+        void main(){
+          vec3 p = position + vec3(sin(uTime * 0.05 + aSeed * 40.), cos(uTime * 0.04 + aSeed * 23.), sin(uTime * 0.03 + aSeed * 61.)) * 30.;
+          p = uCam + mod(p - uCam + uBox * 0.5, uBox) - uBox * 0.5; // always the box around you
+          vec4 mv = modelViewMatrix * vec4(p, 1.);
+          float d = length(mv.xyz);
+          gl_PointSize = clamp(uPx * (1.2 + aSeed * 2.) * 260. / max(d, 1.), 1., 6.);
+          vA = (1. - smoothstep(uBox * 0.25, uBox * 0.5, d)) * smoothstep(8., 40., d) * (0.35 + 0.65 * sin(uTime * (0.4 + aSeed) + aSeed * 90.) * 0.5 + 0.325);
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `uniform vec3 uGlow; uniform float uLight; varying float vA;
+        void main(){ float d = length(gl_PointCoord - .5) * 2.; gl_FragColor = vec4(mix(vec3(0.85, 0.9, 1.), uGlow, 0.45) * pow(max(1. - d, 0.), 1.5) * vA * 0.55 * min(uLight, 1.2), 1.); }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    }));
+    this.dust.frustumCulled = false;
+    scene.add(this.dust);
+  }
+
+  key(x, y, z) {
+    return `${this.realm === REALM ? "m:" : ""}${x},${y},${z}`;
+  }
+
+  // Step into another grid of sectors: everything loaded is dropped and rebuilt around the traveller.
+  setRealm(realm) {
+    for (const cell of this.cells.values()) cell.dispose();
+    this.cells.clear();
+    this.realm = realm;
+    this.currentKey = null;
+    this.currentSpec = undefined;
+    this.light = 1;
+    this.fogBoost = 1;
   }
 
   setSpec(k, raw) {
@@ -378,7 +426,7 @@ export class World {
 
   // Ask the server for a sector. cachedOnly never triggers a new Claude call.
   async request(x, y, z, cachedOnly) {
-    const k = key(x, y, z);
+    const k = this.key(x, y, z);
     if (this.specs.has(k)) return;
     if (cachedOnly) {
       if (this.probed.has(k)) return;
@@ -432,11 +480,15 @@ export class World {
   enter(spec) {
     this.currentSpec = spec;
     const s = spec ?? GHOST;
-    this.target.fog.set(s.palette.fog);
-    this.target.deep.set(s.palette.deep);
-    this.target.glow.set(s.palette.glow);
-    this.target.accent.set(s.palette.accent);
-    this.target.density = (0.0017 + s.fogDensity * 0.003) / SIGHT;
+    // The void keeps one look everywhere: the fog, the far sky and how far you can see are the
+    // hub's, whatever sector you are in. Sectors differ in what stands in them (their own colours
+    // are on their structures), not in the air around them. His dimension has its own look.
+    const air = this.realm === REALM ? s : this.specs.get("0,0,0");
+    this.target.fog.set(air.palette.fog);
+    this.target.deep.set(air.palette.deep);
+    this.target.glow.set(air.palette.glow);
+    this.target.accent.set(air.palette.accent);
+    this.target.density = (0.0017 + air.fogDensity * 0.003) / SIGHT;
     if (spec && !spec.partial) this.sky.setField(spec.fieldGlsl);
     this.onSector(spec, s, this.currentKey);
   }
@@ -447,11 +499,13 @@ export class World {
     const cx = Math.round(camera.position.x / CELL), cy = Math.round(camera.position.y / CELL), cz = Math.round(camera.position.z / CELL);
 
     for (let x = cx - 1; x <= cx + 1; x++) for (let y = cy - 1; y <= cy + 1; y++) for (let z = cz - 1; z <= cz + 1; z++) {
-      const k = key(x, y, z);
+      const k = this.key(x, y, z);
       if (this.cells.has(k)) continue;
       const cell = new Cell(this, x, y, z);
       this.cells.set(k, cell);
-      if (this.specs.has(k)) cell.materialize(this.specs.get(k));
+      // his dimension is generated here, from his own things; nothing in it is asked of the server
+      if (this.realm === REALM && !this.specs.has(k)) this.setSpec(k, marderSpec(x, y, z));
+      else if (this.specs.has(k)) cell.materialize(this.specs.get(k));
       else this.request(x, y, z, true);
     }
     this.slow = 1;
@@ -467,7 +521,7 @@ export class World {
 
     // Only the sector you are in and the two you are looking toward are sent to Claude.
     this.tick -= dt;
-    if (this.tick <= 0) {
+    if (this.tick <= 0 && this.realm === "void") {
       this.tick = 0.4;
       this.request(cx, cy, cz, false);
       const heading = camera.getWorldDirection(dummy.scale);
@@ -478,7 +532,7 @@ export class World {
       }
     }
 
-    const k = key(cx, cy, cz);
+    const k = this.key(cx, cy, cz);
     const spec = this.specs.get(k);
     if (k !== this.currentKey || spec !== this.currentSpec) {
       this.currentKey = k;
@@ -493,5 +547,6 @@ export class World {
     G.uFogDensity.value += (this.target.density * this.fogBoost - G.uFogDensity.value) * ease;
     G.uLight.value += (this.light - G.uLight.value) * (1 - Math.exp(-dt * 0.6));
     this.sky.update(dt, camera);
+    this.dust.material.uniforms.uCam.value.copy(camera.position);
   }
 }

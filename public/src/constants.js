@@ -1,4 +1,4 @@
-export const CELL = 1600;  // width of one sector, in world units
+export const CELL = 5200;  // width of one sector, in world units
 // Structures and blueprints are designed in a box of half-extent REACH (so Claude's coordinates
 // run about -250..250) and then drawn UNIT times larger. Sectors are far wider than what stands
 // in them: there is a lot of dark between one place and the next.

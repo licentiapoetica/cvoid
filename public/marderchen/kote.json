@@ -1,0 +1,1150 @@
+[
+{
+"t": "oh like playing this is just kote caused making fun testing the 13band (9xWS2812B/band) MEOW-rainbow graphic sound equalizer..",
+"f": "117xWS2812B_matrix testfun_for_MEOW-Rabainbow_13band-graphic-equalizer.txt"
+},
+{
+"t": "16channel led chaotic fader :3",
+"f": "16ch_ledstripefader.txt"
+},
+{
+"t": "free like everythink use it or parts if realy usefull =^.^=",
+"f": "16ch_ledstripefader.txt"
+},
+{
+"t": "muhihihi used 16pcs 0.5Watt 90.000mcd epic white ultrahighpower 5mm leds (factory reated voltage: 3.2Volt)",
+"f": "16x90kmcd_intensive_white_flasher.txt"
+},
+{
+"t": "long thing matching vauels to psy fullon {0,81,72,0,59} //most time spendet for adjusting..",
+"f": "16x90kmcd_intensive_white_flasher.txt"
+},
+{
+"t": "caused diffrent led positions looking like dancing light explosions if watching inside :3",
+"f": "18chan_morethan30Watt_brainhack_multicolorstroboscope.txt"
+},
+{
+"t": "the scope is bpmtimegesynct to my favorite music (GOA,progressive-trance,psychedelick,\"Full on\" station from soverryawesome radio Caprice:3",
+"f": "18chan_morethan30Watt_brainhack_multicolorstroboscope.txt"
+},
+{
+"t": "short version only rainbowing text (touch not used) MEOW!",
+"f": "24bit_ili9341LCD_rainbowshort_draw_by_marderchen.txt"
+},
+{
+"t": "the rainbowspectrum in 128steps",
+"f": "24bit_ili9341LCD_rainbowshort_draw_by_marderchen.txt"
+},
+{
+"t": "counting up rainbow +=2; faster etc..",
+"f": "24bit_ili9341LCD_rainbowshort_draw_by_marderchen.txt"
+},
+{
+"t": "write the color needet to be translatet or use a changing one from rainbowarray",
+"f": "24bit_ili9341LCD_rainbowshort_draw_by_marderchen.txt"
+},
+{
+"t": "Bresenham's algorithm - thx wikpedia (and adafruit) but the marderchenmod",
+"f": "24bit_ili9341LCD_rainbow_dispersed_draw_by_marderchen.txt"
+},
+{
+"t": "its(via timing matching to goa/psy/prograssivetrance/psychedelic~143to145 bpm)thingy caused permanently on and not flashing :3",
+"f": "24chan_8x10wattRGBOverpowered_brainhackVISUALIZER_ebaypartlist-ninichange.txt"
+},
+{
+"t": "smal SMD diode as resistor bevore the red color caused red lower voltage than rest :3",
+"f": "24chan_8x5mm_STRAWhead_RGBleddirect_on GPIO_lightfun.txt"
+},
+{
+"t": "free not used as comment in kote",
+"f": "24x5mmRGBled_72chan_colorpsyflasher.txt"
+},
+{
+"t": "power by 5V its the brightest light ever seen the blue led dots feeling in eyes lice purrfull mini white superbright miniexplosions",
+"f": "27Watt_ledstroposscope_neardone.txt"
+},
+{
+"t": "have fun use kote or parts if usefull :3 [MEOW}",
+"f": "27Watt_ledstroposscope_neardone.txt"
+},
+{
+"t": "kote for fast dimming all GPIOs(most)",
+"f": "27Watt_ledstroposscope_progress.txt"
+},
+{
+"t": "MEOW currently functions testing I/O and components (working)",
+"f": "3daywalk_powervape_progress.txt"
+},
+{
+"t": "my rainbow chaotic drawingstuff",
+"f": "3daywalk_powervape_progress.txt"
+},
+{
+"t": "rainbowcolor2 +=colorspeed;",
+"f": "3daywalk_powervape_progress_today.txt"
+},
+{
+"t": "128step rainbowspectrom *upbradet.. missed PURPLE",
+"f": "3daywalk_powervape_progress_today_MEOW_MIDI.txt"
+},
+{
+"t": "MEOW wav sound (array created with own flashproject from wavfile)",
+"f": "3daywalk_powervape_progress_today_MEOW_MIDI.txt"
+},
+{
+"t": "12channel 4* 10Watt RGB led 12Volt powered minifullonflasher with special 3lcdbeameroptic lense glas use it if usefull [MEOW]",
+"f": "4x10Watt_RGB_colorflashdot_12V_psy_projectorr.txt"
+},
+{
+"t": "have fun use idea kote the anything you found in internetz from li in any way you want :3 world have to became cute flashingpsychedeliccolorfull hihihi",
+"f": "4x10Watt_RGB_colorflashdot_12V_psy_projectorr.txt"
+},
+{
+"t": "versions 1x mobils smal 4x 18650 (this current kote+video)",
+"f": "4x3WRGB+fxfoilreflector_+UV+Whitestripes_beatflasher.txt"
+},
+{
+"t": "hihi like the optical flashing to beat effect sometimes try other idea :3",
+"f": "4x3WRGB+fxfoilreflector_+UV+Whitestripes_beatflasher.txt"
+},
+{
+"t": "MEOW =^.^= kot vor try brightenes from CIS RGB leds (thisone lighting a acryl stick in scanner)",
+"f": "4xCIS-scannerlight-RGB_1x0603RGB_manualbpmcolorflasher.txt"
+},
+{
+"t": "MEOW =^.^= kot vor halfmatrix (54x 0603 SMD RGB flasher..super smal SMD 4soldersurfaces led thingy :3)",
+"f": "54x0603RGBsuperbright_colorflashmatrix_kote.txt"
+},
+{
+"t": "stm 3V3 voltage boosted to 5.85 Volt (required for PNP switching and bright matrix :3)",
+"f": "54x0603RGBsuperbright_colorflashmatrix_kote.txt"
+},
+{
+"t": "have fun use idea and kote is want to but better not try reabuilding have needed 1.5days for solderwork (with correctiong own fails^^) nearly not possible ^^",
+"f": "54x0603RGBsuperbright_colorflashmatrix_kote.txt"
+},
+{
+"t": "still color full on beatpsyflasher but extendet channels to 162 hihi oh if want more than 255 have to change uint8_t stuff to uint16_t^^",
+"f": "54x0603RGBsuperbright_colorflashmatrix_kote.txt"
+},
+{
+"t": "lled sticks behind 4 layers laserprinting transparent Foil with MEOW letters :3",
+"f": "6xWS1812_ledstick_runningrainbowdriver.txt"
+},
+{
+"t": "programm for slowly running fading a ws2812b stripe in random color have fun use it if usefull :3",
+"f": "720xWs2812B_large_matrix_animation_roomlamp_nottestet.txt"
+},
+{
+"t": "mix fall together 2same colors together flickering again and all same colors gone.. continiues :3",
+"f": "720xWs2812B_large_matrix_animation_roomlamp_nottestet.txt"
+},
+{
+"t": "stripe full with bad chaos mix until 20leds left.. all flickering and gone..",
+"f": "720xWs2812B_large_matrix_animation_roomlamp_nottestet.txt"
+},
+{
+"t": "using my WS2812Bmeowmeter.. +upgrade 10meters 60/leds/meter additional WS2812B stripes",
+"f": "720xWs2812B_large_matrix_animation_roomlamp_running.txt"
+},
+{
+"t": "extendet my ws2812B stripe animation kote for driving 720x (x=6 * y=120) WS2812B large matrix with :3",
+"f": "720xWs2812B_large_matrix_animation_roomlamp_running.txt"
+},
+{
+"t": "mix fall together if stealing colors from chaos mix below= making colors more homogen 2 pixels near same again flickering..",
+"f": "720xWs2812B_large_matrix_animation_roomlamp_running.txt"
+},
+{
+"t": "base animation done matrix working :3 upgrade with tertris block symbols falling down and rotating is time :3 tasteruse later ..",
+"f": "720xWs2812B_large_matrix_animation_roomlamp_running.txt"
+},
+{
+"t": "onboardled kote running indicator",
+"f": "720xWs2812B_large_matrix_animation_roomlamp_running.txt"
+},
+{
+"t": "simpelest 24channel (8x 3Watt RGB)kote here discreption and pics on end :3 use it if usefull [MEOW]",
+"f": "8x3Watt_RGB_fullonflasher_mobile_latest-version.txt"
+},
+{
+"t": "every LED fadeng seperatly thotal chaotic in HSL rainbowcolors (HSL caused up to white)",
+"f": "9x5mm_RGB_4pin_multirainbowfading_STMdriver.txt"
+},
+{
+"t": "Ascii table end here *meow!+",
+"f": "acsiicat.html"
+},
+{
+"t": "fastled based air display mini rainbow lineart GFX by marderchen (thanks to adafruit for progman bitmap and to Bresenham's for drawline algorithm base =^.^=)",
+"f": "airdisplay_mini_rainbow_GFX_progress.txt"
+},
+{
+"t": "caused chaos chould not over array length",
+"f": "airdisplay_mini_rainbow_GFX_progress.txt"
+},
+{
+"t": "total false = some random colorixel, true = full colorpixelchaos",
+"f": "airdisplay_mini_rainbow_GFX_progress.txt"
+},
+{
+"t": "programm by marderchen =^.^=",
+"f": "airdisplay_mini_rainbow_GFX_progress.txt"
+},
+{
+"t": "hihi intresting method do calculate some colours .. ~+-approximate this absolutly is^^",
+"f": "approximate_colordutysetting.txt"
+},
+{
+"t": "fastled colorpallet.ino verwuselt by marderchen for rainbow headphones soundvisu=^.^= MEOW (controling 48 WS2812 LEDs on PB7 with analog audio input)",
+"f": "air_niniprogcurrentfail.txt"
+},
+{
+"t": "thanks for the cute rainbow",
+"f": "air_niniprogcurrentfail.txt"
+},
+{
+"t": "500 colors linear rainbow steps array",
+"f": "AS3_3dtest.txt"
+},
+{
+"t": "offset 40 ist der mindestpegel damit beaterkennung luft",
+"f": "AS3_3dtest.txt"
+},
+{
+"t": "~1400 colors linear rainbow steps array",
+"f": "AS3_-pr0_like_w0bm.txt"
+},
+{
+"t": "MEOW its Free use it or parts if you want =^.^= Cats are awesome never stop learning! MEOW!!b Cats are awesome =^.^=",
+"f": "AS3_-pr0_like_w0bm.txt"
+},
+{
+"t": "marderchens rainbowmoving line idea",
+"f": "AS3_awesome_rainbowrandom.txt"
+},
+{
+"t": "meow3.graphics.beginFill(0xffffff);",
+"f": "AS3_awesome_rainbowrandom.txt"
+},
+{
+"t": "meow idea by marderchen =^.^= do wath you want woth contend and have fun :3",
+"f": "AS3_awesome_rainbowrandom.txt"
+},
+{
+"t": "this is the MEOW starstripe move to targe system created by use if it you want =^.^=",
+"f": "AS3_bossfight_ico_mess.txt"
+},
+{
+"t": "marderchens MEOW letters :W",
+"f": "AS3_bossfight_ico_mess.txt"
+},
+{
+"t": "meow2.graphics.drawRect(x0+1, y0+1, 4, 4);",
+"f": "AS3_catz.txt"
+},
+{
+"t": "AS3 for CATZDANMCEg not finished now script by marderchen =^.^= have fun juse it or parts if you want",
+"f": "AS3_DANZ_CATZ.txt"
+},
+{
+"t": "GO! NCANCATS - The next NYAN CAT MEOW (flash by marderchen, soundsource: newgrounds.com",
+"f": "AS3_GO_NYANCATS.txt"
+},
+{
+"t": "The NEXT NYAN CAT MEOW - GO! NYANcats",
+"f": "AS3_GO_NYANCATS.txt"
+},
+{
+"t": "CATS ARE AWESOME ,,,^.^,,,",
+"f": "AS3_GO_NYANCATS.txt"
+},
+{
+"t": "meow zeugs++++++++++++++++++++",
+"f": "AS3_Marderchens_visual_MEOW_mp3flashplayer_beta.txt"
+},
+{
+"t": "marderchens MEOW letters",
+"f": "AS3_Marderchens_visual_MEOW_mp3flashplayer_beta.txt"
+},
+{
+"t": "meow.width = 1500/(kcounty/10);",
+"f": "AS3_Marderchens_visual_MEOW_mp3flashplayer_beta.txt"
+},
+{
+"t": "meow2.transform.matrix3D.interpolateTo(meow.transform.matrix3D, 0.1);",
+"f": "AS3_Marderchens_visual_MEOW_mp3flashplayer_beta.txt"
+},
+{
+"t": "effects on same time.. Letter 1-7 switching avtive difrent efects if press again it is drawing for moving in geom background.. if you finde a cute settign make screenshot",
+"f": "AS3_Marderchens_visual_MEOW_mp3flashplayer_beta.txt"
+},
+{
+"t": "Plotter computer interface script by marderchen =^.^= (but special fro my selfcreated plotter) have fun juse it or parts if you want",
+"f": "AS3_MEOW_UV_plotterinterface.txt"
+},
+{
+"t": "creating the stuff XD oh flash have never changed but my way to using it always :3",
+"f": "AS3_Montii_MEOW.txt"
+},
+{
+"t": "mattestuff caused have created cute ordered chaos for stm32F103C8T6 ledblinkingstuff and also can use this here# just changing C++ intvalues/syntax into java",
+"f": "AS3_Montii_MEOW.txt"
+},
+{
+"t": "AS3 (java) Flash script complet by marderchen use it or parts if you wan't and order the cute music from Montii :3",
+"f": "AS3_Montii_MEOW.txt"
+},
+{
+"t": "have modified the set pixels in a line math it a little for use without geome points and mofing rainbow",
+"f": "AS3_moving_line_pixeltest_marderchen.txt"
+},
+{
+"t": "meow moving rainbow line ide by marderchen =^.^= do wath you want woth contend",
+"f": "AS3_moving_line_pixeltest_marderchen.txt"
+},
+{
+"t": "meow its marderchens code mess, if you finde something usefull in it just juse it =^.^=",
+"f": "AS3_new_meow.txt"
+},
+{
+"t": "exactly cutter it do purrrRRRfect loop for using in flash =^.^= but flash *sight*maximum 160kbps but rendered a high quality flac audiofile get it here",
+"f": "AS3_NEXT-VISU_matrixvisualizer.txt"
+},
+{
+"t": "meow! flash by marderchen =^.^= use it if you want and ask if questions",
+"f": "AS3_sylvestercountdown.txt"
+},
+{
+"t": "MEOW hihi this is my solution caused cute chaosmind.. only matter of time until tha playingwith math working",
+"f": "AS3_try_own_ether_3Dmath.txt"
+},
+{
+"t": "seens to be this is the kote running on the 5mm micro Tablet SMD multilightfader White polaris star",
+"f": "BRIGHT_white_tableSMDled_polaris.txt"
+},
+{
+"t": "original Acryl polaris in plastic box be carefull ACRYL verry easy goes broken :3",
+"f": "BRIGHT_white_tableSMDled_polaris.txt"
+},
+{
+"t": "Project by marderchen MEOW =^.^= have fun",
+"f": "BRIGHT_white_tableSMDled_polaris.txt"
+},
+{
+"t": "ori wusel1 =5, ori wusel2 =400",
+"f": "BRIGHT_white_tableSMDled_polaris.txt"
+},
+{
+"t": "Coffee - O - Mat current fine running programm by marderchen",
+"f": "coffee-O-matt_driver_V1.txt"
+},
+{
+"t": "MEOW! its free use it or parts if there is somethink usefull for you",
+"f": "coffee-O-matt_driver_V1.txt"
+},
+{
+"t": "code by marderchen =^.^=",
+"f": "coffee-O-matt_driver_V1.txt"
+},
+{
+"t": "marderchen Thanks to TM1638 master library and",
+"f": "Doorbell.txt"
+},
+{
+"t": "whoops build little errors by soltering :3 not resolder 0603 microstuff so resorting the outputusing (RGB=3 dutys/led) think this is a nice Assciisystem",
+"f": "duty_array_sortable.txt"
+},
+{
+"t": "asscii custom resorting by marderchen hihi",
+"f": "duty_array_sortable.txt"
+},
+{
+"t": "1024 colors linear rainbow steps array",
+"f": "DZP_fanart_rainbowvisu_progress.txt"
+},
+{
+"t": "(4. Puls flashing LED colors (beatflashing thing for psymusic)also pulsing all unsoldered gpios chaoticly",
+"f": "EL-wire-RGBledriver.txt"
+},
+{
+"t": "sorry kote extremly chaotic just mixed koteparts from my other projects together^^",
+"f": "EL-wire-RGBledriver.txt"
+},
+{
+"t": "fixed one NPN failture kote progressing not running with function",
+"f": "epic_white_170x0W5_smdledpowder_koteprogress.txt"
+},
+{
+"t": "[MEOW] more rainbowpower!",
+"f": "epic_white_170x0W5_smdledpowder_koteprogress.txt"
+},
+{
+"t": "[MEOW] its free have fun use it or parts if something usefull :3",
+"f": "FM_xmas_station_rainbowmultifader.txt"
+},
+{
+"t": "its rainbow (should use more red colors) sign shining for X-Mas radio FM broadcasting station/project",
+"f": "FM_xmas_station_rainbowmultifader.txt"
+},
+{
+"t": "0rainbowcolor 1bright (auto 2rot 3grun 4blau 5time bright 6time color 7zufallzeit",
+"f": "FM_xmas_station_rainbowmultifader.txt"
+},
+{
+"t": "cute F103 this is realy big",
+"f": "furrySONOS_prog_maybe_done.txt"
+},
+{
+"t": "simple mouse ws2812B rainbow",
+"f": "gaming_mouse_WS2812B_colorfun.txt"
+},
+{
+"t": "0 wuselzu helligkeit,1 wuselzu farbe, 2 laufrainbow",
+"f": "gaming_mouse_WS2812B_colorfun.txt"
+},
+{
+"t": "[MEOW] this is a cute colorlcd controlling system for my buildet colum fan.. seens to be the powerfullst everbuildet..",
+"f": "hellstorm_ili9341_progresscurrent.txt"
+},
+{
+"t": "notused have not found working Fi in martenhole caused its window fan maybe souhld have one if raining XD",
+"f": "hellstorm_ili9341_progresscurrent.txt"
+},
+{
+"t": "oh debuging by flashing new.. wouldcount maybe 50times or more?.. need cute conversation for fun durring it",
+"f": "hellstorm_ili9341_progresscurrent.txt"
+},
+{
+"t": "FULL RGB rainbow 6DIGs MSD highpreformance projectionclock for running rainmbows",
+"f": "HIGH-preformance_88x0603-RGB_rainbowclock_progress+running.txt"
+},
+{
+"t": "see how simple it is brain :3",
+"f": "HIGH-preformance_88x0603-RGB_rainbowclock_progress+running.txt"
+},
+{
+"t": "white 200 white 100color working on brightenes but rainbow running",
+"f": "HIGH-preformance_88x0603-RGB_rainbowclock_progress+running.txt"
+},
+{
+"t": "its marten code so always free use it or parts if there is something usefull for you..",
+"f": "HIGH-preformance_88x0603-RGB_rainbowclock_progress+running.txt"
+},
+{
+"t": "nut running now! still searching ideas for realising of colorfun can be show and better brightenessystem hihi",
+"f": "HIGH-preformance_88x0603-RGB_rainbowclock_progress-notrunning.txt"
+},
+{
+"t": "awesome with the soldered cooper and 33yF tantal capacitor parralel to LEDs i can switch the 5V directly over transistors to leds so more brightness than factory saying..",
+"f": "high_preformance_RBGspot_nearlydone.txt"
+},
+{
+"t": "project by marderchen use idea or code(parts) is usefull have fun :3",
+"f": "high_preformance_RBGspot_nearlydone.txt"
+},
+{
+"t": "thanks to adafruit fr cute working NOKIA5510 library",
+"f": "high_preformance_RBGspot_nearlydone.txt"
+},
+{
+"t": "temperatur turbine regulation is just so simple :3",
+"f": "high_preformance_RBGspot_nearlydone.txt"
+},
+{
+"t": "progress project by marderchen",
+"f": "high_preformance_RBGspot_progress.txt"
+},
+{
+"t": "have fun use if usefull.. by marderchen",
+"f": "HV_STMlightener_progressing.txt"
+},
+{
+"t": "hihi and is is impulse its starting with one of numbers and raw counting to the other 4 if next impulse.. but raw..",
+"f": "if_else_if-elseif_else_puzzle.txt"
+},
+{
+"t": "try optimizing framework for speed result test program have fun :3",
+"f": "ili9341_stm32f103c8t6_scopedrawer.txt"
+},
+{
+"t": "main measure pin have soldered on dc motor for chaos",
+"f": "ili9341_stm32f103c8t6_scopedrawer.txt"
+},
+{
+"t": "s27channel (9x 10Watt RGB)kote here discreption and pics on end :3 use it if usefull [MEOW]",
+"f": "Irrlight_latest.txt"
+},
+{
+"t": "upgradet sproboscobemodulation for fadet led lightoutut for more epic fast psychedelic bright flashing colors :3",
+"f": "Irrlight_latest.txt"
+},
+{
+"t": "still trying values for best psychedelic effect",
+"f": "Irrlight_latest.txt"
+},
+{
+"t": "Finaly its working as should (have to +5V connect the PNP base with the 5V and seperate PNP with diods.. so awesome! (but so much work .. cant ddo this often)",
+"f": "large_0603_rainbowxclock_current.txt"
+},
+{
+"t": "now just have to build case (caused somuch work thingt realy cute looking plossy black ABS plates and upgrade my rainbowmatrix segment code little",
+"f": "large_0603_rainbowxclock_current.txt"
+},
+{
+"t": "MEOW its free :3 have fun use it or parts is there is something usefull =^.^=",
+"f": "large_0603_rainbowxclock_current.txt"
+},
+{
+"t": "Have not much changed its also working on my virst 88x0603 rainbowclock",
+"f": "large_0603_rainbowxclock_current.txt"
+},
+{
+"t": "MEOW itf free use it or parts if usefull",
+"f": "laz0r_gravingmachine.txt"
+},
+{
+"t": "verwendet wert 0-150 als analogwrite yay",
+"f": "last_liquidbar_light_Programm.txt"
+},
+{
+"t": "alles neustellen //einmal kurz alle chaoswerte ndern",
+"f": "last_liquidbar_light_Programm.txt"
+},
+{
+"t": "Simple (working) led fade programm for analog resistor input + adjustable stroposcop function by marderchen MEOW =^.^=",
+"f": "LED_LAMP_controll.txt"
+},
+{
+"t": "after days of work.. therandom funktion is awesome but cant add enough funtctions so buildet full color for rgb.. making video",
+"f": "Liquidbar_in_progress.txt"
+},
+{
+"t": "hihi sometimes searching for a failture in my login and just overread it.. hour gone.. and find it.. stupid little one, making hole code working other than thougght..",
+"f": "LITTLE_multi0603stripe_colorplay_box.txt"
+},
+{
+"t": "MEOW there mus one device with micro 1mm RGB stripes.. so quick build last..",
+"f": "LITTLE_multi0603stripe_colorplay_box.txt"
+},
+{
+"t": "kote for mother present > high preformance twinkle polarisstar",
+"f": "ma_present_highpreformance_RGB_polarisdriver_8taster.txt"
+},
+{
+"t": "led changing continius fadingspeed,fading interfall,brighteness and color :3",
+"f": "ma_present_highpreformance_RGB_polarisdriver_8taster.txt"
+},
+{
+"t": "8 taster switching 3V3 to 470R groundet STM GPIO first 3 forbidden single colors press 3 to forbidd green purple/red/blue star is cute.. press again to became green back",
+"f": "ma_present_highpreformance_RGB_polarisdriver_8taster.txt"
+},
+{
+"t": "play(meow4, speett,13811);",
+"f": "MEOWing_stm_TEST.txt"
+},
+{
+"t": "play(meow5, 100,13831); //zort not enough RAM to use more than one in code",
+"f": "MEOWing_stm_TEST.txt"
+},
+{
+"t": "have 3 keys on printer right get zero position (x and y is setet to zero 100points left from end of position taster), middle send \"MEOW\" to serial to prove connection",
+"f": "MEOW_UV_plotter_current.txt"
+},
+{
+"t": "its fun cant stop wathcing moving.. *purrrr",
+"f": "MEOW_UV_plotter_current.txt"
+},
+{
+"t": "code by marderchen =^.^= watch coutubevideo for funtionview",
+"f": "MEOW_UV_plotter_current.txt"
+},
+{
+"t": "rainbow RGB led chaoscolorfader for RGB leds with same ANODE (anode over 1000V1A diode on +5V for cute brightnes over 3V3)",
+"f": "micro_SMD_anode_RGB_rainbowtestfaderr.txt"
+},
+{
+"t": "27channel (9x RGB channel)kote here discreption and pics init :3 use it if usefull actually same kote like 9x10Watt flasher[MEOW]",
+"f": "micro-energy_9xRGB_27chan_psychedelicbeatflashdriver_1st-version.txt"
+},
+{
+"t": "maybe you can rebuild this think enough pictures:3 but better solder one 0603 RGB",
+"f": "micro-energy_9xRGB_27chan_psychedelicbeatflashdriver_1st-version.txt"
+},
+{
+"t": "batterie used: 4500mAh flat tablet accu with protectionbioard :3",
+"f": "micro-energy_9xRGB_27chan_psychedelicbeatflashdriver_1st-version.txt"
+},
+{
+"t": "rainbow solarPOLARstern driver for 4RGB leds kathodetoground ledpins to direct to STM I/Os",
+"f": "mini_4x5mm_RGB_LED_rainbow_driverfader.txt"
+},
+{
+"t": "its martencode so its free so used it in any kind you want buts its marten code so its chaotic..",
+"f": "mini_4x5mm_RGB_LED_rainbow_driverfader.txt"
+},
+{
+"t": ">MEOW trying my owen thingi thingi , but its not realy working isn#T IT? it if its usefull :3",
+"f": "MSGEQ7_tryings_notworking.txt"
+},
+{
+"t": "cute supersmal modern led technology decoration star for moather x-mas present :3",
+"f": "mum-xmas-present.txt"
+},
+{
+"t": "use code and idea if usefull for you :3",
+"f": "mum-xmas-present.txt"
+},
+{
+"t": "old system i created but still best linear rainbow solution i think",
+"f": "mum-xmas-present.txt"
+},
+{
+"t": "like learnuing things by creting drawmath and test in cute MEWO flash so batch bottom for last thing there must be a better solution to draw renbogcat steamtunnnel..",
+"f": "NEW_MEOW_V3_creatingnew_backgroundmath_progress.txt"
+},
+{
+"t": "+4x awesome special 5mm with lense 90.000mcd ultrabright white spotleds",
+"f": "new_window_RGBpolaris_V1.txt"
+},
+{
+"t": "old old kote ~3years old much more brainbpower since writing it so not upgrade old code think its better writen a new one..",
+"f": "new_window_RGBpolaris_V1.txt"
+},
+{
+"t": "polaris maybe psyflashmode change by taster but normaly its fading slow linear rainbow/brighteness",
+"f": "new_window_RGBpolaris_V1.txt"
+},
+{
+"t": "hiihi cute smal is turbine dimensions 40x40x56mm and power of 8 regulatet by STM 0-150Watt (kind of loud awesome powerfull noising)",
+"f": "_16channel_fan_driver.txt"
+},
+{
+"t": "[MEOW] summer comming tofast",
+"f": "_16channel_fan_driver.txt"
+},
+{
+"t": "MEOW =^.^= kot vor halfmatrix (16x 5mm (withlense) RGB flasher..",
+"f": "_16x5mm_rgbhalsmatrix_48chan.txt"
+},
+{
+"t": "sine having 48colorchannels(16x RGB leds)by using 19GPIOs :3",
+"f": "_16x5mm_rgbhalsmatrix_48chan.txt"
+},
+{
+"t": "seens to be stm32F103C8T6 3V3 chipvoltage can also be 5.36V withoud damaging if no high drain running to GPIOs =^.^=",
+"f": "_16x5mm_rgbhalsmatrix_48chan.txt"
+},
+{
+"t": "should working with build in lions >11hours :3 much more effizient than building same with WS2812B hihi (buildet in tp4056 li-ion microusb charger..)",
+"f": "_16x5mm_rgbhalsmatrix_48chan.txt"
+},
+{
+"t": "its working but idea from mind so not aways optimal far tomuch led glowing from settet of ones.. have to find hasrdware or kot sulution..",
+"f": "_catspPURRT_spotflasher_koteprogress.txt"
+},
+{
+"t": "MEOW its free use it or parts if usefull.. lines =PNP, LEDcolors = NPN",
+"f": "_catspPURRT_spotflasher_koteprogress.txt"
+},
+{
+"t": "now running awesome chaoticly",
+"f": "_catspPURRT_spotflasher_kote_mabedone.txt"
+},
+{
+"t": "hihi lets just calulate stm more find solution short for changevalue more if value geting bigger",
+"f": "_catspPURRT_spotflasher_kote_mabedone.txt"
+},
+{
+"t": "<<=MEOW=>>marderchen playing with scripting on smartphone hihi",
+"f": "optical_zoom-square-kaleider_3.html"
+},
+{
+"t": "maybe storing my electronics creativity and lifing therw",
+"f": "optical_zoom-square-kaleider_3.html"
+},
+{
+"t": "document.getElementById(\"terminal\").textContent=hoch+\"_\"+split+\"_\"+splitx+\"[MEOW] track 0-44 type maybe 1 in yellowborderfield click GO!\";//just debuging print valuesout",
+"f": "optical_psyborder_setable_large.html"
+},
+{
+"t": "<<=MEOW=>>marderchen wuselt painmaker",
+"f": "painmaker2.html"
+},
+{
+"t": "looping colorsequenz arrays are flexible can be expandet without need other scriptchanges :3",
+"f": "snake_game.html"
+},
+{
+"t": "just simply typed down a rainbow without #ffaa00 caused more opticaly:3",
+"f": "snake_game.html"
+},
+{
+"t": "<<=MEOW=>> the nosleep experiment audioplayer project lol just typing down the stuff on smartphone... yay learned textinput",
+"f": "MEOWnosleepplayer.html"
+},
+{
+"t": "hihi oh lock marderchens ascii progress bar :3",
+"f": "MEOWnosleepplayer.html"
+},
+{
+"t": "<<=marderchen playing with jquery thistime cursorsparkly fx try shortas posible",
+"f": "MEOWnosleepplayer.html"
+},
+{
+"t": "marderchens get the mouse arraysnake use scriptif useful have fun :4",
+"f": "MEOWnosleepplayer.html"
+},
+{
+"t": "hrhr iam not seriouse so can use any solution maybe.. rename back to .mp3 hihihi",
+"f": "optical_multi.html"
+},
+{
+"t": "yay onebof the retrictee if noosleep expperiment",
+"f": "optical_multi.html"
+},
+{
+"t": "hihihi its working :3 have fun",
+"f": "optical_multi.html"
+},
+{
+"t": "yay onebof the retrictee tracklisten if noosleep expperiment",
+"f": "buttons.html"
+},
+{
+"t": "hihihi its working and just looking awesome :3 have fun",
+"f": "optical_rotator_speed2.html"
+},
+{
+"t": "<<=marderchen playing with javascripzcode",
+"f": "optical_leftright_predone.html"
+},
+{
+"t": "script+html created by marderchen just use if usefull",
+"f": "optical_leftright_predone.html"
+},
+{
+"t": "hihi think this making whole animation nice autofill is browsersize changing",
+"f": "optical_pendel_predone2.html"
+},
+{
+"t": "seqzeugs hihi creating such scripts even more fun than playing games with smartphone",
+"f": "optical_pendel_predone.html"
+},
+{
+"t": "playing with Math.sin/cos :3",
+"f": "optical_colorwheel.html"
+},
+{
+"t": "maybe.. document.getElementById(\"terminal\").rotationZ=yay;",
+"f": "optical_colorwheel.html"
+},
+{
+"t": "just experiment :3 have solved transform my idea",
+"f": "optical_cursortail.html"
+},
+{
+"t": "marderchens ka zeugs MEOW!",
+"f": "textwriter.html"
+},
+{
+"t": "marderchen spaanletterpixel MEOWgfx V1.0 caused no aditional svg/css/js files for drawing XD use it if usefull :3 but not finished... never^^",
+"f": "MEOW_GFX_lettermatrix.html"
+},
+{
+"t": "meowline(meowwidth/2, 0,daistx+4,daisty-4);",
+"f": "MEOW_GFX_lettermatrix.html"
+},
+{
+"t": "meowRect(daistx-5,daisty-3,16,6,daistx+10);",
+"f": "MEOW_GFX_lettermatrix.html"
+},
+{
+"t": "by marderchen just use and have fun",
+"f": "chaos.html"
+},
+{
+"t": "texte[all].textContent=\"MEOW\";",
+"f": "optical_psyborder_setable_large_try.html"
+},
+{
+"t": "code complet created by marderchen just use it if usefull",
+"f": "9xRGB_27chan_psychedelicRGBstroboscope_current-version.txt"
+},
+{
+"t": "hihi nosleeptime actually day4 awaken so enough time to create new RGBflashfade sequenz generator",
+"f": "40x5mmRGB_flicker.txt"
+},
+{
+"t": "so can develop the new led fadesequenz generator much more efficient :3",
+"f": "40x5mmRGB_flicker.txt"
+},
+{
+"t": "7digs hhh:mm:ss nosleep time counter caused sometiimes doing nosleep experiment and need one :3",
+"f": "nosleepcounter_7digs.txt"
+},
+{
+"t": "[MEOW] project by marderchen us3e it or parts if usefull :3",
+"f": "nosleepcounter_7digs.txt"
+},
+{
+"t": "just plaing little ler rely switchsound its so awesome enteertaiment",
+"f": "knattertron_or.txt"
+},
+{
+"t": "like cats :3 so a cute OLED bootpicture",
+"f": "ili_nadler.txt"
+},
+{
+"t": "kote by marderchen =^.^= use if you want :3 STM32F103C8T6 93 chip board used",
+"f": "ili_nadler.txt"
+},
+{
+"t": "last set is 1 for dutyon 32 for dutyoff 48 for repeat for get good corona result without hearable feeping :3",
+"f": "O3_generator_TM1638_prog.txt"
+},
+{
+"t": "joy got my SMD creativity stuff back so lets do old awesome hobby and create something like something i ave done over a year ago and start with this project",
+"f": "large_blue_0603_6digs_clock.txt"
+},
+{
+"t": "hihi oh i have missed this creativiy developing hobby so verry much",
+"f": "large_blue_0603_6digs_clock.txt"
+},
+{
+"t": "reorder if needet nixe kote system just expand for having seconds displayed",
+"f": "large_blue_0603_6digs_clock.txt"
+},
+{
+"t": "display.print(\"[MEOW] :3\");",
+"f": "solar_led_clock+lowpowernokia.txt"
+},
+{
+"t": "hihi looking intresting with the relaisound opional speed variable",
+"f": "run_numbers.txt"
+},
+{
+"t": "<<=MEOW=>> the question is MEOW",
+"f": "fusing_microsoft_or_any.html"
+},
+{
+"t": "maybe hrhryay onebof the retrictee tracklisten if noosleep expperiment",
+"f": "optical_epilepsie.html"
+},
+{
+"t": "loop somuch music loops :3 still expanding the list.. all https links are hotlink downloadlinks just paste them in adressbar for download mp3 hihi",
+"f": "optical_leftright.html"
+},
+{
+"t": "hihihi its working :3 realy nice funny strategy game task writing such a script if not would be finished so quickly just more complex animationtarget",
+"f": "optical_plode.html"
+},
+{
+"t": "starting copy here\\/ its free to use :3",
+"f": "cursor-clock.html"
+},
+{
+"t": "end copy here /\\ maybe save script seperat as .js file :3",
+"f": "cursor-clock.html"
+},
+{
+"t": "iam waiting above 6month now for other livinplace where i can continiu my creativity hobby developing electronicdevices,coding on computer etc..",
+"f": "ERROR.html"
+},
+{
+"t": "result iam literally loosing my electronic creativity stuff... have creadet many devices the last 8years =i loosing 8year hobby work.. =not gone happent!",
+"f": "ERROR.html"
+},
+{
+"t": ">many nights without sleeping to hold my mod anyway in acceptable range but not working forever",
+"f": "ERROR.html"
+},
+{
+"t": "<= hihi think my handling of multible dimensions arrays is nice",
+"f": "ERROR.html"
+},
+{
+"t": "everything here written on lenovo A8 A806 smartphone by marderchen with app Dcoder+tc editor",
+"f": "optical_i_dont_know.html"
+},
+{
+"t": "hihi think have found efficient solution for running text",
+"f": "optical_thrust.html"
+},
+{
+"t": "ktoe by marderchen use it usefull :3",
+"f": "xbox360fan_speedcontroler_1channelmosfetpulser.txt"
+},
+{
+"t": "its still the little modificated plarisstar kote 21x white (source tablet lcd backlight, micro SMDHIGH power LEDs ) and 2x 0603 RGB micro SMD leds (anode together",
+"f": "testing_highpower_tabletled_current_stm.txt"
+},
+{
+"t": "just simple little thingi vor controlling a RGB stripe in rainbowcolors (actually all 3 RGB outputs show the same color)",
+"f": "steam_room_light.txt"
+},
+{
+"t": "MEOW IR controlled 2x 3Wblue 1x 3W RGB 5x 0603 RGB 5x Taster 1x 8x7segment maxdig module Nightlight",
+"f": "sisternightlight.txt"
+},
+{
+"t": "capacitive controll PB0 not working for this =^.^=",
+"f": "simple_step_engin_test_L298N.txt"
+},
+{
+"t": "pretty simple servo driver kote for 9channels with STM32F103C8T6 have fun [MEOW]",
+"f": "simple_SG90-servo_testkote_for-STM32F103C8T6.txt"
+},
+{
+"t": "wird jede sekunde ausgefhrt, delay hlt anders als zeitreise ganzes programm auf :3",
+"f": "sekundenblinker.txt"
+},
+{
+"t": "meow use it like you want bvgfu",
+"f": "sekundenblinker.txt"
+},
+{
+"t": "oh i have to makekote sometimes even only have slow backup laptop for flashing stm32F103C8T6",
+"f": "runningcolors_ws2812b_stripe.txt"
+},
+{
+"t": "kote by marderchen use it usefull :3",
+"f": "room_cooling_unit_serverfandriver.txt"
+},
+{
+"t": "(paste this textfilecontent in STM32F103C8T6 ready seted Arduino IDE and flash it :3(with ST-LINK/V2dongle))",
+"f": "room_cooling_unit_serverfandriver.txt"
+},
+{
+"t": "3 x (3Watt RGB) leds in line each color parralel with 40yF tanta1l circuit GPIO->220R->D882(3A NPN)->(N4007resistor for red)->leds->12V cute colorfull caselight",
+"f": "room_cooling_unit_serverfandriver.txt"
+},
+{
+"t": "case light colormode 4modes not used maybe write them later :3",
+"f": "room_cooling_unit_serverfandriver.txt"
+},
+{
+"t": "NOKIA 5110 restaurated smal 03 generator (need it caused awesome room air upgrading just with electricity)",
+"f": "restaurate_O3generastor_nokia_acryl_notrunningincreation.txt"
+},
+{
+"t": "O3 terminate smell, have so0me if vaping,smoking,soldering,laquing,etc.... also so awesome smelling it molders in O2 after 48hours",
+"f": "restaurate_O3generastor_nokia_acryl_notrunningincreation.txt"
+},
+{
+"t": "hihi caused like it somuch and want little change from other projects created another beatflashingsequenzgenerator optimizer for radiocaprice fullon station (genre)",
+"f": "restaurate_O3generastor_nokia_acryl_notrunningincreation.txt"
+},
+{
+"t": "driver for 10nostalgie old relais retro soundatmo generator caused like the switching sound from relais somutch :3",
+"f": "relaiknatttertron_progress.txt"
+},
+{
+"t": "mosfetgate connecttet to 18.5VDC with 2parralel(2inline 470R) uzse idea/stuff is usefull :3",
+"f": "relaiknatttertron_nearlydone_video.txt"
+},
+{
+"t": "soldered them but not used un kote maybe later :3",
+"f": "redblue64leds_star_kote.txt"
+},
+{
+"t": "MEOW! last cat flash feeled solong ago.. but realy makes me happy to watching it (also try little more playing with PI,sin ans cos) Have fun =^.^=",
+"f": "rainbowspying_mushroom_cat.txt"
+},
+{
+"t": "use it or parts is you want :3 *purrr can't stop watching",
+"f": "rainbowspying_mushroom_cat.txt"
+},
+{
+"t": "script by marderchen hihi sometimes little error caused arrays not long enough and deleting items tofast.. just ignore",
+"f": "rainbowspying_mushroom_cat.txt"
+},
+{
+"t": "rainbow rectagle mirror reflector 10Watt RGB handspot driver progressn",
+"f": "rainbowspot_10Watt_RGB_rectaglereclectorhandthingy_progress.txt"
+},
+{
+"t": "MEOW its free use it or parts is usefull :3",
+"f": "rainbowspot_10Watt_RGB_rectaglereclectorhandthingy_progress.txt"
+},
+{
+"t": "hihi basicly changed little in my polarsterndriver =^.^=",
+"f": "rainbowspot_10Watt_RGB_rectaglereclectorhandthingy_progress.txt"
+},
+{
+"t": "27channel 9* 3Watt RGB led hihi all possibly outputs used for dutyflashfading use it if usefull [MEOW]",
+"f": "psy_polaris_27chan_colorflasher.txt"
+},
+{
+"t": "used and calibrated for psy-polaris",
+"f": "psy_polaris_27chan_colorflasher.txt"
+},
+{
+"t": "kote for driving the notestand 2x 8ter Ws2812 stick light",
+"f": "pa_present_2x(8xWS2812stick)_li-po_red-yellow-white-blue_notstand_light_4taster.txt"
+},
+{
+"t": "buttons for adjusting color and brighteness kote by marderchen use it if usefull :3",
+"f": "pa_present_2x(8xWS2812stick)_li-po_red-yellow-white-blue_notstand_light_4taster.txt"
+},
+{
+"t": "its wow even better than the acryl bpolarisstar,.. but much fine work.. *purrrr",
+"f": "original_marten_polaris_blendingeffects-tar.txt"
+},
+{
+"t": "the ORIGINAL marten CHAOS polaris star with 3D effect using:",
+"f": "original_marten_polaris_blendingeffect-star_27channelfader_update.txt"
+},
+{
+"t": "<<=marderchens continiu playing with scriptcode try visualizer timed coloring /sizing from . letter hihi [MEOW]]",
+"f": "optical_raster_predone__.html"
+},
+{
+"t": "hihi done its working *purr* strange.. creating such array complex just for fun yaay :3",
+"f": "optical_focus.html"
+},
+{
+"t": ">yes also can create schematics and such stuff for prototypes but.. only one person iam mostly no time create schematics just working free from head hihihi",
+"f": "_U-bright_8050_0-5wattclockwhite_4digs_progress.txt"
+},
+{
+"t": "hihi nice system used it for 720xWS2812B animation but little complexerbasicly its swap or scroll??",
+"f": "_U-bright_8050_0-5wattclockwhite_4digs_progress.txt"
+},
+{
+"t": "used for wireless LED experiment working fine:3 even blowing onmas wattage inside becoming some led light out but funny effect :3",
+"f": "Wirelessledtry_mosfetpuslekote.txt"
+},
+{
+"t": "kote by marterchen =^.^= watch GPIO list for read whats realy needet :3",
+"f": "Wirelessledtry_mosfetpuslekote.txt"
+},
+{
+"t": "[MEOW] project by marderchen use it or parts if usefull :3",
+"f": "Wirelessledtry_mosfetpuslekote.txt"
+},
+{
+"t": "cutrrent controllertest working fine its calibrated.. now have do martenkode the games i want",
+"f": "WS2812B_acarte_playthingi_MEU_bpmmatxchingani_better.txt"
+},
+{
+"t": "its free use it or parts if something usefull [MEOW] =^.^=",
+"f": "WS2812B_acarte_playthingi_MEU_bpmmatxchingani_better.txt"
+},
+{
+"t": "today get mp3/wav serial mp3player purrrfect functional and batterypowerledbar in controller",
+"f": "WS2812B_acarte_playthingi_MEU_bpmmatxchingani_better.txt"
+},
+{
+"t": "stm kote for 25x WS2812B USB 3butons+Wheel pc mice case rainbowmod :3 (WS2812B pin PB8)",
+"f": "WS2812B+lazer_runnrainbow_mice_done.txt"
+},
+{
+"t": "have fun :3 [MEOW] thanks to fastled lib use kote or parts of it if usefull (STM board: STM32F103C8T6 minimum system board , decompiler ARDUINO, dongle STlink-V2)",
+"f": "WS2812B+lazer_runnrainbow_mice_done.txt"
+},
+{
+"t": "purr maybe some 0603 leds in casematerial",
+"f": "WAVE-blaster_current.txt"
+},
+{
+"t": "Simple programm for fading 6 channels over bluetooth for the STM32 24x 3Watt UV led roomlight by marderchen =^.^=",
+"f": "UV_roomlight_bluetooth__done.txt"
+},
+{
+"t": "wusel code by marderchen its free use it ot parts if its usefull for you",
+"f": "UV_roomlight_bluetooth__done.txt"
+},
+{
+"t": "working currently.. use it or parts if there is something usefull :3",
+"f": "UV_6W_polaris_progressing.txt"
+},
+{
+"t": "kote and project by marderchen =^.^= using date without date function is logical tricky but should work :3 have fun use it or parts if usefull =^.^=",
+"f": "TIME+DATE_ledclock_thinkitsDONE.txt"
+},
+{
+"t": "think its finished now maybe change countdowntime to alarm time someday :3",
+"f": "TIME+DATE_ledclock_thinkitsDONE.txt"
+},
+{
+"t": "little kote to driveone TM1839 (8taster,8digs,8led) module and some WS2812B leds with STM32F103C8T6 to show adjustable time running :3",
+"f": "Simple_TM1638_moduleclock_WS2812B_moreled.txt"
+},
+{
+"t": "play(meow3,random(10,120),4460); } //zeitc -signal",
+"f": "STM32_colorLCD_3daywalkvape_update.txt"
+},
+{
+"t": "play(meow3, random(80,120),4460);}",
+"f": "STM32_colorLCD_3daywalkvape_update.txt"
+},
+{
+"t": "Hihi have a moving psychedelic flashing colors rainbow glowing ART picture its kind of hypnotising =^.^=",
+"f": "RGBW_colorshift_artbacklight.txt"
+},
+{
+"t": "if changing colors in linear rainbow spectrum in backlight and have art with linear rainbowspectrum course lines, the lines moving also linear just simple^^",
+"f": "RGBW_colorshift_artbacklight.txt"
+},
+{
+"t": "have fun use it or parts is usefull thingys in martenkote",
+"f": "RGBW_colorshift_artbacklight.txt"
+},
+{
+"t": "MEOW the PSY beat trigger",
+"f": "RGBW_colorshift_artbacklight.txt"
+},
+{
+"t": "fastled lib based RAINBOW-METER sound visualisation =^.^= MEOW (controling 120 WS2812 LEDs on PB8 with analog stereo audio input )",
+"f": "RAINBOW-METER_V1-1.txt"
+},
+{
+"t": "RAINBOW-METER STM32F103C8T6 128kb flash WS2812B code by marderchen =^.^= its ' FREE likeanything from me.. if you find something usefull",
+"f": "RAINBOW-METER_V1-1.txt"
+},
+{
+"t": "just use it or parts ~MORE RAINBOWPOWER",
+"f": "RAINBOW-METER_V1-1.txt"
+},
+{
+"t": "Atuomater quadcore creativity pc 12V dualrotorserverturbine regulator (regulation manuall or automated by themperature)",
+"f": "Quadcore_TM1638_mosfet_temp_turbineregulation_done.txt"
+},
+{
+"t": "plasma speaker testprog by marderchen",
+"f": "Plasma_speaker_test_prog.txt"
+},
+{
+"t": "use if usefull have fun [MEOW]",
+"f": "Octotron_17x3Wchan_stroboscope+roomlight.txt"
+},
+{
+"t": "by marderchen use if want",
+"f": "Brightest_0603-RGB_device_ever_28chanfaderf.txt"
+},
+{
+"t": "for rainbowcoloring hf :3",
+"f": "index.html"
+},
+{
+"t": "by marderchen use if usefull",
+"f": "index.html"
+},
+{
+"t": "macht sogar spaß scripten auf smartphone beispiel für kann umsetzen wasimmer ich will nur seriös siehts nicht aus :3",
+"f": "index.html"
+},
+{
+"t": "hihi better read the text on month beginning caused its dayli fading out and its gone on end of month :3",
+"f": "index.html"
+},
+{
+"t": "hihi flashing colors submodulation :3",
+"f": "index.html"
+},
+{
+"t": "marderchens running homepagetitel MEOW!",
+"f": "index-2.html"
+}
+]

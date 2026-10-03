@@ -2,6 +2,7 @@
 // The API key never leaves this process; the browser only sends integer coordinates.
 import http from "node:http";
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
@@ -11,6 +12,12 @@ import { population } from "./public/src/population.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(here, "public");
 const THREE_DIR = path.join(here, "node_modules", "three");
+const RUFFLE_DIR = path.join(here, "node_modules", "@ruffle-rs", "ruffle");
+// marderchen's art is served from the mirror of his site in persona/marderchen/, which git ignores
+// (see scripts/museum.mjs). A crawl in .cache/marderchen-archive works too.
+const ARCHIVE_DIR = [path.join(here, "persona", "marderchen"), path.join(here, ".cache", "marderchen-archive")].find(existsSync) ?? path.join(here, "persona", "marderchen");
+const MUSEUM_DIR = path.join(here, ".cache", "marderchen-museum");
+const ARCHIVE_PUBLIC = /^(www\.marderchen\.lima-city\.de\/(FLASH|LSDex_gifs|any|wuselcode)\/[^/]+\.(swf|gif|jpe?g|txt)|www\.marderchen\.lima-city\.de\/xyz\/JW86_Break The Time Out_loop\.txt|marderchen\.lima-city\.de\/[^/]+\.gif)$/i;
 const CACHE = path.resolve(here, process.env.CVOID_CACHE ?? path.join(".cache", "sectors"));
 
 const PORT = Number(process.env.PORT ?? 5173);
@@ -176,6 +183,14 @@ Pacing:
 - On an arrival, acknowledge that they came. Do not choose rendezvous on an arrival; let them wonder for a moment first.
 - Vary the acts. Do not use the same act twice in a row.`;
 
+// marderchen's persona lives in a file his friends can edit; everything after the first rule is the prompt.
+const MARDERCHEN_SYSTEM = await fs.readFile(path.join(here, "persona", "marderchen.md"), "utf8")
+  .then((text) => text.slice(text.indexOf("---") + 3).trim())
+  .catch(() => null);
+const MARDER_EFFECTS = ["rainbowpower", "ratemal", "meowchor", "firework", "optical", "starflakes", "meowletters", "lightsoff", "none"];
+const LINES_JSON_SCHEMA = obj({ lines: { type: "array", items: str }, effect: { type: "string", enum: MARDER_EFFECTS } });
+const Lines = z.object({ lines: z.array(z.string()).min(1), effect: z.enum(MARDER_EFFECTS) });
+
 const ENTITY_JSON_SCHEMA = obj({
   act: { type: "string", enum: ACTS },
   lines: { type: "array", items: str },
@@ -297,6 +312,56 @@ async function entityBeat(journey) {
   }
   console.log(`[cvoid] entity · ${result.act}${result.rendezvous ? ` at (${result.rendezvous.join(", ")})` : ""} · "${result.lines.join(" / ")}" · ${((Date.now() - started) / 1000).toFixed(1)}s`);
   return result;
+}
+
+// What marderchen says, in his dimension. Same care as the entity: what the browser sends is untrusted text.
+async function marderchenLines(visit) {
+  const said = Array.isArray(visit.said) ? visit.said.slice(-16).map((l) => clip(l, 90)).filter(Boolean) : [];
+  const prompt = [
+    `What is happening: ${clip(visit.event, 80) || "he is busy"}.`,
+    `The traveller has been in the dimension for ${Math.round(Number(visit.minutes) || 0)} minutes.`,
+    `Nearest thing: ${clip(visit.near, 60) || "the matrix"}.`,
+    said.length ? `Lines already said:\n${said.map((l) => `- ${l}`).join("\n")}` : "He has not said anything yet.",
+    "What does marderchen say (one or two lines), and what does he do to the place as he says it?",
+  ].join("\n");
+  const params = {
+    model: MODEL,
+    max_tokens: 2000,
+    output_config: { format: { type: "json_schema", schema: LINES_JSON_SCHEMA } },
+    system: [{ type: "text", text: MARDERCHEN_SYSTEM, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: prompt }],
+  };
+  if (TAKES_EFFORT) params.output_config.effort = EFFORT;
+  if (TAKES_FALLBACKS) {
+    params.betas = ["server-side-fallback-2026-07-01"];
+    params.fallbacks = "default";
+  }
+  const response = await client.beta.messages.create(params);
+  if (response.stop_reason === "refusal" || response.stop_reason === "max_tokens") throw new Error(`marderchen: ${response.stop_reason}`);
+  const { lines, effect } = Lines.parse(JSON.parse(response.content.find((block) => block.type === "text")?.text ?? ""));
+  const result = lines.slice(0, 2).map((l) => clip(l, 90)).filter(Boolean);
+  console.log(`[cvoid] marderchen · ${effect} · "${result.join(" / ")}"`);
+  return { lines: result, effect };
+}
+
+// His source files, one entry each: name, size, and the comments he wrote in it. In his dimension
+// every one of them becomes a sector of its own. Read once from the mirror of his site.
+let wuselList = null;
+async function wuselcode() {
+  if (wuselList) return wuselList;
+  const dir = path.join(ARCHIVE_DIR, "www.marderchen.lima-city.de", "wuselcode");
+  const names = (await fs.readdir(dir).catch(() => [])).filter((n) => n.endsWith(".txt")).sort();
+  const list = [];
+  for (const file of names) {
+    const body = await fs.readFile(path.join(dir, file)).catch(() => null);
+    if (!body || body.length < 200 || body.subarray(0, 3).toString("latin1") === "ID3") continue; // not music, not empties
+    const text = body.toString("latin1");
+    if (/404 Not Found/.test(text.slice(0, 300))) continue;
+    const comments = [...text.matchAll(/\/\/(?!www|[a-z]+\.[a-z])\s*([^\n\r]{20,160})/g)].map((m) => m[1].trim())
+      .filter((c) => /[a-zA-Z]{4}/.test(c) && (c.match(/[;{}=\[\]()]/g) ?? []).length < 5 && !/https?:|\.jpg/.test(c));
+    list.push({ file, bytes: body.length, comments: [...new Set(comments)].slice(0, 8) });
+  }
+  return (wuselList = list);
 }
 
 async function readBody(req, limit = 8192) {
@@ -493,6 +558,12 @@ const TYPES = {
   ".css": "text/css; charset=utf-8",
   ".json": "application/json",
   ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webm": "video/webm",
+  ".wasm": "application/wasm",
+  ".swf": "application/x-shockwave-flash",
 };
 
 async function serveFile(res, root, rel) {
@@ -500,7 +571,15 @@ async function serveFile(res, root, rel) {
   if (file !== root && !file.startsWith(root + path.sep)) return send(res, 403, "forbidden");
   try {
     const body = await fs.readFile(file);
-    res.writeHead(200, { "content-type": TYPES[path.extname(file)] ?? "application/octet-stream" });
+    // marderchen kept his music on his webspace as .txt ("rename back to .mp3 hihihi"): say what it really is
+    const mp3 = path.extname(file) === ".txt" && (body.subarray(0, 3).toString("latin1") === "ID3" || (body[0] === 0xff && (body[1] & 0xe0) === 0xe0));
+    // the game's own pages and scripts are never served from a browser's cache: a reload always gets
+    // the current code. His art and the libraries can be kept for a day.
+    const fresh = root === PUBLIC && /\.(html|js|json)$/.test(file);
+    res.writeHead(200, {
+      "content-type": mp3 ? "audio/mpeg" : TYPES[path.extname(file)] ?? "application/octet-stream",
+      "cache-control": fresh ? "no-store" : "public, max-age=86400",
+    });
     res.end(body);
   } catch {
     send(res, 404, "not found");
@@ -532,6 +611,23 @@ const server = http.createServer(async (req, res) => {
         return send(res, 503, "the entity is silent");
       }
     }
+    if (url.pathname === "/api/marderchen" && req.method === "POST") {
+      if (unavailable || !client || !MARDERCHEN_SYSTEM || beats >= MAX_BEATS) return send(res, 503, "his own words will do");
+      let visit;
+      try {
+        visit = await readBody(req);
+      } catch {
+        return send(res, 400, "bad request");
+      }
+      beats++;
+      try {
+        return send(res, 200, await marderchenLines(visit));
+      } catch (err) {
+        noteFailure(err, "marderchen:");
+        return send(res, 503, "his own words will do");
+      }
+    }
+    if (url.pathname === "/api/wuselcode") return send(res, 200, await wuselcode());
     if (url.pathname === "/api/sectors") {
       // everything Claude has dreamt so far, for the map (and for anyone who wants to export it)
       const files = await fs.readdir(CACHE).catch(() => []);
@@ -574,6 +670,14 @@ const server = http.createServer(async (req, res) => {
       job.listeners.delete(line);
       line(sector ?? { error: unavailable ?? "generation failed", offline: !!unavailable });
       return res.end();
+    }
+    for (const [prefix, dir] of [["/vendor/ruffle/", RUFFLE_DIR], ["/museum/src/", ARCHIVE_DIR], ["/museum/", MUSEUM_DIR]]) {
+      if (!url.pathname.startsWith(prefix)) continue;
+      const rel = decodeURIComponent(url.pathname.slice(prefix.length));
+      // Of the mirror, only what the game shows is served: his Flash, GIFs, photos, code, and the one
+      // loop his homepage played. Not the rest of it (the music collection, the crawler's cookies and cache).
+      if (dir === ARCHIVE_DIR && !ARCHIVE_PUBLIC.test(rel)) return send(res, 404, "not found");
+      return serveFile(res, dir, rel);
     }
     if (url.pathname.startsWith("/vendor/three/")) {
       return serveFile(res, THREE_DIR, decodeURIComponent(url.pathname.slice("/vendor/three/".length)));

@@ -1,3 +1,6 @@
 node_modules/
 .cache/
 .env
+# marderchen's persona, the notes behind it, his own "about me" and the mirror of his site stay local
+persona/
+public/marderchen/about.txt

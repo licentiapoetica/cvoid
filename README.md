@@ -15,7 +15,8 @@ Without a key the game still runs: sectors come from a local deterministic gener
 
 Controls:
 
-- Mouse and keyboard: mouse look, `W A S D` fly, `Space` / `C` rise and sink, `Shift` surge,
+- Mouse and keyboard: mouse look, `W A S D` fly, `Enter` autofly (keeps flying forward until
+  `Enter` again or `S`), `Space` / `C` rise and sink, `Shift` surge,
   `[` `]` look sensitivity, `I` invert vertical look, `M` mute.
   `F` goes fullscreen. Outside fullscreen the browser keeps its own shortcuts, so `Ctrl+W`
   (close tab) and `Ctrl+Shift+W` (close window) still work mid-flight; the game makes the
@@ -81,9 +82,107 @@ only a little dust and very thin fog. Roughly a third of space is void.
 Sectors dreamt before these existed stay as they were. Delete `.cache/sectors/` for a
 completely new void, or just fly somewhere unexplored.
 
+## marderchen's dimension
+
+A tribute to marderchen: mechatronics technician, builder of glaring psychedelic LED light
+organs and hand-soldered 0603 clocks, lover of cats and rainbows, who put all of his code on the
+internet for anyone to use.
+
+Fly straight up from the hub. In sector `0, 1, 0` there is a rainbow ring with a small vortex turning
+in it. It is a portal: right in front of the ring it draws you the last stretch in, turns you a
+little, and lets you out the other side into his dimension: the workshop he missed, given back without walls. Everything there is
+an LED on a running rainbow, it all flashes in time to a small chiptune, his six-digit clock
+shows the real time, his chaos generator runs, his cats follow him, and he himself scurries
+about between it all and says things. The entity does not follow you in. The ring in his
+workshop leads back out.
+
+What is his own in there:
+
+- His pixel avatar, his rainbow cat and his ASCII cat signature.
+- His code, ported with his own function names (`public/src/marderchen.js`): `rainbowcalc()`
+  colours the clock and the wall, `ratemal()` and its step table flash every LED on the beat at
+  143 bpm, and the falling-pixel game from his 720x WS2812B matrix runs on the tall wall. The
+  chaos generator from his homepage runs as he wrote it. The clock ticks with a relay.
+- 251 of his source-code comments on the wall by the workbench, verbatim, each with the name of
+  the file it comes from (`public/marderchen/kote.json`).
+- The names of the places, taken from his project file names.
+
+What he says is written by Claude from a persona that his friends keep: `persona/marderchen.md`,
+put together from his whole site. It is not in this repository, and neither are the notes behind
+it, his own "about me" text, or the mirror of his site (`persona/` and
+`public/marderchen/about.txt` are ignored by git). The game works without them: he then speaks
+only in sentences he really wrote, and the board for his "about me" stays empty.
+
+### The museum
+
+Behind his clock a vortex opens: a tunnel of turning rainbow arms with his art on its walls,
+87 GIF animations, then 131 Flash pieces, then 31 photos of the 0603 clock being built. A slow
+current carries you through while you face down the tunnel and lets go when you turn to a wall.
+Look straight at a Flash piece, middle of the screen, for a second and a half and it starts
+playing right there on the wall in [Ruffle](https://ruffle.rs); look away and it stops. `E`
+(controller: `B`) opens any piece full screen: GIFs, photos, Flash. `E` or `Esc` goes back.
+Pieces whose names say they flash never start by themselves. On the walls the pieces are shown
+at half brightness, because some of them are very bright or flash; opened, they are as he made them.
+
+### wuselcode: every file a place
+
+The further out you fly in his dimension, the more of his code you find. Each `.txt` in his
+`wuselcode` folder (174 programs) has one sector of its own, dealt out shell by shell
+from the workshop: the sector is named after the file, laid out from what the file is (a
+`WS2812` strip becomes a spiral, a clock becomes rings, a stroboscope a burst of shards, the
+channel count sets its symmetry, the file's size its density), the comments he wrote in it hang
+in the dark, and the file itself runs down a board, his comments in green.
+
+### When he takes his dimension over
+
+Only in his dimension, never out in the void: now and then (about once in a quarter of an hour
+there, at random) he takes the place over for half a minute or so, and every few seconds does
+something else with it. Every cat arrives and MEOW goes up in lights; or everything at once while
+the world turns over; or the lights go out and he is right in front of you, enormous; or his
+chaostyper closes round you where you stand; or nothing at all, and then one MEOW behind you.
+Then it is as it was. (`cvoid.marderchen.goMad(cvoid.camera)` in the browser console sets it off.)
+
+### MEOW, dark rooms, and what he does to the place
+
+- The music. His homepage played a loop: "Break The Time Out" by JW86, which he had cut to
+  loop. It fades in as you come through the portal and fades away as you leave, played from the
+  mirror of his site (the track is JW86's and is not in this repository; without the mirror a
+  small chiptune of ours plays instead). The lights flash to the beat heard in it.
+- MEOW is in every place: rainbow letters built from his own "W" outline, his MEOW in ASCII art
+  over the workshop, sixteen cats, and his own MEOW sound samples (`public/marderchen/meow*.wav`,
+  rebuilt from the arrays in `MEOWing_stm_TEST.txt`), which he and the cats use constantly.
+- One sector in seven is a void (there is always one to the west of the workshop). In it the
+  dimension is gone: no rainbow, no music, no cats, no MEOW, not him. Only black walls, and on
+  every wall his chaostyper (`textwriter.html`, ported line for line) writing its sentence,
+  starting again, writing it. The maze has no edge; it comes round again however far you go. It
+  lets go only of someone who surges (`Shift`).
+- He changes the place as he goes: more rainbowpower, a re-rolled flash sequence, a meow
+  chorus, fireworks, another optical sky, starflakes, a rainbow MEOW put up in front of you,
+  lights off and on again. Claude picks one with each thing he says; left alone he does it anyway.
+- On his workbench lies the old yellowed computer mouse he rebuilt into a vape, fired by
+  clicking the mouse button. Now and then it clicks, and a little vapour rises.
+- His own "Etwas zu meiner person" from his homepage hangs in the workshop, when it is present
+  locally (see below).
+
+The art is not in this repository. It is served from the mirror of his site in
+`persona/marderchen/`, which git ignores (about 2 GB: his pages, code, Flash files, GIFs,
+photos, and the music he listened to). To set the museum up on a fresh clone, put the mirror
+there, or crawl it:
+
+    mkdir -p persona/marderchen && cd persona/marderchen
+    wget -r -l inf -nc -nH -e robots=off https://marderchen.totally.rip/
+    cd ../.. && npm run museum          # thumbnails, web video of the GIFs (needs ffmpeg)
+    npm start & npm run museum:thumbs   # pictures of the Flash pieces (needs Chromium)
+
+Pieces whose names say they flash (he named some "epilepsy" himself) show a warning first. The
+full-screen colour flashes in his avatar animation were left out and the dimension itself does
+not strobe hard, but it is bright and pulses with the beat.
+
+"its free use it or parts if you want =^.^="
+
 ## Coordinates
 
-Nothing is random per visit. Sectors sit on an integer grid, 1600 units apart (`public/src/constants.js`): `x` east,
+Nothing is random per visit. Sectors sit on an integer grid, 5200 units apart (`public/src/constants.js`): `x` east,
 `y` up, `z` south, with the origin hub at `0, 0, 0`. The HUD shows the sector you are in and
 your offset from its centre. A sector Claude has dreamt is stored as
 `.cache/sectors/<x>_<y>_<z>.json` and is the same place for everyone using that server, forever.
@@ -106,6 +205,7 @@ your offset from its centre. A sector Claude has dreamt is stored as
 - `public/src/world.js`: sector grid, structure generators, sky, materialization
 - `public/src/structures.js`: solids, layouts, blueprints
 - `public/src/entity.js`: the entity and its acts
+- `public/src/marderchen.js`, `public/src/museum.js`, `persona/`, `scripts/museum*.mjs`: marderchen's dimension, his museum and his persona
 - `public/src/map.js`: the sector map overlay
 - `public/src/spec.js`: origin hub, local fallback generator, spec clamping
 - `public/src/shaders.js`: noise library and all GLSL

@@ -7,14 +7,17 @@ export class VoidMap {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.sectors = new Map();
+    this.other = new Map(); // marderchen's dimension, mapped separately
     this.open = false;
     this.layer = 0; // offset from the layer the player is on
     this.mark = null; // the sector where the entity says it is waiting
   }
 
   add(key, spec) {
+    const inside = key.startsWith("m:");
+    if (inside) key = key.slice(2);
     const [x, y, z] = key.split(",").map(Number);
-    this.sectors.set(key, { x, y, z, name: spec.name, kind: spec.source === "void" ? "" : spec.kind, glow: spec.palette.glow, empty: spec.source === "void" });
+    (inside ? this.other : this.sectors).set(key, { x, y, z, name: spec.name, kind: spec.source === "void" ? "" : spec.kind, glow: spec.palette.glow, empty: spec.source === "void" });
   }
 
   // sectors dreamt in earlier sessions live in the server's cache
@@ -47,8 +50,8 @@ export class VoidMap {
     this.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   }
 
-  draw(camera, yaw) {
-    const { ctx } = this;
+  draw(camera, yaw, inside = false) {
+    const { ctx } = this, sectors = inside ? this.other : this.sectors, mark = inside ? null : this.mark;
     const W = window.innerWidth, H = window.innerHeight;
     const size = Math.max(70, Math.min(120, Math.min(W, H) / 7));
     const px = camera.position.x / CELL, pz = camera.position.z / CELL, py = Math.round(camera.position.y / CELL);
@@ -57,7 +60,7 @@ export class VoidMap {
 
     // which columns have sectors above or below this layer
     const above = new Map(), below = new Map();
-    for (const s of this.sectors.values()) {
+    for (const s of sectors.values()) {
       if (s.y === layer) continue;
       const column = s.y > layer ? above : below;
       column.set(`${s.x},${s.z}`, (column.get(`${s.x},${s.z}`) ?? 0) + 1);
@@ -72,7 +75,7 @@ export class VoidMap {
     for (let x = Math.round(px) - spanX; x <= Math.round(px) + spanX; x++) {
       for (let z = Math.round(pz) - spanZ; z <= Math.round(pz) + spanZ; z++) {
         const left = sx(x) - box / 2, top = sz(z) - box / 2;
-        const s = this.sectors.get(`${x},${layer},${z}`);
+        const s = sectors.get(`${x},${layer},${z}`);
         ctx.lineWidth = 1;
         ctx.strokeStyle = s && !s.empty ? s.glow : `rgba(140, 160, 220, ${s ? 0.3 : 0.12})`;
         ctx.setLineDash(s && !s.empty ? [] : [2, 5]);
@@ -114,8 +117,8 @@ export class VoidMap {
       }
     }
 
-    if (this.mark) {
-      const [mx, my, mz] = this.mark;
+    if (mark) {
+      const [mx, my, mz] = mark;
       if (my === layer) {
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 1.5;
@@ -150,7 +153,7 @@ export class VoidMap {
     ctx.font = `300 12px ${font}`;
     ctx.fillStyle = "#cfdcff";
     const where = this.layer === 0 ? "your layer" : `you are on y = ${py}`;
-    ctx.fillText(`MAP · layer y = ${layer} (${where}) · ${this.sectors.size} sectors mapped`, 24, 22);
+    ctx.fillText(`${inside ? "MARDERCHEN'S DIMENSION" : "MAP"} · layer y = ${layer} (${where}) · ${sectors.size} sectors mapped`, 24, 22);
     ctx.fillStyle = "rgba(207, 220, 255, 0.5)";
     ctx.fillText("x → east · z ↓ south · ▲▼ sectors above / below · page up / page down or bumpers change layer", 24, 42);
   }

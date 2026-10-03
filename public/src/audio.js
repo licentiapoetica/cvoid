@@ -62,8 +62,10 @@ export class VoidAudio {
     this.filter = ctx.createBiquadFilter();
     this.filter.type = "lowpass";
     this.filter.Q.value = 0.8;
-    this.filter.connect(this.master);
-    this.filter.connect(this.reverb);
+    this.droneLevel = ctx.createGain(); // lets the drone step back when other music plays
+    this.filter.connect(this.droneLevel);
+    this.droneLevel.connect(this.master);
+    this.droneLevel.connect(this.reverb);
 
     const lfo = ctx.createOscillator(), lfoDepth = ctx.createGain();
     lfo.frequency.value = 0.05;
@@ -209,7 +211,7 @@ export class VoidAudio {
     // the game knows exactly when its own heartbeat lands; the room has to be listened for
     const now = this.ctx.currentTime;
     while (this.hits.length && this.hits[0].at <= now) out.beat = Math.max(out.beat, this.hits.shift().strength);
-    if (this.mic && raw.bass > this.averages.bass + 0.06 && out.beat < 0.4) out.beat = 1;
+    if ((this.mic || this.trackOn) && raw.bass > this.averages.bass + 0.035 && out.beat < 0.4) out.beat = 1;
     out.beat *= Math.exp(-dt * 5);
     return out;
   }
@@ -230,6 +232,131 @@ export class VoidAudio {
     source.connect(this.analyser); // analysed only, never played back
     this.mic = { stream, source };
     return true;
+  }
+
+  // marderchen's dimension has its own music: a small bright chiptune, square waves over a kick.
+  // (An original pattern, in the spirit of the chiptunes he collected.) The kick drives the beat,
+  // so everything in there flashes in time, like the beat-timed light organs he built.
+  setChip(on) {
+    if (!this.ctx) return;
+    this.chip = on;
+    const now = this.ctx.currentTime;
+    this.droneLevel.gain.setTargetAtTime(on ? 0.25 : 1, now, 1.5);
+    if (on && !this.chipRunning) this.stepChip(0);
+  }
+
+  // The music of his homepage. Half a minute after the page opened, a loop began: "Break The Time
+  // Out" by JW86, which he had cut to loop and kept on his webspace. It is played from the mirror
+  // of his site; if that is not there, the chiptune simply carries on.
+  setTrack(on) {
+    if (!this.ctx || this.trackFailed) return;
+    if (!this.track) {
+      const el = new Audio("/museum/src/www.marderchen.lima-city.de/xyz/JW86_Break%20The%20Time%20Out_loop.txt");
+      el.loop = true;
+      el.addEventListener("error", () => { this.trackFailed = true; this.trackOn = false; });
+      const gain = this.ctx.createGain();
+      gain.gain.value = 0;
+      this.ctx.createMediaElementSource(el).connect(gain).connect(this.master);
+      this.track = { el, gain };
+    }
+    const { el, gain } = this.track, now = this.ctx.currentTime;
+    clearTimeout(this.trackPause);
+    if (on) {
+      el.play().then(() => {
+        this.trackOn = true; // from here the chiptune is silent and the beat is heard from the track
+        gain.gain.setTargetAtTime(0.75, this.ctx.currentTime, 2.4); // a slow rise, in step with the dark lifting
+      }, () => { this.trackFailed = true; });
+    } else {
+      this.trackOn = false;
+      gain.gain.setTargetAtTime(0, now, 0.9);
+      this.trackPause = setTimeout(() => el.pause(), 4000);
+    }
+  }
+
+  // 143 bpm: "timing matching to goa/psy/prograssivetrance/psychedelic ~143to145 bpm"
+  stepChip(step) {
+    if (!this.chip) return void (this.chipRunning = false);
+    const sixteenth = 60 / 143 / 4, now = this.ctx.currentTime;
+    if (!this.chipRunning || this.chipNext < now - 0.5) this.chipNext = now + 0.06, this.chipZero = this.chipNext - step * sixteenth;
+    this.chipRunning = true;
+    if (this.ctx.state === "running" && !this.trackOn) { // while his own music plays the chiptune only keeps time
+      const at = this.chipNext, bar = Math.floor(step / 16) % 4;
+      const root = 220 * semis([0, -4, 3, -2][bar]), arp = [0, 4, 7, 12, 7, 4, 16, 12][step % 8];
+      const blip = (frequency, type, level, length) => {
+        const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.value = frequency;
+        gain.gain.setValueAtTime(level, at);
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
+        osc.connect(gain);
+        gain.connect(this.master);
+        gain.connect(this.reverb);
+        osc.start(at);
+        osc.stop(at + length + 0.02);
+      };
+      blip(root * semis(arp), "square", 0.035, sixteenth * 1.6);
+      if (step % 4 === 2) blip(root / 2, "triangle", 0.12, sixteenth * 2);
+      if (step % 4 === 0) {
+        const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+        osc.frequency.setValueAtTime(110, at);
+        osc.frequency.exponentialRampToValueAtTime(42, at + 0.16);
+        gain.gain.setValueAtTime(0.32, at);
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.24);
+        osc.connect(gain).connect(this.master);
+        osc.start(at);
+        osc.stop(at + 0.3);
+        this.hits.push({ at, strength: step % 16 === 0 ? 1 : 0.7 });
+      }
+    }
+    this.chipNext += sixteenth;
+    setTimeout(() => this.stepChip(step + 1), Math.max(0, (this.chipNext - this.ctx.currentTime - 0.05) * 1000));
+  }
+
+  // which sixteenth the chiptune is on right now (fractional), or -1 when it is not playing
+  chipClock() {
+    return this.chip && this.chipRunning ? (this.ctx.currentTime - this.chipZero) / (60 / 143 / 4) : -1;
+  }
+
+  // step back while something else has the stage (a Flash piece with its own sound)
+  duck(on) {
+    if (!this.ctx) return;
+    this.ducked = on;
+    this.master.gain.setTargetAtTime(on || this.muted ? 0 : 0.55, this.ctx.currentTime, 0.3);
+  }
+
+  // MEOW. His own samples: the arrays "meow2".."meow5" from MEOWing_stm_TEST.txt, which he played
+  // through a transistor and a piezo ("get sound without soundmodule in (strange cracking) quality").
+  meow(level = 0.5, pan = 0, rate = 0) {
+    if (!this.ctx || this.ctx.state !== "running" || this.silentMeow) return;
+    this.meows ??= [1, 2, 3, 4].map((n) => fetch(`/marderchen/meow${n}.wav`).then((res) => res.arrayBuffer()).then((data) => this.ctx.decodeAudioData(data)).catch(() => null));
+    this.meows[Math.floor(Math.random() * this.meows.length)].then((buffer) => {
+      if (!buffer) return;
+      const source = this.ctx.createBufferSource(), gain = this.ctx.createGain(), panner = this.ctx.createStereoPanner();
+      source.buffer = buffer;
+      source.playbackRate.value = rate || 0.85 + Math.random() * 0.5;
+      gain.gain.value = level;
+      panner.pan.value = Math.max(-1, Math.min(1, pan));
+      source.connect(gain).connect(panner);
+      panner.connect(this.master);
+      panner.connect(this.reverb);
+      source.start();
+    });
+  }
+
+  // a relay switching: he loved that sound and built clocks and a "knattertron" around it
+  relay(level = 0.25) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime, source = this.ctx.createBufferSource(), band = this.ctx.createBiquadFilter(), gain = this.ctx.createGain();
+    source.buffer = this.noise;
+    band.type = "bandpass";
+    band.frequency.value = 2600;
+    band.Q.value = 1.2;
+    gain.gain.setValueAtTime(level, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.035);
+    source.connect(band).connect(gain).connect(this.master);
+    source.start(now, Math.random());
+    source.stop(now + 0.05);
+    this.ping(180, level * 0.5, 0.05, now);
   }
 
   entityVoice(level, pan) {

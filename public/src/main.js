@@ -7,6 +7,7 @@ import { World, CELL } from "./world.js";
 import { VoidAudio } from "./audio.js";
 import { VoidMap } from "./map.js";
 import { Entity } from "./entity.js";
+import { Marderchen, REALM } from "./marderchen.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -16,7 +17,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(70, 1, 0.5, 8000);
+const camera = new THREE.PerspectiveCamera(70, 1, 1, CELL * 3.4); // far enough to see into the next sectors
 camera.rotation.order = "YXZ";
 
 const composer = new EffectComposer(renderer);
@@ -32,13 +33,14 @@ const audio = new VoidAudio();
 const hud = { key: null, materialized: false };
 function onSector(spec, shown, key) {
   const arrived = hud.key === key && !hud.materialized && spec; // it materialized around us
-  const [x, y, z] = key.split(",");
   const status = !spec
     ? "unmaterialized · reaching for claude"
     : spec.partial ? "materializing · claude is still writing the sky"
     : spec.source === "claude" ? `dreamt by ${spec.model ?? "claude"}`
     : spec.source === "origin" ? "origin"
-    : spec.source === "void" ? "nothing was ever here" : "local noise · claude unreachable";
+    : spec.source === "void" ? "nothing was ever here"
+    : spec.source === "chaostyper" ? "don't know the future seens to be an error"
+    : spec.source === "marderchen" ? "[MEOW] by marderchen · its free · have fun :3 =^.^=" : "local noise · claude unreachable";
   const name = spec ? spec.name : "· · ·";
   const changed = hud.key !== key || $("name").textContent !== name;
   $("name").textContent = name;
@@ -103,7 +105,7 @@ const keys = new Set();
 const velocity = new THREE.Vector3();
 const thrust = new THREE.Vector3();
 // yaw/pitch are where the player is aiming; the camera eases onto them
-let yaw = 0, pitch = 0, viewYaw = 0, viewPitch = 0, started = false, touchThrust = 0;
+let yaw = 0, pitch = 0, viewYaw = 0, viewPitch = 0, started = false, touchThrust = 0, autofly = false;
 
 const THRUST = 150, SURGE = 5, DRAG = 1.6;
 const MOUSE_LOOK = 0.0016;  // radians per count of raw mouse movement
@@ -120,10 +122,19 @@ const store = (name, value) => {
 let sensitivity = stored("sensitivity", 1), invertY = stored("invertY", false);
 
 const entity = new Entity({ scene, world, audio, map, textEl: $("entity"), waitsEl: $("waits"), stored, store });
+const marderchen = new Marderchen({
+  scene, world, audio, textEl: $("marder"), stored, store,
+  // coming out of his portal: face this way and lose most of your speed
+  arrive(toYaw, toPitch) {
+    yaw = viewYaw + Math.atan2(Math.sin(toYaw - viewYaw), Math.cos(toYaw - viewYaw)); // turn the short way round
+    pitch = viewPitch + Math.atan2(Math.sin(toPitch - viewPitch), Math.cos(toPitch - viewPitch));
+    velocity.multiplyScalar(0.1);
+  },
+});
 
 const HELP = {
-  keys: "mouse look · w a s d fly · space / c rise, sink · shift surge · f fullscreen · tab map · b listen to the room · [ ] sensitivity · i invert · m mute",
-  pad: "sticks fly and look · triggers rise, sink · a or left-stick click surge · select map · d-pad ◀ ▶ sensitivity · x invert · y mute",
+  keys: "mouse look · w a s d fly · enter autofly · space / c rise, sink · shift surge · f fullscreen · tab map · b listen to the room · [ ] sensitivity · i invert · m mute",
+  pad: "sticks fly and look · triggers rise, sink · a or left-stick click surge · right-stick click autofly · select map · d-pad ◀ ▶ sensitivity · x invert · y mute",
 };
 let helpMode = "keys", noteTimer = 0;
 function showHelp(mode = helpMode) {
@@ -137,9 +148,17 @@ function note(text) {
 }
 showHelp();
 
+// Free look: nothing stops at straight up or straight down. Keep pulling back and you go over the
+// top and fly on upside down. While you are upside down, left and right are swapped back so that
+// moving the mouse left still turns the view left.
 function look(dx, dy, scale) {
-  yaw -= dx * scale;
-  pitch = THREE.MathUtils.clamp(pitch - dy * scale * (invertY ? -1 : 1), -1.55, 1.55);
+  yaw -= dx * scale * (Math.cos(pitch) < 0 ? -1 : 1);
+  pitch -= dy * scale * (invertY ? -1 : 1);
+  if (Math.abs(pitch) > Math.PI) { // keep the number small; a full turn is the same view
+    const turn = Math.sign(pitch) * Math.PI * 2;
+    pitch -= turn;
+    viewPitch -= turn;
+  }
 }
 function changeSensitivity(factor) {
   sensitivity = THREE.MathUtils.clamp(sensitivity * factor, 0.2, 5);
@@ -150,6 +169,12 @@ function toggleInvert() {
   invertY = !invertY;
   store("invertY", invertY);
   note(`vertical look ${invertY ? "inverted" : "normal"}`);
+}
+// Enter: keep flying forward by itself until Enter again, or until you pull back
+function toggleAutofly(on = !autofly) {
+  if (on === autofly) return;
+  autofly = on;
+  note(autofly ? "autofly on · enter or s to stop" : "autofly off");
 }
 function toggleMute() {
   note(audio.toggleMute() ? "muted" : "sound on");
@@ -192,9 +217,18 @@ document.addEventListener("mousemove", (e) => {
   look(e.movementX, e.movementY, MOUSE_LOOK * sensitivity);
 });
 window.addEventListener("keydown", (e) => {
+  // a museum piece is open: E and Esc belong to it, everything else waits
+  if (marderchen.museum.open) {
+    if (e.code === "KeyE" && !e.repeat) marderchen.museum.toggle();
+    if (e.code === "Escape") marderchen.museum.close();
+    return;
+  }
   if (!e.repeat) {
+    if (e.code === "KeyE") { keys.clear(); marderchen.museum.toggle(); }
     if (helpMode !== "keys") showHelp("keys");
     if (e.code === "KeyM") toggleMute();
+    if (e.code === "Enter" || e.code === "NumpadEnter") toggleAutofly();
+    if (e.code === "KeyS") toggleAutofly(false);
     if (e.code === "KeyI") toggleInvert();
     if (e.code === "Tab") map.toggle();
     if (e.code === "KeyF") toggleFullscreen();
@@ -267,7 +301,10 @@ function pollPad(dt) {
   if (pressed(15)) changeSensitivity(1.1);
   if (pressed(2)) toggleInvert();
   if (pressed(3)) toggleMute();
+  if (pressed(11)) toggleAutofly();              // right-stick click
+  if (stick(gp.axes[1]) > 0.5) toggleAutofly(false); // pulling back stops it
   if (pressed(8)) map.toggle();
+  if (pressed(1)) marderchen.museum.toggle();
   if (pressed(5)) map.shift(1);
   if (pressed(4)) map.shift(-1);
   if (helpMode !== "pad" && (pad.x || pad.y || rx || ry || pad.rise)) showHelp("pad");
@@ -302,14 +339,16 @@ function fly(dt) {
   const ease = 1 - Math.exp(-LOOK_EASE * dt);
   viewYaw += (yaw - viewYaw) * ease;
   viewPitch += (pitch - viewPitch) * ease;
-  camera.rotation.set(viewPitch, viewYaw, 0);
+  camera.rotation.set(viewPitch, viewYaw, marderchen.roll);
 
-  thrust.set(axis("KeyD", "KeyA") + pad.x, 0, axis("KeyS", "KeyW") + pad.y - touchThrust);
+  thrust.set(axis("KeyD", "KeyA") + pad.x, 0, axis("KeyS", "KeyW") + pad.y - touchThrust - (autofly ? 1 : 0));
   thrust.applyEuler(camera.rotation);
   thrust.y += axis("Space", "KeyC") - (keys.has("ControlLeft") ? 1 : 0) + pad.rise;
   if (thrust.lengthSq() > 1) thrust.normalize();
   const surge = keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge ? SURGE : 1;
   velocity.addScaledVector(thrust, THRUST * surge * dt);
+  velocity.addScaledVector(marderchen.museum.current, dt); // the museum's vortex pulls gently onward
+  velocity.addScaledVector(marderchen.pull, dt);           // and the portal at his door pulls hard
   velocity.multiplyScalar(Math.exp(-DRAG * dt));
   camera.position.addScaledVector(velocity, dt * world.slow);
 }
@@ -327,12 +366,16 @@ renderer.setAnimationLoop((now) => {
   last = now;
   elapsed += dt;
   pollPad(dt);
-  if (started) fly(dt);
-  else idle(elapsed);
+  if (!started) idle(elapsed);
+  else if (!marderchen.museum.open) fly(dt); // a piece is open: stay where you are
   const heard = audio.features(dt);
   world.G.uBass.value = heard.bass; world.G.uMid.value = heard.mid; world.G.uHigh.value = heard.high; world.G.uBeat.value = heard.beat;
   world.update(dt, camera);
-  if (started) entity.update(dt, camera, velocity.length());
+  if (started) {
+    marderchen.update(dt, camera, keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge);
+    // the entity does not follow into marderchen's dimension
+    if (world.realm === "void" && !marderchen.mad) entity.update(dt, camera, velocity.length()); // nor does it show itself while he is out
+  }
   world.sky.render(renderer, camera);
   if (document.visibilityState === "visible") adaptResolution(dt);
   audio.setSpeed(velocity.length());
@@ -343,14 +386,14 @@ renderer.setAnimationLoop((now) => {
     camera.updateProjectionMatrix();
   }
   composer.render(dt);
-  if (map.open) map.draw(camera, viewYaw);
+  if (map.open) map.draw(camera, viewYaw, world.realm === REALM);
   // where you are: the sector's grid coordinates, then your offset from its centre in units
   if ((coordsTimer -= dt) <= 0) {
     coordsTimer = 0.15;
     const p = camera.position, cell = (v) => Math.round(v / CELL), off = (v) => Math.round(v - cell(v) * CELL);
     const signed = (n) => (n < 0 ? "−" : "+") + Math.abs(n);
-    $("coords").textContent = `sector ${cell(p.x)}, ${cell(p.y)}, ${cell(p.z)} · offset ${signed(off(p.x))} ${signed(off(p.y))} ${signed(off(p.z))}`;
+    $("coords").textContent = `${world.realm === REALM ? "marderchen's dimension · " : ""}sector ${cell(p.x)}, ${cell(p.y)}, ${cell(p.z)} · offset ${signed(off(p.x))} ${signed(off(p.y))} ${signed(off(p.z))}`;
   }
 });
 
-window.cvoid = { world, camera, renderer, entity, CELL, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; } };
+window.cvoid = { world, camera, renderer, entity, marderchen, CELL, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; } };

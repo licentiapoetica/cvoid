@@ -85,7 +85,9 @@ export function normalizeSpec(raw) {
     hub: layers[0].kind === "hub",
     // something built on purpose: a house, a street, a monument (see buildBlueprint)
     blueprint: typeof s.blueprint === "string" ? s.blueprint.slice(0, 6000) : "",
-    dream: clamp(s.dream, 0, 1, 0.3), // how far the built thing sways out of true
+    dream: clamp(s.dream, 0, 1, 0.3),
+    rainbow: clamp(s.rainbow, 0, 1, 0),
+    file: typeof s.file === "string" ? s.file : null, // in marderchen's dimension: the source file this sector is made from // marderchen's dimension: every piece an LED on a running rainbow // how far the built thing sways out of true
     noise: {
       frequency: clamp(n.frequency, 0.3, 6, 1.5),
       octaves: Math.round(clamp(n.octaves, 1, 6, 3)),
@@ -179,8 +181,8 @@ rep 5 0 0 104 | cube 70 -50 -208 60 60 80
 rep 5 0 0 104 | wedge 70 -6 -208 66 28 84 90`,
 ];
 
-// A sector in a void: nothing was ever placed here. No call to Claude, no geometry, a little dust,
-// and thin fog so that whatever is lit on the far side can be seen across it.
+// A sector in a void: nothing was ever placed here. No call to Claude and no geometry, but not
+// black either: the sky goes on overhead, slow lights drift, a few glass orbs wander far apart.
 export function voidSpec() {
   return {
     name: "void",
@@ -190,10 +192,10 @@ export function voidSpec() {
     fogDensity: 0.08,
     layers: [{ kind: "none" }],
     noise: {},
-    motes: { density: 0.02, size: 0.8, speed: 0.05, drift: "still" },
-    orbs: { count: 0 },
+    motes: { density: 0.35, size: 1.4, speed: 0.12, drift: "rise" },
+    orbs: { count: 3, colors: ["#5f8cff", "#b9d4ff", "#8f6bff"] },
     sound: { root: 37, mode: "phrygian", shimmer: 0, darkness: 0.95, pulse: 0.12, tempo: 40 },
-    fieldGlsl: "return 0.0;",
+    fieldGlsl: ORIGIN.fieldGlsl, // the same sky as at the hub
     source: "void",
   };
 }

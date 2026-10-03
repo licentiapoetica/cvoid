@@ -5,11 +5,17 @@
   "type": "module",
   "description": "Fly through a generative void, after the PlayStation 2 system menu. Sectors are dreamed up by Claude.",
   "scripts": {
-    "start": "node --env-file-if-exists=.env server.js"
+    "start": "node --env-file-if-exists=.env server.js",
+    "museum": "node scripts/museum.mjs",
+    "museum:thumbs": "node scripts/museum-thumbs.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
+    "@ruffle-rs/ruffle": "^0.6.0",
     "three": "^0.186.1",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.12.0"
   }
 }
