@@ -46,17 +46,32 @@ export const DEFAULT_FIELD = `vec3 q = p * 0.7 + vec3(0.0, t * 0.015, 0.0); floa
 const fieldFn = (body) => `float field(vec3 p, float t){\n${body}\n}`;
 
 // Compile a candidate field body on its own so a bad one never reaches the scene.
+// Whether a sector's field compiles, asked without stalling the frame: where the browser compiles in
+// the background (KHR_parallel_shader_compile) the answer is waited for, not demanded. Each field
+// is only ever compiled once for this.
+const fieldChecks = new Map();
 export function fieldCompiles(gl, body) {
+  if (fieldChecks.has(body)) return fieldChecks.get(body);
   const shader = gl.createShader(gl.FRAGMENT_SHADER);
   gl.shaderSource(
     shader,
     `#version 300 es\nprecision highp float;\n${NOISE_LIB}\n${fieldFn(body)}\nout vec4 o;\nvoid main(){ o = vec4(field(gl_FragCoord.xyz, 0.)); }`
   );
   gl.compileShader(shader);
-  const ok = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
-  const log = ok ? "" : gl.getShaderInfoLog(shader);
-  gl.deleteShader(shader);
-  return { ok, log };
+  const parallel = gl.getExtension("KHR_parallel_shader_compile");
+  const check = new Promise((resolve) => {
+    const answer = () => {
+      if (parallel && !gl.getShaderParameter(shader, parallel.COMPLETION_STATUS_KHR)) return void setTimeout(answer, 16);
+      const ok = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+      const log = ok ? "" : gl.getShaderInfoLog(shader);
+      gl.deleteShader(shader);
+      resolve({ ok, log });
+    };
+    setTimeout(answer, 0);
+  });
+  if (fieldChecks.size > 64) fieldChecks.delete(fieldChecks.keys().next().value);
+  fieldChecks.set(body, check);
+  return check;
 }
 
 export const SKY_VERT = /* glsl */ `

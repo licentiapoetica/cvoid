@@ -68,7 +68,7 @@ class Cell {
     // faint dust so an unmaterialized sector is not pure nothing
     const dust = this.points(1400, mulberry32(this.seed ^ 0x51ed), {
       uColor: { value: new THREE.Color("#8fa0c8") }, uSize: { value: 0.7 }, uDrift: { value: new THREE.Vector3(0, 1.5, 0) },
-      uOrbit: { value: 0 }, uMat: { value: 0.5 },
+      uOrbit: { value: 0 }, uMat: (this.dustMat = { value: 0 }), // faded in (see update), not there all at once
     });
     this.group.add(dust);
     world.scene.add(this.group);
@@ -276,6 +276,7 @@ class Cell {
   }
 
   update(dt, camera) {
+    if (this.dustMat.value < 0.5) this.dustMat.value = Math.min(0.5, this.dustMat.value + dt / 6);
     if (!this.spec) return;
     if (this.mat.value < 1) this.mat.value = Math.min(1, this.mat.value + dt / MATERIALIZE_SECONDS);
     if (!this.spec.partial && this.built.value < 1) this.built.value = Math.min(1, this.built.value + dt / MATERIALIZE_SECONDS);
@@ -314,6 +315,9 @@ class Cell {
 // The nebula is the most expensive shader in the game and also the softest image, so it is
 // drawn into a small offscreen target and stretched behind the scene instead of per screen pixel.
 const SKY_SCALE = 0.25;
+const JUMP = 2500;    // further than this in one frame is not flying but a jump (see Sky.update)
+const SKY_FADE = 9;   // seconds one sky takes to fade into the next
+const SKY_LAYERS = 2; // skies fading at once, at most (see show)
 
 class Sky {
   constructor(world) {
@@ -324,10 +328,11 @@ class Sky {
     this.size = new THREE.Vector2();
     this.geometry = new THREE.SphereGeometry(2000, 32, 16);
     this.origin = { value: new THREE.Vector3() };
+    this.step = new THREE.Vector3();
     this.current = null;
     this.fading = []; // skies on their way out, oldest first; each is drawn over the ones before it
     this.order = 0;
-    this.setField(DEFAULT_FIELD);
+    this.show(DEFAULT_FIELD);
   }
 
   mesh(body) {
@@ -347,40 +352,49 @@ class Sky {
     return mesh;
   }
 
-  // Swap in a sector's nebula function, cross-fading from the previous one. The new shader is
-  // compiled before it is shown, so the swap does not stall a frame.
+  // Swap in a sector's nebula function, cross-fading from the previous one. It is checked and the
+  // new shader compiled in the background before it is shown, so the swap does not stall a frame.
   setField(body) {
-    const check = fieldCompiles(this.world.renderer.getContext(), body);
-    if (!check.ok) {
-      console.warn("[cvoid] sector field failed to compile, using default:\n", check.log, "\n", body);
-      body = DEFAULT_FIELD;
-    }
-    if (this.body === body) return check.ok;
+    if (this.wanted === body) return;
+    this.wanted = body;
+    fieldCompiles(this.world.renderer.getContext(), body).then((check) => {
+      if (this.wanted !== body) return; // overtaken while it was being checked
+      if (!check.ok) console.warn("[cvoid] sector field failed to compile, using default:\n", check.log, "\n", body);
+      this.show(check.ok ? body : DEFAULT_FIELD);
+    });
+  }
+
+  show(body) {
+    this.wanted ??= body;
+    if (this.body === body) { this.queued = null; return; }
+    // never more than two skies fading at once: a sky taken away while still showing is a jump, so a
+    // newer one waits until one of them has gone (only the newest waiting is kept)
+    if (this.fading.length >= SKY_LAYERS) { this.queued = body; return; }
+    this.queued = null;
     this.body = body;
     const mesh = this.mesh(body);
-    const show = () => {
+    const reveal = () => {
       if (this.body !== body) return mesh.material.dispose(); // overtaken while compiling
       if (this.current) {
         // The outgoing sky goes on top at full strength, so nothing changes at the moment of the
         // swap, and fades from there. Skies already fading keep fading under it.
         this.current.renderOrder = ++this.order;
         this.fading.push(this.current);
-        while (this.fading.length > 4) this.drop(this.fading.shift()); // the oldest is buried under the rest by now
+
       }
       this.current = mesh;
       this.scene.add(mesh);
     };
-    if (!this.current) show();
+    if (!this.current) reveal();
     else {
       // compiled for the sky's own target: for the screen it would be another program (tone mapping, colour space)
       const { renderer } = this.world, stage = new THREE.Scene().add(mesh), was = renderer.getRenderTarget();
       renderer.setRenderTarget(this.target);
       const done = renderer.compileAsync(stage, this.camera ??= new THREE.PerspectiveCamera());
       renderer.setRenderTarget(was);
-      const ready = () => { stage.remove(mesh); show(); };
+      const ready = () => { stage.remove(mesh); reveal(); };
       done.then(ready, ready);
     }
-    return check.ok;
   }
 
   drop(mesh) {
@@ -390,11 +404,16 @@ class Sky {
 
   update(dt, camera) {
     this.camera = camera;
-    this.origin.value.copy(camera.position).multiplyScalar(1 / (CELL * 1.5));
+    // Where the nebula is seen from: it moves as you fly, but a jump (a portal, a room, the map) does
+    // not jump it with you: it carries on from where it was, so the sky never starts over.
+    if (!this.flown) this.flown = camera.position.clone();
+    else if (this.lastCamera.distanceToSquared(camera.position) < JUMP * JUMP) this.flown.add(this.step.subVectors(camera.position, this.lastCamera));
+    (this.lastCamera ??= new THREE.Vector3()).copy(camera.position);
+    this.origin.value.copy(this.flown).multiplyScalar(1 / (CELL * 1.5));
     this.current.position.copy(camera.position);
     for (const mesh of [...this.fading]) {
       mesh.position.copy(camera.position);
-      mesh.userData.left -= dt / 6;
+      mesh.userData.left -= dt / SKY_FADE;
       // eased at both ends, so neither the start nor the end of the fade can be seen
       mesh.material.uniforms.uOpacity.value = THREE.MathUtils.smootherstep(mesh.userData.left, 0, 1);
       if (mesh.userData.left <= 0) {
@@ -402,6 +421,7 @@ class Sky {
         this.fading.splice(this.fading.indexOf(mesh), 1);
       }
     }
+    if (this.queued && this.fading.length < SKY_LAYERS) this.show(this.queued);
   }
 
   render(renderer, camera) {
@@ -411,6 +431,17 @@ class Sky {
     renderer.render(this.scene, camera);
     renderer.setRenderTarget(null);
   }
+}
+
+// The other dimensions, each a grid of its own whose sectors are made here (nothing in them is asked of
+// the server): how their places are told apart from the void's, and what stands in each. A plugin
+// may add its own (see addRealm).
+const REALMS = {
+  [REALM]: { prefix: "m:", spec: marderSpec },
+  [ZONE]: { prefix: "z:", spec: zoneSpec },
+};
+export function addRealm(name, prefix, spec) {
+  REALMS[name] = { prefix, spec };
 }
 
 const GHOST = normalizeSpec({
@@ -486,7 +517,7 @@ export class World {
   }
 
   key(x, y, z) {
-    return `${this.realm === REALM ? "m:" : this.realm === ZONE ? "z:" : ""}${x},${y},${z}`;
+    return `${REALMS[this.realm]?.prefix ?? ""}${x},${y},${z}`;
   }
 
   // Step into another grid of sectors: everything loaded is dropped and rebuilt around the traveller.
@@ -615,13 +646,20 @@ export class World {
     G.uTime.value += dt;
     const cx = Math.round(camera.position.x / CELL), cy = Math.round(camera.position.y / CELL), cz = Math.round(camera.position.z / CELL);
 
+    // Crossing into a sector brings a whole slab of new ones into reach: they are built one a frame,
+    // the one you are in first, then the nearest, so no single frame carries all of them.
+    let nearest = null, best = Infinity;
     for (let x = cx - 1; x <= cx + 1; x++) for (let y = cy - 1; y <= cy + 1; y++) for (let z = cz - 1; z <= cz + 1; z++) {
-      const k = this.key(x, y, z);
-      if (this.cells.has(k)) continue;
+      if (this.cells.has(this.key(x, y, z))) continue;
+      const d = (x * CELL - camera.position.x) ** 2 + (y * CELL - camera.position.y) ** 2 + (z * CELL - camera.position.z) ** 2;
+      if (d < best) { best = d; nearest = [x, y, z]; }
+    }
+    if (nearest) {
+      const [x, y, z] = nearest, k = this.key(x, y, z);
       const cell = new Cell(this, x, y, z);
       this.cells.set(k, cell);
-      // his dimension and the zone are generated here; nothing in them is asked of the server
-      const local = this.realm === REALM ? marderSpec : this.realm === ZONE ? zoneSpec : null;
+      // the other dimensions are generated here; nothing in them is asked of the server
+      const local = REALMS[this.realm]?.spec ?? null;
       if (local && !this.specs.has(k)) this.setSpec(k, local(x, y, z));
       else if (this.specs.has(k)) cell.materialize(this.specs.get(k));
       else this.request(x, y, z, true);
@@ -657,7 +695,8 @@ export class World {
       this.enter(spec);
     }
 
-    const ease = 1 - Math.exp(-dt * 0.9);
+    // the air of one sector into the next's: slowly, over seconds, never a step
+    const ease = 1 - Math.exp(-dt * 0.4);
     G.uFogColor.value.lerp(this.target.fog, ease);
     G.uDeep.value.lerp(this.target.deep, ease);
     G.uGlow.value.lerp(this.target.glow, ease);

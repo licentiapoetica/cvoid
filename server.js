@@ -4,7 +4,7 @@ import http from "node:http";
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { population } from "./public/src/population.js";
@@ -185,6 +185,53 @@ Pacing:
 - On an arrival, acknowledge that they came. Do not choose rendezvous on an arrival; let them wonder for a moment first.
 - Vary the acts. Do not use the same act twice in a row.`;
 
+// The void's own persona (persona/void.md): who dreams the sectors, and what speaks to the traveller
+// now and then. Everything after the first rule.
+const VOID_PERSONA = await fs.readFile(path.join(here, "persona", "void.md"), "utf8")
+  .then((text) => text.slice(text.indexOf("---") + 3).trim())
+  .catch(() => null);
+// who dreams the sectors: the rules for the fields, then the void's own character
+const DREAM_SYSTEM = VOID_PERSONA ? `${SYSTEM}\n\nWho is dreaming. This is your own character: let it colour the places you make; the rules above still hold.\n\n${VOID_PERSONA}` : SYSTEM;
+const VOICE_JSON_SCHEMA = obj({ lines: { type: "array", items: str } });
+const Voice = z.object({ lines: z.array(z.string()).min(1) });
+let voices = 0;
+
+// The void speaks: a few fragments from what the traveller has been doing. `journey` is untrusted.
+async function voidVoice(journey) {
+  const list = (items, max, len) => (Array.isArray(items) ? items.slice(-max).map((i) => clip(i, len)).filter(Boolean) : []);
+  const here = [int(journey.sector?.[0]), int(journey.sector?.[1]), int(journey.sector?.[2])];
+  const names = list(journey.recent, 8, 40), said = list(journey.said, 14, 80), handled = list(journey.handled, 8, 120);
+  const prompt = [
+    `They have been here ${Math.round(Number(journey.minutes) || 0)} minutes and passed through ${int(journey.crossed)} rooms.`,
+    journey.place
+      ? `They are ${clip(journey.place, 200)}.` // (somewhere a plugin keeps, as it describes it)
+      : `They are in room (${here.join(", ")})${journey.sectorName ? `, "${clip(journey.sectorName, 40)}"` : ""}, ${Math.round(Math.hypot(...here))} rooms from the first.`,
+    names.length ? `Rooms they passed through, oldest first: ${names.join("; ")}.` : null,
+    handled.length ? `Pieces they lingered on or picked out, oldest first:\n${handled.map((h) => `- ${h}`).join("\n")}` : "They have not handled anything yet.",
+    `Right now they are ${clip(journey.motion, 30) || "drifting"}.`,
+    said.length ? `What you have already said to them:\n${said.map((l) => `- ${l}`).join("\n")}` : "You have not spoken to them yet.",
+  ].filter(Boolean).join("\n");
+  const params = {
+    model: MODEL,
+    max_tokens: 2000,
+    output_config: { format: { type: "json_schema", schema: VOICE_JSON_SCHEMA } },
+    system: [{ type: "text", text: VOID_PERSONA, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: prompt }],
+  };
+  if (TAKES_EFFORT) params.output_config.effort = EFFORT;
+  if (TAKES_FALLBACKS) {
+    params.betas = ["server-side-fallback-2026-07-01"];
+    params.fallbacks = "default";
+  }
+  const started = Date.now();
+  const response = await client.beta.messages.create(params);
+  if (response.stop_reason === "refusal" || response.stop_reason === "max_tokens") throw new Error(`void: ${response.stop_reason}`);
+  const voice = Voice.parse(JSON.parse(response.content.find((block) => block.type === "text")?.text ?? ""));
+  const lines = voice.lines.slice(0, 3).map((l) => clip(l, 80)).filter(Boolean);
+  console.log(`[cvoid] the void · "${lines.join(" / ")}" · ${((Date.now() - started) / 1000).toFixed(1)}s`);
+  return { lines, source: "claude" };
+}
+
 // marderchen's persona lives in a file his friends can edit; everything after the first rule is the prompt.
 const MARDERCHEN_SYSTEM = await fs.readFile(path.join(here, "persona", "marderchen.md"), "utf8")
   .then((text) => text.slice(text.indexOf("---") + 3).trim())
@@ -267,6 +314,7 @@ async function entityBeat(journey) {
     `They are in sector (${here.join(", ")})${journey.sectorName ? `, "${clip(journey.sectorName, 40)}"` : ", which has not taken shape yet"}, ${Math.round(Math.hypot(...here))} sectors from the origin.`,
     names.length ? `Places they passed through, oldest first: ${names.join("; ")}.` : null,
     `Right now they are ${clip(journey.motion, 30) || "drifting"}.`,
+    journey.leftOrigin ? null : "They have not been to the origin on this visit: do not speak of them leaving it.",
     waiting ? `You are waiting for them at (${waiting.join(", ")}). They have not arrived.` : "No rendezvous is set.",
     acts.length ? `Your recent acts, oldest first: ${acts.join(", ")}.` : null,
     said.length ? `Lines you have already said:\n${said.map((l) => `- ${l}`).join("\n")}` : "You have not spoken to them yet.",
@@ -355,6 +403,7 @@ let wuselList = null;
 // belong to every stage. A stage.json in a folder can set bpm, offset, root, mode, palette, behaviour.
 const ZONE_KINDS = { music: /\.(ogg|opus|mp3|wav|flac|m4a|webm)$/i, images: /\.(png|jpe?g|webp|gif)$/i, models: /\.(glb|gltf)$/i };
 const ZONE_LIMITS = { music: 8, images: 64, models: 4 };
+
 async function zoneStages() {
   const url = (rel) => `/zone/${rel.split(path.sep).map(encodeURIComponent).join("/")}`;
   const walk = async (dir, depth = 0) => {
@@ -479,7 +528,7 @@ async function neighbourNotes(x, y, z) {
   for (const [dx, dy, dz, label] of dirs) {
     const nx = x + dx, ny = y + dy, nz = z + dz;
     if (nx === 0 && ny === 0 && nz === 0) {
-      notes.push(`${label}: the origin hub (deep blue fog, a glass crystal ringed by twelve cubes, seven coloured orbs)`);
+      notes.push(`${label}: the origin hub (deep blue fog, a glass crystal ringed by twelve cubes, seven coloured orbs${HUB_EXTRAS.map((extra) => `, ${extra}`).join("")})`);
       continue;
     }
     const n = await readCached(nx, ny, nz);
@@ -494,7 +543,7 @@ function sectorParams(prompt, maxTokens = 8000) {
     model: MODEL,
     max_tokens: maxTokens,
     output_config: { format: { type: "json_schema", schema: SECTOR_JSON_SCHEMA } },
-    system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
+    system: [{ type: "text", text: DREAM_SYSTEM, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: prompt }],
   };
   if (TAKES_EFFORT) params.output_config.effort = EFFORT;
@@ -630,9 +679,9 @@ async function serveFile(res, root, rel) {
     const body = await fs.readFile(file);
     // marderchen kept his music on his webspace as .txt ("rename back to .mp3 hihihi"): say what it really is
     const mp3 = path.extname(file) === ".txt" && (body.subarray(0, 3).toString("latin1") === "ID3" || (body[0] === 0xff && (body[1] & 0xe0) === 0xe0));
-    // the game's own pages and scripts are never served from a browser's cache: a reload always gets
-    // the current code. His art and the libraries can be kept for a day.
-    const fresh = root === PUBLIC && /\.(html|js|json)$/.test(file);
+    // the game's own pages and scripts (and its plugins') are never served from a browser's cache: a
+    // reload always gets the current code. His art and the libraries can be kept for a day.
+    const fresh = (root === PUBLIC || root.startsWith(PLUGINS + path.sep)) && /\.(html|js|json|css)$/.test(file);
     res.writeHead(200, {
       "content-type": mp3 ? "audio/mpeg" : TYPES[path.extname(file)] ?? "application/octet-stream",
       "cache-control": fresh ? "no-store" : "public, max-age=86400",
@@ -649,9 +698,59 @@ function send(res, status, body) {
   res.end(json ? JSON.stringify(body) : body);
 }
 
+// What is cvoid's own on its address: its page and files, its plugins' files and its own API (a
+// plugin passing a whole other site through on cvoid's address leaves these alone; "/" is cvoid's
+// unless a page framed inside cvoid's goes there).
+const CVOID_PATHS = /^\/(index\.html|museum-player\.html|src\/|marderchen\/|vendor\/|museum\/|zone\/|plugins\/|api\/(void|entity|marderchen|sectors?|wuselcode|zone|plugins)(\/|$))/;
+const cvoidOwns = (req, pathname) => (pathname === "/" ? req.headers["sec-fetch-dest"] !== "iframe" : CVOID_PATHS.test(pathname));
+
+// ---- plugins: optional local additions, in plugins/<name>/ (kept out of the repository) ----
+// A plugin's server.js, if it has one, default-exports a function given what it may use, and returns
+// its handlers: handle(req, res, url), true when it answered (it is asked before cvoid's own routes),
+// and upgrade(req, socket, head) for websockets, true when it took one. Its public/ folder is served at
+// /plugins/<name>/, and its public/client.js, if there, is loaded into the page (see main.js).
+const PLUGINS = path.join(here, "plugins");
+const HUB_EXTRAS = []; // what plugins have added to the hub, as Claude is told when it dreams beside it
+const serverPlugins = [], clientPlugins = [];
+for (const entry of (await fs.readdir(PLUGINS, { withFileTypes: true }).catch(() => [])).sort((a, b) => a.name.localeCompare(b.name))) {
+  if (!entry.isDirectory() || !/^[\w-]+$/.test(entry.name)) continue;
+  const dir = path.join(PLUGINS, entry.name);
+  try {
+    if (existsSync(path.join(dir, "server.js"))) {
+      const given = { send, readBody, owns: cvoidOwns, port: PORT, host: HOST, hub: (text) => HUB_EXTRAS.push(text) };
+      const made = await (await import(pathToFileURL(path.join(dir, "server.js")).href)).default(given);
+      if (made) serverPlugins.push(made);
+    }
+    if (existsSync(path.join(dir, "public", "client.js"))) clientPlugins.push(`/plugins/${entry.name}/client.js`);
+    console.log(`[cvoid] plugin: ${entry.name}`);
+  } catch (err) {
+    console.warn(`[cvoid] the plugin ${entry.name} could not be loaded: ${err.message}`);
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   try {
+    for (const plugin of serverPlugins) if (await plugin.handle?.(req, res, url)) return;
+    if (url.pathname === "/api/plugins") return send(res, 200, clientPlugins);
+    const ofPlugin = url.pathname.match(/^\/plugins\/([\w-]+)\/(.+)$/);
+    if (ofPlugin) return serveFile(res, path.join(PLUGINS, ofPlugin[1], "public"), decodeURIComponent(ofPlugin[2]));
+    if (url.pathname === "/api/void" && req.method === "POST") {
+      if (unavailable || !client || !VOID_PERSONA || voices >= MAX_BEATS) return send(res, 503, unavailable ?? "the void is quiet");
+      let journey;
+      try {
+        journey = await readBody(req);
+      } catch {
+        return send(res, 400, "bad request");
+      }
+      voices++;
+      try {
+        return send(res, 200, await voidVoice(journey));
+      } catch (err) {
+        noteFailure(err, "void:");
+        return send(res, 503, "the void is quiet");
+      }
+    }
     if (url.pathname === "/api/entity" && req.method === "POST") {
       if (unavailable || !client || beats >= MAX_BEATS) return send(res, 503, unavailable ?? "the entity is resting");
       let journey;
@@ -750,6 +849,11 @@ const server = http.createServer(async (req, res) => {
 
 // A free call that tells us up front whether credentials work, so the browser knows at once.
 if (client) await client.models.retrieve(MODEL).catch((err) => noteFailure(err, "startup check:"));
+
+server.on("upgrade", (req, socket, head) => {
+  for (const plugin of serverPlugins) if (plugin.upgrade?.(req, socket, head)) return;
+  socket.destroy();
+});
 server.listen(PORT, HOST, () => {
   console.log(`[cvoid] http://${HOST}:${PORT}  ·  model ${MODEL} (${TAKES_EFFORT ? `effort ${EFFORT}` : "no effort setting"}${fast ? ", fast mode" : ""})  ·  cache ${path.relative(here, CACHE)}`);
 });

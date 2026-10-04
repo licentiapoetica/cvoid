@@ -8,6 +8,7 @@
 <style>
   html, body { margin: 0; height: 100%; background: #02030e; overflow: hidden; }
   body {
+    background: none; /* (the page's colour is html's: body's own would cover anything a plugin shows behind the picture) */
     color: #cfdcff; font: 300 13px/1.5 "Helvetica Neue", Helvetica, Arial, sans-serif;
     letter-spacing: .12em; user-select: none; -webkit-user-select: none; touch-action: none;
   }
@@ -54,6 +55,19 @@
 
   #hud { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity 3s ease 1.5s; }
   #hud.on { opacity: 1; }
+  /* h: nothing but the void (and back) */
+  .bare #hud.on, .bare #hint { opacity: 0; transition: opacity .3s ease; }
+  .unbared #hud.on { transition: opacity .3s ease; } /* back as quickly, not with the slow first reveal */
+  #hint { transition: opacity .3s ease; }
+  /* the middle of the view: a small hollow square, there if you look for it */
+  /* not part of the HUD: it stays when H hides that (and comes with it at the start) */
+  #crosshair { opacity: 0; transition: opacity 3s ease 1.5s; pointer-events: none; z-index: 1; }
+  #crosshair.on { opacity: 1; }
+  .mapping #crosshair { opacity: 0; transition: opacity .25s ease; }
+  #crosshair {
+    position: fixed; left: 50%; top: 50%; width: 5px; height: 5px; transform: translate(-50%, -50%);
+    border: 1px solid rgba(207, 220, 255, .26); box-shadow: 0 0 4px rgba(95, 140, 255, .18);
+  }
   #sector { position: absolute; left: 6vw; bottom: 14vh; max-width: 80vw; text-shadow: 0 0 18px rgba(0,0,0,.8); }
   #name { font-weight: 200; font-size: clamp(26px, 4.6vw, 60px); letter-spacing: .32em; line-height: 1.15; }
   #inscription { margin-top: .6em; font-size: clamp(12px, 1.3vw, 16px); opacity: .8; letter-spacing: .16em; }
@@ -68,6 +82,15 @@
     transition: opacity 1.8s ease, filter 1.8s ease;
   }
   #entity.show { opacity: .92; filter: blur(0); }
+  /* the void itself: words forming in the fog, letter by letter, pale as old paper */
+  #voidVoice {
+    position: absolute; left: 8vw; right: 8vw; top: 24%; text-align: center; color: #ddd8c8;
+    font-size: clamp(14px, 1.5vw, 20px); letter-spacing: .3em; line-height: 2; text-transform: lowercase;
+    text-shadow: 0 0 18px rgba(221, 216, 200, .35); opacity: 0; transition: opacity 2.5s ease;
+  }
+  #voidVoice.show { opacity: .85; }
+  #voidVoice span { display: inline-block; white-space: pre; animation: form 1.8s ease both; }
+  @keyframes form { from { opacity: 0; filter: blur(7px); transform: translateY(5px); } }
   /* marderchen speaks in running rainbow colours, like the text on his homepage */
   #marder {
     position: absolute; left: 8vw; right: 8vw; top: 66%; text-align: center; font-family: monospace;
@@ -119,6 +142,9 @@
     color: #fff; font: inherit; letter-spacing: .08em; cursor: pointer;
   }
   #mapPanel button:hover { background: rgba(140, 160, 220, .28); }
+  #mapPanel .choices { display: flex; flex-wrap: wrap; gap: 4px; }
+  #mapPanel .choices button { padding: 4px 8px; }
+  #mapPanel button.on { background: rgba(95, 140, 255, .32); border-color: #9fb8ff; box-shadow: 0 0 8px rgba(95, 140, 255, .35); }
   #mNote { min-height: 1.2em; opacity: .7; max-width: 44ch; }
   #sector, #help { transition: opacity .25s ease; }
   .mapping #sector, .mapping #help { opacity: 0; }
@@ -140,13 +166,16 @@
 <div id="mapPanel">
   <div class="row"><span>sector</span><input id="mSX" placeholder="x"><input id="mSY" placeholder="y"><input id="mSZ" placeholder="z"></div>
   <div class="row"><span>offset</span><input id="mOX" placeholder="x"><input id="mOY" placeholder="y"><input id="mOZ" placeholder="z"></div>
+  <div class="row"><span>screen</span><div class="choices" id="mScreen"></div></div>
   <div class="row"><button id="mGo">go</button><button id="mSpawn">start here</button><button id="mRandom">random</button><button id="mOrigin">origin</button><button id="mHere">find me</button></div>
   <div id="mNote">click the map to pick a spot, or type one</div>
   <label class="volume"><span>volume</span><input type="range" min="0" max="100" step="1"><output></output></label>
 </div>
+<div id="crosshair"></div>
 <div id="hud">
   <div id="sector"><div id="name"></div><div id="inscription"></div></div>
   <div id="entity"></div>
+  <div id="voidVoice"></div>
   <div id="marder"></div>
   <div id="meta"><div id="waits"></div><div id="coords"></div><span class="dot"></span><span id="status"></span></div>
   <div id="help"></div>

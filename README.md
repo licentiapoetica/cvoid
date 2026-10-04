@@ -20,7 +20,8 @@ Controls:
   `[` `]` look sensitivity, `I` invert vertical look, `M` mute, `-` `=` volume (also a slider on the
   start screen and in the map's panel), `R` level out (upright again,
   horizon level, still heading the same way; in the zone it also turns you to the well).
-  `F` goes fullscreen. Outside fullscreen the browser keeps its own shortcuts, so `Ctrl+W`
+  Hold the right mouse button to zoom in (about 2×, the view turning slower to match); let go
+  to zoom back out. `F` goes fullscreen. Outside fullscreen the browser keeps its own shortcuts, so `Ctrl+W`
   (close tab) and `Ctrl+Shift+W` (close window) still work mid-flight; the game makes the
   browser ask before leaving. In fullscreen on Chromium those keys go to the game, and
   left `Ctrl` can be used to sink.
@@ -63,6 +64,18 @@ What it does and says is decided by Claude (`POST /api/entity`) from what you ha
 been doing: minutes flown, sectors crossed, the names of the places you passed, whether you
 are standing still. One short call roughly every minute of flight. Progress (chapter, what it
 has said) is kept in the browser's local storage; `CVOID_MAX_BEATS` caps the calls per server run.
+
+## The void
+
+The void is someone too: an archivist. Everything ever made and let go comes to rest in it, and
+it keeps all of it; the sectors are its rooms, the entity a thief in its archive. Its character is in `persona/void.md`, which you can edit (restart the
+server to hear the change); like the rest of `persona/` it is kept out of the repository, and
+without it the void dreams plainly and speaks only in its own few local lines. It colours every sector dreamt from then on (names, inscriptions,
+whispers; sectors already dreamt stay as they were), and now and then, more seldom than the
+entity, the void speaks to you itself: a few words forming in the fog, written by Claude
+(`POST /api/void`) from what you have been doing, the rooms you passed and what you lingered on
+or picked out. Without Claude a local script says much the same with the
+same real names and numbers. What it has said is kept in the browser.
 
 ## What sectors are made of
 
@@ -265,6 +278,18 @@ folder's), and `look` names one of our stages (`open water`, `ember field`, `gla
 Folders are played in name order. Links into `zone/` are followed, so files can stay where they are.
 Reload the page after changing files.
 
+## Plugins
+
+Local additions of your own go in `plugins/<name>/`, which `.gitignore` keeps out of the
+repository. A plugin's `server.js`, if it has one, default-exports a function that is given what it
+may use (`send`, `readBody`, which paths are cvoid's own, the port, a way to add to the hub's
+description) and returns `handle(req, res, url)`, asked before cvoid's own routes, and
+`upgrade(req, socket, head)` for websockets. Its `public/` folder is served at `/plugins/<name>/`,
+and its `public/client.js`, if there, is loaded into the page: it default-exports
+`install(game)` and returns its hooks into the frame, the keys and mouse, the flight, the HUD, the
+map and the void's voice (listed at the top of `public/src/main.js`). A plugin may add a dimension
+of its own (`game.addRealm`). Without plugins, none of this does anything.
+
 ## Coordinates
 
 Nothing is random per visit. Sectors sit on an integer grid, 5200 units apart (`public/src/constants.js`): `x` east,
@@ -292,6 +317,7 @@ your offset from its centre. A sector Claude has dreamt is stored as
 - `public/src/structures.js`: solids, layouts, blueprints
 - `public/src/entity.js`: the entity and its acts
 - `public/src/marderchen.js`, `public/src/museum.js`, `persona/`, `scripts/museum*.mjs`: marderchen's dimension, his museum and his persona
+- `public/src/zone.js`, `public/src/stack.js`: the zone and the falling-block game in its well
 - `public/src/map.js`: the sector map overlay
 - `public/src/spec.js`: origin hub, local fallback generator, spec clamping
 - `public/src/shaders.js`: noise library and all GLSL

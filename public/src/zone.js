@@ -11,6 +11,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { CELL } from "./constants.js";
 import { hashCoords, mulberry32 } from "./noise.js";
 import { ORIGIN } from "./spec.js";
+import { voidHole } from "./hole.js";
 import { Stack, W, H, ZONE_SECONDS } from "./stack.js";
 
 export const ZONE = "zone";
@@ -300,7 +301,7 @@ export class Zone {
     for (let i = 0; i < orbiting; i++) this.ring.setColorAt(ringCount + i, colour.set(PIECE[KINDS[Math.floor(i / 4)]]));
     this.ringCount = ringCount;
     this.gate.add(this.ring);
-    this.hole = new THREE.Mesh(new THREE.SphereGeometry(HOLE, 40, 24), new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide, fog: false }));
+    this.hole = new THREE.Mesh(new THREE.SphereGeometry(HOLE, 40, 24), voidHole(world.G.uTime)); // the void's violet in it, glowing at its edge
     this.gate.add(this.hole);
     this.gate.visible = false;
     scene.add(this.gate);

@@ -33,6 +33,16 @@ export class VoidAudio {
     const limiter = ctx.createDynamicsCompressor();
     this.master.connect(limiter).connect(ctx.destination);
 
+    // a wide hall over everything (the drone, whatever plays, every sound): silent until the entity opens
+    // it up now and then (see Entity.meddle)
+    this.space = ctx.createGain();
+    this.space.gain.value = 0;
+    const hall = ctx.createConvolver();
+    hall.buffer = this.hall(ctx, 4.5);
+    this.master.connect(this.space).connect(hall).connect(limiter);
+    this.warpCents = 0;
+    this.played = new Set(); // media elements playing in the world (as weak references), bent with the rest
+
     // what the picture listens to: the game's own sound, or the microphone when that is switched on
     this.analyser = ctx.createAnalyser();
     this.analyser.fftSize = 1024;
@@ -93,10 +103,14 @@ export class VoidAudio {
     wind.loop = true;
     this.windBand = ctx.createBiquadFilter();
     this.windBand.type = "bandpass";
-    this.windBand.Q.value = 0.7;
+    this.windBand.Q.value = 0.9;
+    // and its hiss taken off the top: a soft rush of air, not static
+    const soft = ctx.createBiquadFilter();
+    soft.type = "lowpass";
+    soft.frequency.value = 2200;
     this.windGain = ctx.createGain();
     this.windGain.gain.value = 0;
-    wind.connect(this.windBand).connect(this.windGain).connect(this.master);
+    wind.connect(this.windBand).connect(soft).connect(this.windGain).connect(this.master);
     wind.start();
 
     // the entity's voice: two close tones beating against each other, placed left or right of you
@@ -136,8 +150,10 @@ export class VoidAudio {
   setSpeed(speed) {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
-    this.windGain.gain.setTargetAtTime(Math.min(speed / 320, 1) ** 1.5 * 0.22, now, 0.3);
-    this.windBand.frequency.setTargetAtTime(250 + speed * 3, now, 0.3);
+    // quiet, and rising slowly with speed; its pitch climbs too, but only so far (a surge is a
+    // deeper rush, not a higher hiss)
+    this.windGain.gain.setTargetAtTime(Math.min(speed / 450, 1) ** 1.6 * 0.1, now, 0.4);
+    this.windBand.frequency.setTargetAtTime(Math.min(220 + speed * 1.4, 1400), now, 0.4);
   }
 
   ping(frequency, level, decay, when = this.ctx.currentTime) {
@@ -212,7 +228,7 @@ export class VoidAudio {
     // the game knows exactly when its own heartbeat lands; the room has to be listened for
     const now = this.ctx.currentTime;
     while (this.hits.length && this.hits[0].at <= now) out.beat = Math.max(out.beat, this.hits.shift().strength);
-    if ((this.mic || this.trackOn || this.zone?.heard) && raw.bass > this.averages.bass + 0.035 && out.beat < 0.4) out.beat = 1;
+    if ((this.mic || this.trackOn || this.zone?.heard || this.mediaOn) && raw.bass > this.averages.bass + 0.035 && out.beat < 0.4) out.beat = 1;
     out.beat *= Math.exp(-dt * 5);
     return out;
   }
@@ -244,6 +260,64 @@ export class VoidAudio {
     const now = this.ctx.currentTime;
     this.droneLevel.gain.setTargetAtTime(on ? 0.25 : 1, now, 1.5);
     if (on && !this.chipRunning) this.stepChip(0);
+  }
+
+  // the hall's echo: noise in both ears, dying away over seconds and darkening as it does
+  hall(ctx, seconds) {
+    const length = Math.floor(ctx.sampleRate * seconds), buffer = ctx.createBuffer(2, length, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = buffer.getChannelData(ch);
+      let low = 0;
+      for (let i = 0; i < length; i++) {
+        const t = i / length, k = 0.08 + 0.9 * t; // the further in, the softer
+        low += (Math.random() * 2 - 1 - low) * (1 - k);
+        data[i] = low * (1 - t) ** 2.6 * (i < ctx.sampleRate * 0.02 ? i / (ctx.sampleRate * 0.02) : 1);
+      }
+    }
+    return buffer;
+  }
+
+  // how much of the hall is heard (0 to about 0.4)
+  setSpace(amount) {
+    if (!this.ctx || Math.abs(amount - (this.spaceLevel ?? 0)) < 0.002) return;
+    this.spaceLevel = amount;
+    this.space.gain.setTargetAtTime(amount, this.ctx.currentTime, 0.2);
+  }
+
+  // everything bent by this many cents: the drone's voices, and the media playing (played that much
+  // faster or slower, their pitch let go with it)
+  setWarp(cents) {
+    if (!this.ctx || Math.abs(cents - this.warpCents) < 0.5) return;
+    this.warpCents = cents;
+    const now = this.ctx.currentTime, rate = 2 ** (cents / 1200);
+    this.voices.forEach((osc, i) => osc.detune.setTargetAtTime((i - 1.5) * 4 + cents, now, 0.1));
+    for (const ref of this.played) {
+      const el = ref.deref();
+      if (!el) { this.played.delete(ref); continue; }
+      el.preservesPitch = false;
+      el.playbackRate = rate;
+    }
+  }
+
+  // A media element playing in the world (a plugin's: see main.js): its sound goes through the master
+  // (volume, mute, the analyser, the entity's bending), at a level set by whoever plays it. Returns
+  // that level's gain, or null before start.
+  mediaOut(el) {
+    if (!this.ctx) return null;
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0;
+    const source = this.ctx.createMediaElementSource(el);
+    source.connect(gain).connect(this.master);
+    this.played.add(new WeakRef(el));
+    if (this.warpCents) { el.preservesPitch = false; el.playbackRate = 2 ** (this.warpCents / 1200); }
+    return { gain, source };
+  }
+
+  // while something a plugin plays is plainly heard, the drone steps back for it
+  setMedia(on) {
+    if (!this.ctx || this.mediaOn === on) return;
+    this.mediaOn = on;
+    this.droneLevel.gain.setTargetAtTime(on ? 0.3 : 1, this.ctx.currentTime, 1.5);
   }
 
   // The music of his homepage. Half a minute after the page opened, a loop began: "Break The Time

@@ -45,7 +45,7 @@ function basis(p) { // p: four [x, y] points
   const v = [0, 1, 2].map((i) => a[3 * i] * p[3][0] + a[3 * i + 1] * p[3][1] + a[3 * i + 2]);
   return mul(m, [v[0], 0, 0, 0, v[1], 0, 0, 0, v[2]]);
 }
-function wallTransform(w, h, corners) {
+export function wallTransform(w, h, corners) {
   const t = mul(basis(corners), adj(basis([[0, 0], [w, 0], [w, h], [0, h]]))).map((n, _, all) => n / all[8]);
   return `matrix3d(${[t[0], t[3], 0, t[6], t[1], t[4], 0, t[7], 0, 0, 1, 0, t[2], t[5], 0, t[8]].join(",")})`;
 }

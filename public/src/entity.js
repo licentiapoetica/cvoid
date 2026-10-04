@@ -8,6 +8,12 @@ const FIRST_BEAT = 28;           // seconds of flight before it first makes itse
 const BEAT_GAP = [45, 95];       // seconds of quiet between beats
 const LINE_SECONDS = 5.5;
 
+// Its two quiet habits with the sound, wherever you are (see meddle): seldom it bends the pitch of
+// everything a little and lets it come back, too slowly to be sure it happened; more often, in a good
+// mood, it opens the space up into a wide hall for a while. Seconds between, how far, how long.
+const BEND = { every: [420, 900], cents: [-140, -50], up: 0.2, rise: 9, hold: [12, 30], fall: 14 };
+const SPACE = { every: [240, 540], wet: [0.18, 0.38], rise: 6, hold: [30, 70], fall: 12 };
+
 const forward = new THREE.Vector3(), to = new THREE.Vector3(), tmp = new THREE.Vector3();
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 const pickFrom = (list) => list[Math.floor(Math.random() * list.length)];
@@ -32,8 +38,9 @@ const sprite = (map, sx, sy) => {
 };
 
 // Stand-in voice for when Claude can't be reached. Sparse on purpose.
+const LEFT = "i saw you leave the origin"; // only once they have
 const LOCAL = {
-  early: ["there you are", "further", "not here", "keep going", "i saw you leave the origin", "you are slower than the last one"],
+  early: ["there you are", "further", "not here", "keep going", LEFT, "you are slower than the last one"],
   middle: ["you came when i called. i noticed", "the dark is not empty. it is full of me", "do you count the sectors. i do",
     "i left something for you. not here", "you keep looking behind you", "nobody maps this far out"],
   late: ["there is an end. i have stood at it", "you are almost where i started", "when you stop, i stop. so do not stop",
@@ -58,6 +65,7 @@ export class Entity {
     this.hudTimer = 0;
     this.time = 0;
     this.lineTimers = [];
+    this.sawOrigin = false; // whether they were at the hub this visit
 
     // its body: a tall pale sliver of light
     this.body = sprite(glowTexture((ctx) => {
@@ -119,9 +127,16 @@ export class Entity {
 
   // ---- deciding what happens ----
 
+  // the hub sector of the void itself (in the other dimensions 0, 0, 0 is somewhere else)
+  atOrigin() {
+    return this.world.realm === "void" && this.world.currentKey === "0,0,0";
+  }
+
   async beat(event, camera, speed) {
-    this.fetching = true;
     const { state, world } = this;
+    // At the hub it keeps its distance and its silence: only eyes, far out in the dark.
+    if (event === "beat" && this.atOrigin()) return this.run({ act: "watch", lines: [], far: true, source: "origin" }, camera);
+    this.fetching = true;
     const sector = world.currentKey.split(",").map(Number);
     let beat = null;
     if (!world.offline) {
@@ -132,7 +147,7 @@ export class Entity {
           body: JSON.stringify({
             event, sector, chapter: state.chapter, minutes: state.seconds / 60, crossed: state.crossed,
             sectorName: world.currentSpec?.name, recent: state.recent, rendezvous: state.rendezvous,
-            said: state.said, acts: state.acts,
+            said: state.said, acts: state.acts, leftOrigin: this.sawOrigin,
             motion: speed < 6 ? "standing still" : speed > 250 ? "rushing" : "drifting forward",
           }),
         });
@@ -147,8 +162,8 @@ export class Entity {
   localBeat(event, sector) {
     const { state } = this;
     const tier = event === "arrival" ? "arrival" : state.chapter < 2 ? "early" : state.chapter < 6 ? "middle" : "late";
-    const fresh = LOCAL[tier].filter((l) => !state.said.includes(l));
-    const lines = [pickFrom(fresh.length ? fresh : LOCAL[tier])];
+    const fresh = LOCAL[tier].filter((l) => !state.said.includes(l) && (l !== LEFT || this.sawOrigin));
+    const lines = [pickFrom(fresh.length ? fresh : LOCAL[tier].filter((l) => l !== LEFT))];
     const last = state.acts.at(-1);
     let act = pickFrom(["beckon", "blackout", "watch", "trail", "silence"].filter((a) => a !== last));
     let rendezvous = null;
@@ -174,7 +189,7 @@ export class Entity {
     }
     this.save();
     this.say(beat.lines);
-    this.act = this[`act_${beat.act}`]?.(camera) ?? this.act_beckon(camera);
+    this.act = this[`act_${beat.act}`]?.(camera, beat) ?? this.act_beckon(camera);
   }
 
   // ---- helpers ----
@@ -241,12 +256,14 @@ export class Entity {
     };
   }
 
-  act_watch(camera) {
+  act_watch(camera, { far = false } = {}) {
     camera.getWorldDirection(forward);
+    // far: out past the hub's ring, small with distance but still big enough to read as eyes
+    const k = far ? 18 : 1, size = far ? 8 : 1;
     const eyes = Array.from({ length: 3 + Math.floor(Math.random() * 3) }, () => {
-      const eye = sprite(this.eyeMap, rand(10, 16), rand(5, 8));
-      eye.position.copy(camera.position).addScaledVector(forward, -rand(120, 190));
-      eye.position.x += rand(-80, 80); eye.position.y += rand(-45, 60); eye.position.z += rand(-80, 80);
+      const eye = sprite(this.eyeMap, rand(10, 16) * size, rand(5, 8) * size);
+      eye.position.copy(camera.position).addScaledVector(forward, -rand(120, 190) * k);
+      eye.position.x += rand(-80, 80) * k; eye.position.y += rand(-45, 60) * k; eye.position.z += rand(-80, 80) * k;
       eye.visible = true;
       this.scene.add(eye);
       return eye;
@@ -261,14 +278,14 @@ export class Entity {
       centre.set(0, 0, 0);
       for (const eye of eyes) {
         eye.position.add(tmp);
-        if (age > 12) eye.position.addScaledVector(to.copy(cam.position).sub(eye.position).normalize(), 9 * dt);
+        if (age > 12) eye.position.addScaledVector(to.copy(cam.position).sub(eye.position).normalize(), 9 * k * dt);
         centre.add(eye.position);
       }
       centre.divideScalar(eyes.length);
       cam.getWorldDirection(forward);
       const looking = forward.dot(to.copy(centre).sub(cam.position).normalize()) > 0.7;
       seen = looking ? seen + dt : 0;
-      if (!gone && (seen > 0.3 || age > 40 || centre.distanceTo(cam.position) < 45)) {
+      if (!gone && (seen > 0.3 || age > 40 || centre.distanceTo(cam.position) < 45 * k)) {
         gone = 0.001;
         if (seen > 0.3) this.audio.sting();
       }
@@ -335,12 +352,33 @@ export class Entity {
     this.beat("arrival", camera, speed);
   }
 
+  // every frame, in every dimension: its habits with the sound (see BEND, SPACE)
+  meddle(dt) {
+    const m = (this.habits ??= { bend: { next: rand(...BEND.every), at: -1 }, space: { next: rand(...SPACE.every), at: -1 } });
+    const swell = (h, rise, fall, start) => {
+      // how far into it: rising, held, falling away (smoothed at both ends); 0 when over
+      if (h.at < 0 && (h.next -= dt) <= 0) Object.assign(h, start(), { at: 0 });
+      if (h.at < 0) return 0;
+      const t = (h.at += dt), k = t < rise ? t / rise : t < rise + h.hold ? 1 : 1 - (t - rise - h.hold) / fall;
+      if (k <= 0) { h.at = -1; return 0; }
+      return k * k * (3 - 2 * k);
+    };
+    const bend = swell(m.bend, BEND.rise, BEND.fall, () => ({
+      next: rand(...BEND.every), hold: rand(...BEND.hold),
+      cents: Math.random() < BEND.up ? rand(50, 90) : rand(...BEND.cents),
+    }));
+    this.audio.setWarp(bend * (m.bend.cents ?? 0));
+    const open = swell(m.space, SPACE.rise, SPACE.fall, () => ({ next: rand(...SPACE.every), hold: rand(...SPACE.hold), wet: rand(...SPACE.wet) }));
+    this.audio.setSpace(open * (m.space.wet ?? 0));
+  }
+
   update(dt, camera, speed) {
     const { state, world } = this;
     this.time += dt;
     state.seconds += dt;
 
     const key = world.currentKey;
+    if (this.atOrigin()) this.sawOrigin = true;
     if (key && key !== this.lastKey) {
       if (this.lastKey) state.crossed++;
       this.lastKey = key;

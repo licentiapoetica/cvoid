@@ -6,3 +6,7 @@ persona/
 public/marderchen/about.txt
 # the zone dimension's music, pictures and models: your own files, kept local
 /zone/
+# plugins: local additions of your own (see the README), kept out of the repository
+/plugins/
+# gumo: its site and pictures, your own files, kept local
+/gumo/

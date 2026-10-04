@@ -3,7 +3,9 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
-import { World, CELL } from "./world.js";
+import { SCREENS, screenPass } from "./screen.js";
+import { VoidVoice } from "./voice.js";
+import { World, CELL, addRealm } from "./world.js";
 import { VoidAudio } from "./audio.js";
 import { VoidMap } from "./map.js";
 import { Entity } from "./entity.js";
@@ -13,7 +15,10 @@ import { Zone, ZONE } from "./zone.js";
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+// with an alpha channel: opaque everywhere, but a plugin may cut a hole in the picture to show
+// something it places behind it (a page, say), which what hangs in front then hides as it should
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance", alpha: true });
+renderer.setClearColor(0x000000, 1);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 
@@ -25,7 +30,11 @@ const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.6, 0.6, 0.55);
 composer.addPass(bloom);
+// the glow is added to the colour only: over such a hole it glows, without filling it
+Object.assign(bloom.blendMaterial, { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });
 composer.addPass(new OutputPass());
+const screen = screenPass(); // the glass it is all seen through (Tab panel: screen)
+composer.addPass(screen.pass);
 
 const audio = new VoidAudio();
 
@@ -43,7 +52,8 @@ function onSector(spec, shown, key) {
     : spec.source === "chaostyper" ? "don't know the future seens to be an error"
     : spec.source === "marderchen" ? "[MEOW] by marderchen · its free · have fun :3 =^.^="
     : spec.source === "zone" ? "the zone · R looks at the well · P plays at it"
-    : spec.source === "zone-gate" ? "a way down" : "local noise · claude unreachable";
+    : spec.source === "zone-gate" ? "a way down"
+    : hook("status", spec) || "local noise · claude unreachable";
   const name = spec ? spec.name : "· · ·";
   const changed = hud.key !== key || $("name").textContent !== name;
   $("name").textContent = name;
@@ -79,19 +89,23 @@ function resize() {
   renderer.setSize(w, h, false);
   composer.setPixelRatio(ratio);
   composer.setSize(w, h);
+  screen.resize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   world.G.uPx.value = (ratio * h) / 900;
   map.resize();
 }
-const pace = { time: 0, frames: 0, hold: 0 };
+// It goes by the typical frame (the median), not the average: one stall (a sector being built, a
+// shader compiled) is not a slow machine, and dropping the resolution for it is a visible jump.
+const pace = { time: 0, frames: [], hold: 0 };
 function adaptResolution(dt) {
   pace.time += dt;
-  pace.frames++;
+  pace.frames.push(dt);
   pace.hold -= dt;
   if (pace.time < 1.5) return;
-  const frame = pace.time / pace.frames;
-  pace.time = pace.frames = 0;
+  const frame = pace.frames.sort((a, b) => a - b)[pace.frames.length >> 1];
+  pace.time = 0;
+  pace.frames = [];
   if (frame > 1 / 38 && ratio > MIN_RATIO) {
     ratio = Math.max(MIN_RATIO, ratio * 0.82);
     pace.hold = 12; // don't climb straight back into the stall
@@ -107,6 +121,7 @@ resize();
 // ---- flight ----
 
 const keys = new Set();
+const ahead = new THREE.Vector3();
 const velocity = new THREE.Vector3();
 const thrust = new THREE.Vector3();
 // yaw/pitch are where the player is aiming; the camera eases onto them
@@ -114,7 +129,13 @@ let yaw = 0, pitch = 0, viewYaw = 0, viewPitch = 0, started = false, touchThrust
 let roll = 0, viewRoll = 0; // Q and E turn the view about where you are looking
 const ROLL = 1.4;          // radians per second
 
-const THRUST = 150, SURGE = 5, DRAG = 1.6;
+const THRUST = 150, SURGE = 9, DRAG = 1.6;
+const ZOOM = 0.5, ZOOM_AFTER = 0.18; // right button held: the lens narrows to this (about 2× nearer), once held this many seconds
+let rightHeld = 0; // when the right button went down (0: it is up)
+const AHEAD = 1.4; // flying forward (W) goes this much faster than sideways, back or up
+// Shift surges; tapped twice quickly and held, it surges harder still, until it is let go
+const HYPER = 3, DOUBLE_TAP = 300; // ms between the two taps
+let lastShift = -Infinity, hyper = false;
 const BODY = 14;  // how wide you are, for bumping into things
 let bumpIn = 0;   // a knock is heard at most this often
 const MOUSE_LOOK = 0.0016;  // radians per count of raw mouse movement
@@ -143,6 +164,42 @@ function arrive(toYaw, toPitch) {
 }
 const marderchen = new Marderchen({ scene, world, audio, textEl: $("marder"), stored, store, arrive });
 const zone = new Zone({ scene, world, audio, hintEl: $("hint"), stored, store, arrive, face, levelOut: () => levelOut() });
+// ---- plugins: optional local additions, in plugins/<name>/ beside cvoid (kept out of its repository) ----
+// The server says which there are (see server.js); each one's client.js default-exports install(cvoid),
+// given the pieces of the game it may use (see the end of this file), and returns its hooks, all
+// optional: update(dt, camera) each frame of flight · idle(dt) before it starts · busy() something of
+// its own is open (flight and the keys wait) · key(e) / mouse(e) / rightClick() / wheel(e): true when
+// it took it · look(dx, dy) you turned the view · autofly(on): true (or a note) when it flies for you
+// its own way · steer(camera, dt, hurry): where to go and look · pull, roll, fade: its pull on you, its
+// tilt, the dark at its door · collide(position, velocity, radius) · status(spec): the HUD's line for
+// its sectors · target(): what R turns you to · notice(): what you are with (for the void's voice) ·
+// leaveRealm / enterRealm(realm, camera): going there by the map · help: its keys, for the help line
+const plugins = [];
+const hook = (name, ...args) => {
+  for (const p of plugins) {
+    const answer = typeof p[name] === "function" ? p[name](...args) : null;
+    if (answer) return answer;
+  }
+  return null;
+};
+const realmNames = { [REALM]: "marderchen's dimension", [ZONE]: "the zone" }; // for the HUD (a plugin's are added)
+const voice = new VoidVoice({ world, notice: () => hook("notice"), textEl: $("voidVoice"), stored, store }); // the void itself, now and then
+
+// the screen: chosen in the Tab panel, remembered
+{
+  let chosen = stored("screen", "none");
+  const row = $("mScreen"), buttons = SCREENS.map((name) => {
+    const b = Object.assign(document.createElement("button"), { textContent: name });
+    b.onclick = () => { chosen = name; store("screen", name); show(); };
+    row.append(b);
+    return b;
+  });
+  const show = () => {
+    screen.set(chosen);
+    buttons.forEach((b, i) => b.classList.toggle("on", SCREENS[i] === chosen));
+  };
+  show();
+}
 const fadeEl = $("fade");
 
 // Going somewhere at once, from the map: in the dark, into whichever dimension the place is in.
@@ -151,8 +208,10 @@ function teleport(realm, x, y, z) {
   if (world.realm !== realm) {
     if (world.realm === ZONE) zone.travel(camera); // back out to the void first
     else if (world.realm === REALM) marderchen.travel(camera);
+    else hook("leaveRealm", world.realm, camera);
     if (realm === ZONE) zone.travel(camera);
     else if (realm === REALM) marderchen.travel(camera);
+    else hook("enterRealm", realm, camera);
   }
   camera.position.set(x, y, z);
   velocity.set(0, 0, 0);
@@ -170,7 +229,7 @@ map.bind({
 });
 
 const HELP = {
-  keys: "mouse look · w a s d fly · q e roll · enter autofly · space / c rise, sink · shift surge · r level out · - = volume · f fullscreen · tab map · b listen to the room · [ ] sensitivity · i invert · m mute",
+  keys: "mouse look · w a s d fly · q e roll · enter autofly · space / c rise, sink · shift surge (twice: faster) · r level out · - = volume · f fullscreen · tab map · b listen to the room · [ ] sensitivity · i invert · h hide hud · m mute · hold right zoom",
   pad: "sticks fly and look · triggers rise, sink · bumpers roll · a or left-stick click surge · right-stick click autofly · d-pad ▲ level out · select map · d-pad ◀ ▶ sensitivity · x invert · y mute",
   // sitting at the well in the zone
   "play-keys": "← → move · ↓ soft drop · space hard drop · ↑ x rotate · z ctrl rotate back · a turn round · c shift hold · v zone · q e roll · r look at the well · p stand up",
@@ -179,7 +238,8 @@ const HELP = {
 let helpMode = "keys", noteTimer = 0;
 function showHelp(mode = helpMode) {
   helpMode = mode;
-  $("help").textContent = HELP[zone.seated ? `play-${mode}` : mode];
+  const theirs = mode === "keys" && !zone.seated ? plugins.map((p) => p.help).filter(Boolean) : []; // and the plugins' keys
+  $("help").textContent = [HELP[zone.seated ? `play-${mode}` : mode], ...theirs].join(" · ");
 }
 function note(text) {
   $("help").textContent = text;
@@ -192,6 +252,7 @@ showHelp();
 // top and fly on upside down. While you are upside down, left and right are swapped back so that
 // moving the mouse left still turns the view left.
 function look(dx, dy, scale) {
+  if (dx || dy) for (const p of plugins) p.look?.(dx, dy); // (a plugin flying you somewhere lets you look about)
   // rolled over, the mouse still moves the view the way it moves on the screen
   const c = Math.cos(viewRoll), s = Math.sin(viewRoll);
   [dx, dy] = [dx * c + dy * s, dy * c - dx * s];
@@ -222,10 +283,20 @@ function levelOut() {
   viewRoll -= turns;
   roll = 0;
   if (world.realm === ZONE) return zone.lookAtWell();
+  // to whatever a plugin says you are with
+  const target = hook("target");
+  if (target) {
+    const to = target.clone().sub(camera.position), length = to.length() || 1;
+    return face(Math.atan2(-to.x, -to.z), Math.asin(Math.max(-1, Math.min(1, to.y / length))));
+  }
   face(Math.cos(pitch) < 0 ? yaw + Math.PI : yaw, 0);
 }
 // Enter: keep flying forward by itself until Enter again, or until you pull back
-function toggleAutofly(on = !autofly) {
+function toggleAutofly(on) {
+  // a plugin may fly you its own way instead (its answer may be a note to show)
+  const taken = hook("autofly", on);
+  if (taken) return void (typeof taken === "string" && note(taken));
+  on ??= !autofly;
   if (on === autofly) return;
   autofly = on;
   note(autofly ? "autofly on · enter or s to stop" : "autofly off");
@@ -266,6 +337,7 @@ function start() {
   map.visit(world.currentKey); // where you begin counts as explored
   $("start").classList.add("gone");
   $("hud").classList.add("on");
+  $("crosshair").classList.add("on");
 }
 
 // Raw mouse input where the browser offers it: the OS pointer acceleration curve
@@ -291,7 +363,7 @@ document.addEventListener("mousemove", (e) => {
   // the first events after locking, and occasional huge deltas some browsers emit, would snap the view
   if (skipMoves > 0) return void skipMoves--;
   if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return;
-  look(e.movementX, e.movementY, MOUSE_LOOK * sensitivity);
+  look(e.movementX, e.movementY, MOUSE_LOOK * sensitivity * (camera.fov / 70)); // zoomed in, the view turns as much less
 });
 window.addEventListener("keydown", (e) => {
   // the map is open: Tab or Esc closes it, O goes back to the origin; flying goes on
@@ -315,6 +387,8 @@ window.addEventListener("keydown", (e) => {
     if (e.code === "Escape") marderchen.museum.close();
     return;
   }
+  // a plugin's own keys (or all of them, while something of its own is open)
+  if (hook("key", e)) return;
   if (!e.repeat) {
     // in his museum E opens the piece you are looking at; everywhere else it rolls the view
     if (e.code === "KeyE" && marderchen.museum.canOpen()) { keys.clear(); marderchen.museum.toggle(); }
@@ -325,6 +399,7 @@ window.addEventListener("keydown", (e) => {
     if (e.code === "Enter" || e.code === "NumpadEnter") toggleAutofly();
     if (e.code === "KeyS") toggleAutofly(false);
     if (e.code === "KeyI") toggleInvert();
+    if (e.code === "KeyH") { document.body.classList.toggle("bare"); document.body.classList.add("unbared"); } // the HUD away, and back
     if (e.code === "KeyR") levelOut();
     if (e.code === "Tab") map.toggle();
     if (e.code === "KeyF") toggleFullscreen();
@@ -336,10 +411,15 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "BracketLeft") changeSensitivity(1 / 1.1);
   if (e.code === "BracketRight") changeSensitivity(1.1);
   if (e.code === "Space") e.preventDefault();
+  if ((e.code === "ShiftLeft" || e.code === "ShiftRight") && !e.repeat) {
+    if (e.timeStamp - lastShift < DOUBLE_TAP && !hyper) { hyper = true; note("surge · faster"); }
+    lastShift = e.timeStamp;
+  }
   keys.add(e.code);
 });
 window.addEventListener("keyup", (e) => {
   keys.delete(e.code);
+  if (!keys.has("ShiftLeft") && !keys.has("ShiftRight")) hyper = false;
   zone.key(e, false);
 });
 
@@ -359,7 +439,26 @@ async function toggleFullscreen() {
     lockPointer();
   } catch { /* fullscreen refused: nothing to undo */ }
 }
-window.addEventListener("blur", () => keys.clear());
+// the left button is the plugins'; the right one, held, zooms in
+// (see ZOOM), and let go quickly it is a click, which is the plugins' again
+const aiming = () => started && document.pointerLockElement === canvas && !map.open;
+document.addEventListener("mousedown", (e) => {
+  if (e.button === 2 && aiming()) rightHeld = e.timeStamp;
+  if (e.button === 0 && aiming()) hook("mouse", e);
+});
+document.addEventListener("mouseup", (e) => {
+  if (e.button !== 2 || !rightHeld) return;
+  const click = e.timeStamp - rightHeld < ZOOM_AFTER * 1000;
+  rightHeld = 0;
+  if (click && aiming()) hook("rightClick");
+});
+document.addEventListener("pointerlockchange", () => { if (document.pointerLockElement !== canvas) rightHeld = 0; });
+document.addEventListener("contextmenu", (e) => { if (document.pointerLockElement === canvas) e.preventDefault(); });
+// the wheel is the plugins'
+window.addEventListener("wheel", (e) => {
+  if (started && !map.open && hook("wheel", e)) e.preventDefault();
+}, { passive: false });
+window.addEventListener("blur", () => { keys.clear(); hyper = false; });
 // a gamepad press can't unlock audio on its own; any later click or key does
 for (const type of ["pointerdown", "keydown"]) window.addEventListener(type, () => audio.ctx?.resume());
 
@@ -443,6 +542,8 @@ window.addEventListener("touchend", touchEnd);
 window.addEventListener("touchcancel", touchEnd);
 if (matchMedia("(pointer: coarse)").matches) $("prompt").textContent = "tap to materialize · drag to look · two fingers to fly";
 
+const RISE_RAMP = 1.2; // seconds of holding space to reach the full faster climb
+let riseHold = 0;
 function fly(dt) {
   const axis = (pos, neg) => (keys.has(pos) ? 1 : 0) - (keys.has(neg) ? 1 : 0);
   // aim first, so thrust follows where the camera points this frame
@@ -455,8 +556,9 @@ function fly(dt) {
     levelling -= dt;
     marderchen.roll *= Math.exp(-8 * dt);
     zone.roll *= Math.exp(-8 * dt);
+    for (const p of plugins) if (p.roll) p.roll *= Math.exp(-8 * dt);
   }
-  camera.rotation.set(viewPitch, viewYaw, viewRoll + marderchen.roll + zone.roll);
+  camera.rotation.set(viewPitch, viewYaw, viewRoll + marderchen.roll + zone.roll + plugins.reduce((sum, p) => sum + (p.roll ?? 0), 0));
   if (zone.seated) {
     // sitting at the well: the seat holds you, and only the view moves
     autofly = false;
@@ -469,16 +571,30 @@ function fly(dt) {
   thrust.applyEuler(camera.rotation);
   thrust.y += axis("Space", "KeyC") - (keys.has("ControlLeft") ? 1 : 0) + pad.rise;
   if (thrust.lengthSq() > 1) thrust.normalize();
-  const surge = keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge ? SURGE : 1;
+  const forward = thrust.dot(camera.getWorldDirection(ahead));
+  if (forward > 0) thrust.addScaledVector(ahead, forward * (AHEAD - 1));
+  const surge = keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge ? SURGE * (hyper ? HYPER : 1) : 1;
   velocity.addScaledVector(thrust, THRUST * surge * dt);
+  // holding space: the climb picks up the longer it is held, up to 1.6 times (a tap stays gentle)
+  riseHold = keys.has("Space") ? Math.min(riseHold + dt, RISE_RAMP) : 0;
+  velocity.y += THRUST * surge * dt * 0.6 * (riseHold / RISE_RAMP);
   velocity.addScaledVector(marderchen.museum.current, dt); // the museum's vortex pulls gently onward
   velocity.addScaledVector(marderchen.pull, dt);           // and the portal at his door pulls hard
   velocity.addScaledVector(zone.pull, dt);                 // as does the ring down to the zone
+  for (const p of plugins) if (p.pull) velocity.addScaledVector(p.pull, dt); // and whatever a plugin pulls you with
   velocity.multiplyScalar(Math.exp(-DRAG * dt));
+  // a plugin flying you somewhere: steered there, and turned to it
+  // Shift on the way hurries the flight (twice tapped: more)
+  const hurry = surge > 1 ? (hyper ? 4 : 2.5) : 1;
+  const steer = hook("steer", camera, dt, hurry);
+  if (steer) {
+    velocity.lerp(steer.velocity, 1 - Math.exp(-3 * (steer.hurry ?? 1) * dt));
+    if (steer.look) face(steer.look.yaw, steer.look.pitch);
+  }
   camera.position.addScaledVector(velocity, dt * world.slow);
   // things are solid: you bounce off them (twice over, for corners)
   let impact = 0;
-  for (let pass = 0; pass < 2; pass++) impact = Math.max(impact, world.collide(camera.position, velocity, BODY), zone.collide(camera.position, velocity, BODY));
+  for (let pass = 0; pass < 2; pass++) impact = Math.max(impact, world.collide(camera.position, velocity, BODY), zone.collide(camera.position, velocity, BODY), ...plugins.map((p) => p.collide?.(camera.position, velocity, BODY) ?? 0));
   bumpIn -= dt;
   if (impact > 40 && bumpIn <= 0) {
     audio.bump(Math.min(1, impact / 700));
@@ -499,8 +615,8 @@ renderer.setAnimationLoop((now) => {
   last = now;
   elapsed += dt;
   pollPad(dt);
-  if (!started) idle(elapsed);
-  else if (!marderchen.museum.open) fly(dt); // a piece is open: stay where you are
+  if (!started) { idle(elapsed); for (const p of plugins) p.idle?.(dt); } // (what they have in the hub moves behind the start screen too)
+  else if (!marderchen.museum.open && !hook("busy")) fly(dt); // a piece is open: stay where you are
   const heard = audio.features(dt);
   world.G.uBass.value = heard.bass; world.G.uMid.value = heard.mid; world.G.uHigh.value = heard.high; world.G.uBeat.value = heard.beat;
   // in the zone the pieces stand steady: the music does not brighten or flash their edges
@@ -509,6 +625,8 @@ renderer.setAnimationLoop((now) => {
   if (started) {
     marderchen.update(dt, camera, keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge);
     zone.update(dt, camera, velocity);
+    for (const p of plugins) p.update?.(dt, camera);
+    voice.update(dt, velocity.length(), $("entity").classList.contains("show"));
     if (zone.seated !== seatedBefore) {
       seatedBefore = zone.seated;
       document.body.classList.toggle("seated", zone.seated);
@@ -516,17 +634,20 @@ renderer.setAnimationLoop((now) => {
     }
     // the entity does not follow into marderchen's dimension
     if (world.realm === "void" && !marderchen.mad) entity.update(dt, camera, velocity.length()); // nor does it show itself while he is out
+    entity.meddle(dt); // (its ways with the sound reach everywhere)
   }
-  fadeEl.style.opacity = Math.max(marderchen.fade, zone.fade).toFixed(3); // the dark at either door
+  fadeEl.style.opacity = Math.max(marderchen.fade, zone.fade, ...plugins.map((p) => p.fade ?? 0)).toFixed(3); // the dark at any door
   world.sky.render(renderer, camera);
   if (document.visibilityState === "visible") adaptResolution(dt);
   audio.setSpeed(velocity.length());
-  // the lens widens a little at speed
-  const fov = 70 + Math.min(velocity.length() / 500, 1) * 18;
+  // the lens widens a little at speed, and narrows (zooms in) while the right button is held
+  const zooming = rightHeld && performance.now() - rightHeld > ZOOM_AFTER * 1000;
+  const fov = (70 + Math.min(velocity.length() / 500, 1) * 18) * (zooming ? ZOOM : 1);
   if (Math.abs(fov - camera.fov) > 0.05) {
     camera.fov += (fov - camera.fov) * Math.min(1, dt * 4);
     camera.updateProjectionMatrix();
   }
+  screen.update(dt);
   composer.render(dt);
   if (map.open) map.draw(camera, viewYaw, world.realm);
   // where you are: the sector's grid coordinates, then your offset from its centre in units
@@ -534,8 +655,33 @@ renderer.setAnimationLoop((now) => {
     coordsTimer = 0.15;
     const p = camera.position, cell = (v) => Math.round(v / CELL), off = (v) => Math.round(v - cell(v) * CELL);
     const signed = (n) => (n < 0 ? "−" : "+") + Math.abs(n);
-    $("coords").textContent = `${world.realm === REALM ? "marderchen's dimension · " : world.realm === ZONE ? "the zone · " : ""}sector ${cell(p.x)}, ${cell(p.y)}, ${cell(p.z)} · offset ${signed(off(p.x))} ${signed(off(p.y))} ${signed(off(p.z))}`;
+    $("coords").textContent = `${realmNames[world.realm] ? `${realmNames[world.realm]} · ` : ""}sector ${cell(p.x)}, ${cell(p.y)}, ${cell(p.z)} · offset ${signed(off(p.x))} ${signed(off(p.y))} ${signed(off(p.z))}`;
   }
 });
 
-window.cvoid = { world, camera, renderer, entity, marderchen, zone, map, CELL, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; } };
+window.cvoid = { world, camera, renderer, entity, marderchen, zone, voice, map, plugins, CELL, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; } };
+
+// The plugins (see the top), installed once the game around them is ready: what they are given.
+const game = {
+  scene, world, audio, map, camera, canvas, velocity, keys, stored, store,
+  arrive, face, note, lockPointer, levelOut, showHelp: () => showHelp(),
+  started: () => started,
+  aiming,                                   // flying, the pointer held, no map open
+  mapOpen: () => map.open,
+  closeMap: () => { if (map.open) map.toggle(); lockPointer(); },
+  // a dimension of its own: its name, the letter its places are kept under, what it is called, and
+  // what stands in each of its sectors
+  addRealm(name, letter, title, spec) {
+    addRealm(name, `${letter}:`, spec);
+    map.addRealm(name, letter, title);
+    realmNames[name] = title;
+  },
+};
+for (const url of await fetch("/api/plugins").then((r) => (r.ok ? r.json() : [])).catch(() => [])) {
+  try {
+    plugins.push((await import(url)).default(game) ?? {});
+  } catch (err) {
+    console.warn(`[cvoid] the plugin ${url} could not be loaded:`, err);
+  }
+}
+showHelp();

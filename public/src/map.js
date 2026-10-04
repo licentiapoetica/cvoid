@@ -7,8 +7,11 @@ export class VoidMap {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.sectors = new Map();
-    this.other = new Map(); // marderchen's dimension, mapped separately
-    this.zone = new Map();  // and the zone
+    // the other dimensions, each mapped separately: the letter their places are kept under, what is
+    // known of each place, and what the dimension is called (a plugin may add its own: see addRealm)
+    this.realms = new Map();
+    this.addRealm("marderchen", "m", "marderchen's dimension");
+    this.addRealm("zone", "z", "the zone");
     this.open = false;
     this.layer = 0; // offset from the layer the player is on
     this.mark = null; // the sector where the entity says it is waiting
@@ -23,9 +26,14 @@ export class VoidMap {
     try { localStorage.setItem("cvoid.visited", JSON.stringify([...this.visited])); } catch { /* private mode: this visit only */ }
   }
 
+  addRealm(name, letter, title) {
+    this.realms.set(name, { letter, title, known: new Map() });
+  }
+
   // the explored sectors of a dimension, with what is known of each
   explored(realm) {
-    const prefix = realm === "marderchen" ? "m:" : realm === "zone" ? "z:" : "", known = realm === "marderchen" ? this.other : realm === "zone" ? this.zone : this.sectors;
+    const other = this.realms.get(realm), prefix = other ? `${other.letter}:` : "";
+    const known = other?.known ?? this.sectors;
     const out = new Map();
     for (const key of this.visited) {
       if (prefix ? !key.startsWith(prefix) : key[1] === ":") continue;
@@ -39,7 +47,14 @@ export class VoidMap {
     const realm = key[1] === ":" ? key[0] : "";
     if (realm) key = key.slice(2);
     const [x, y, z] = key.split(",").map(Number);
-    (realm === "m" ? this.other : realm === "z" ? this.zone : this.sectors).set(key, { x, y, z, name: spec.name, kind: spec.source === "void" ? "" : spec.kind, glow: spec.palette.glow, empty: spec.source === "void" });
+    const into = [...this.realms.values()].find((r) => r.letter === realm)?.known ?? this.sectors, was = into.get(key);
+    into.set(key, { x, y, z, name: spec.name, kind: spec.source === "void" || spec.kind === "none" ? "" : spec.kind, glow: spec.palette.glow, empty: spec.source === "void", label: was?.name === spec.name ? was.label : undefined });
+  }
+
+  // a place shown under another name than its own (a plugin's: what happened there), until its own changes
+  relabel(realm, key, label) {
+    const s = this.realms.get(realm)?.known.get(key);
+    if (s) s.label = label;
   }
 
   // sectors dreamt in earlier sessions live in the server's cache
@@ -155,7 +170,7 @@ export class VoidMap {
     const sector = [x, y, z].map((v) => Math.round(v / CELL));
     const offset = [x, y, z].map((v, i) => Math.round(v - sector[i] * CELL));
     [...sector, ...offset].forEach((v, i) => { this.fields[i].value = v; });
-    this.note(`${realm === "void" ? "" : `${realm === "zone" ? "the zone" : "marderchen's dimension"} · `}sector ${sector.join(", ")} · offset ${offset.join(" ")}`);
+    this.note(`${realm === "void" ? "" : `${this.realms.get(realm)?.title ?? realm} · `}sector ${sector.join(", ")} · offset ${offset.join(" ")}`);
   }
 
   readFields() {
@@ -258,7 +273,8 @@ export class VoidMap {
           ctx.fillStyle = "#dfe8ff";
           ctx.font = `300 11px ${font}`;
           let line = "", row = 0;
-          for (const word of s.name.split(" ")) {
+          const name = s.label ?? s.name;
+          for (const word of name.split(" ")) {
             if (line && ctx.measureText(`${line} ${word}`).width > box - 12) {
               ctx.fillText(line, left + 6, top + 20 + row++ * 13);
               line = word;
@@ -401,7 +417,7 @@ export class VoidMap {
     ctx.font = `300 12px ${font}`;
     ctx.fillStyle = "#cfdcff";
     const where = this.layer === 0 ? "your layer" : `you are on y = ${py}`;
-    ctx.fillText(`${realm === "marderchen" ? "MARDERCHEN'S DIMENSION" : realm === "zone" ? "THE ZONE" : "MAP"} · layer y = ${layer} (${where}) · ${sectors.size} sectors explored`, 24, 22);
+    ctx.fillText(`${this.realms.get(realm)?.title.toUpperCase() ?? "MAP"} · layer y = ${layer} (${where}) · ${sectors.size} sectors explored`, 24, 22);
     ctx.fillStyle = "rgba(207, 220, 255, 0.5)";
     ctx.fillText("x → east · z ↓ south · ▲▼ sectors above / below · page up / down layer · scroll zoom · drag move · click pick · double click go · o origin", 24, 42);
   }
