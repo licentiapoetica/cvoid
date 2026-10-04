@@ -5,6 +5,7 @@ import { hashCoords, mulberry32 } from "./noise.js";
 import { ORIGIN, localSpec, voidSpec, normalizeSpec } from "./spec.js";
 import { population } from "./population.js";
 import { REALM, GATE_SECTOR, GATE_SPEC, marderSpec } from "./marderchen.js";
+import { ZONE, ZONE_GATE, ZONE_GATE_SPEC, zoneSpec } from "./zone.js";
 import { PRIMITIVES, buildLayers, buildBlueprint } from "./structures.js";
 import { CELL, UNIT, SIGHT } from "./constants.js";
 import {
@@ -19,6 +20,10 @@ const FRACTAL_FLOOR = 7 * UNIT;   // and this close, the traveller is moved one 
 
 const key = (x, y, z) => `${x},${y},${z}`;
 const dummy = new THREE.Object3D();
+// collisions
+const BOUNCE = 0.55; // how much of the speed into a surface comes back out of it
+const inverseWorld = new THREE.Matrix4(), pieceWorld = new THREE.Matrix4();
+const local = new THREE.Vector3(), piece = new THREE.Vector3(), nearest = new THREE.Vector3(), normal = new THREE.Vector3();
 
 const DRIFT = {
   rise: [0, 1, 0], fall: [0, -1, 0], stream: [1, 0.05, 0.3], orbit: [0, 0, 0], still: [0, 0, 0],
@@ -58,6 +63,7 @@ class Cell {
     this.disposables = [];
     this.whispers = [];
     this.structures = [];
+    this.solids = [];
 
     // faint dust so an unmaterialized sector is not pure nothing
     const dust = this.points(1400, mulberry32(this.seed ^ 0x51ed), {
@@ -121,7 +127,7 @@ class Cell {
       const speed = spec.motes.speed * 28;
       const drift = new THREE.Vector3(...DRIFT[spec.motes.drift]).multiplyScalar(speed);
       this.group.add(this.points(moteCount, r, {
-        uColor: { value: glow.clone().lerp(accent, 0.3) }, uSize: { value: spec.motes.size }, uDrift: { value: drift },
+        uColor: spec.source === "zone" ? G.uMote : { value: glow.clone().lerp(accent, 0.3) }, uSize: { value: spec.motes.size }, uDrift: { value: drift },
         uOrbit: { value: spec.motes.drift === "orbit" ? spec.motes.speed * 0.25 : 0 }, uMat: this.mat,
         uRainbow: { value: spec.rainbow },
       }));
@@ -166,8 +172,12 @@ class Cell {
       uniforms: {
         uFogColor: G.uFogColor, uFogDensity: G.uFogDensity, uLight: G.uLight, uTime: G.uTime, uMat: mat, uWarp: { value: warp },
         uMid: G.uMid, uBeat: G.uBeat, uNear: { value: 1e5 }, uUnit: { value: UNIT }, uRainbow: { value: spec.rainbow }, uChan: G.uChan, uMad: G.uMad,
-        uDeep: { value: new THREE.Color(spec.palette.deep) }, uGlow: { value: new THREE.Color(spec.palette.glow) },
-        uAccent: { value: new THREE.Color(spec.palette.accent) }, uBands: { value: bands },
+        // the zone's pieces wear the air's colours, so they ease over with it when the stage changes
+        ...(spec.source === "zone" ? { uDeep: G.uDeep, uGlow: G.uGlow, uAccent: G.uAccent } : {
+          uDeep: { value: new THREE.Color(spec.palette.deep) }, uGlow: { value: new THREE.Color(spec.palette.glow) },
+          uAccent: { value: new THREE.Color(spec.palette.accent) },
+        }),
+        uBands: { value: bands },
       },
     });
     const mesh = new THREE.InstancedMesh(geometry, material, instances.length);
@@ -182,7 +192,69 @@ class Cell {
     mesh.scale.setScalar(UNIT);
     this.group.add(mesh);
     this.disposables.push(geometry, material, mesh); // the mesh owns the per-instance matrix buffer
+    // what you can fly into: every piece as a box (rounder solids a little smaller than their bounds),
+    // with a sphere round it to find the near ones quickly. Not the recursions: those are flown into.
+    if (!fractal) {
+      const n = instances.length, centres = new Float32Array(n * 3), radii = new Float32Array(n), inverse = [];
+      instances.forEach(({ matrix }, i) => {
+        const e = matrix.elements;
+        centres.set([e[12], e[13], e[14]], i * 3);
+        radii[i] = Math.max(Math.hypot(e[0], e[1], e[2]), Math.hypot(e[4], e[5], e[6]), Math.hypot(e[8], e[9], e[10])) * 0.87;
+        inverse.push(matrix.clone().invert());
+      });
+      this.solids.push({ mesh, matrices: instances.map((inst) => inst.matrix), inverse, centres, radii, half: primitive === "cube" || primitive === "cyl" ? 0.5 : 0.4, mat });
+    }
     return mesh;
+  }
+
+  // Push a sphere (you) out of whatever it has flown into, and bounce its velocity off the surface.
+  // Returns how hard the hardest hit was (speed into the surface), 0 for none.
+  collide(position, velocity, radius) {
+    let impact = 0;
+    for (const solid of this.solids) {
+      if (solid.mat.value < 0.95) continue; // still materializing: nothing to hit yet
+      const { mesh, centres, radii } = solid;
+      inverseWorld.copy(mesh.matrixWorld).invert();
+      local.copy(position).applyMatrix4(inverseWorld);
+      const reach = radius / UNIT;
+      for (let i = 0; i < radii.length; i++) {
+        const dx = local.x - centres[i * 3], dy = local.y - centres[i * 3 + 1], dz = local.z - centres[i * 3 + 2], r = radii[i] + reach;
+        if (dx * dx + dy * dy + dz * dz > r * r) continue;
+        impact = Math.max(impact, this.collidePiece(solid, i, position, velocity, radius));
+        local.copy(position).applyMatrix4(inverseWorld); // it may have moved
+      }
+    }
+    return impact;
+  }
+
+  collidePiece({ mesh, matrices, inverse, half }, i, position, velocity, radius) {
+    const q = piece.copy(local).applyMatrix4(inverse[i]); // in the piece's own unit box
+    const closest = nearest.set(THREE.MathUtils.clamp(q.x, -half, half), THREE.MathUtils.clamp(q.y, -half, half), THREE.MathUtils.clamp(q.z, -half, half));
+    const toWorld = pieceWorld.multiplyMatrices(mesh.matrixWorld, matrices[i]);
+    let depth;
+    if (closest.equals(q)) {
+      // inside it: out through the nearest face
+      let best = Infinity, axis = 0;
+      for (let k = 0; k < 3; k++) {
+        const e = toWorld.elements, scale = Math.hypot(e[k * 4], e[k * 4 + 1], e[k * 4 + 2]), d = (half - Math.abs(q.getComponent(k))) * scale;
+        if (d < best) { best = d; axis = k; }
+      }
+      const e = toWorld.elements;
+      normal.set(e[axis * 4], e[axis * 4 + 1], e[axis * 4 + 2]).normalize().multiplyScalar(Math.sign(q.getComponent(axis)) || 1);
+      depth = best + radius;
+    } else {
+      closest.applyMatrix4(toWorld);
+      normal.copy(position).sub(closest);
+      const distance = normal.length();
+      if (distance >= radius) return 0;
+      normal.divideScalar(distance || 1);
+      depth = radius - distance;
+    }
+    position.addScaledVector(normal, depth);
+    const into = velocity.dot(normal);
+    if (into >= 0) return 0;
+    velocity.addScaledVector(normal, -(1 + BOUNCE) * into); // back out, losing some of it
+    return -into;
   }
 
   // the built thing arrives after the abstract geometry and grows in on its own clock
@@ -253,7 +325,8 @@ class Sky {
     this.geometry = new THREE.SphereGeometry(2000, 32, 16);
     this.origin = { value: new THREE.Vector3() };
     this.current = null;
-    this.fading = null;
+    this.fading = []; // skies on their way out, oldest first; each is drawn over the ones before it
+    this.order = 0;
     this.setField(DEFAULT_FIELD);
   }
 
@@ -265,14 +338,17 @@ class Sky {
         uTime: G.uTime, uOrigin: this.origin, uFogColor: G.uFogColor,
         uDeep: G.uDeep, uGlow: G.uGlow, uAccent: G.uAccent, uLight: G.uLight, uBass: G.uBass, uOpacity: { value: 1 },
       },
-      side: THREE.BackSide, depthTest: false, depthWrite: false,
+      // transparent from the start: switching it later would recompile the shader mid-fade
+      side: THREE.BackSide, depthTest: false, depthWrite: false, transparent: true,
     });
     const mesh = new THREE.Mesh(this.geometry, material);
     mesh.frustumCulled = false;
+    mesh.userData.left = 1; // how much of its fade-out is left
     return mesh;
   }
 
-  // Swap in a sector's nebula function, cross-fading from the previous one.
+  // Swap in a sector's nebula function, cross-fading from the previous one. The new shader is
+  // compiled before it is shown, so the swap does not stall a frame.
   setField(body) {
     const check = fieldCompiles(this.world.renderer.getContext(), body);
     if (!check.ok) {
@@ -281,16 +357,29 @@ class Sky {
     }
     if (this.body === body) return check.ok;
     this.body = body;
-    if (this.fading) this.drop(this.fading);
-    this.fading = this.current;
-    if (this.fading) {
-      // the outgoing sky fades out over the new one
-      this.fading.renderOrder = 1;
-      this.fading.material.transparent = true;
-      this.fading.material.needsUpdate = true;
+    const mesh = this.mesh(body);
+    const show = () => {
+      if (this.body !== body) return mesh.material.dispose(); // overtaken while compiling
+      if (this.current) {
+        // The outgoing sky goes on top at full strength, so nothing changes at the moment of the
+        // swap, and fades from there. Skies already fading keep fading under it.
+        this.current.renderOrder = ++this.order;
+        this.fading.push(this.current);
+        while (this.fading.length > 4) this.drop(this.fading.shift()); // the oldest is buried under the rest by now
+      }
+      this.current = mesh;
+      this.scene.add(mesh);
+    };
+    if (!this.current) show();
+    else {
+      // compiled for the sky's own target: for the screen it would be another program (tone mapping, colour space)
+      const { renderer } = this.world, stage = new THREE.Scene().add(mesh), was = renderer.getRenderTarget();
+      renderer.setRenderTarget(this.target);
+      const done = renderer.compileAsync(stage, this.camera ??= new THREE.PerspectiveCamera());
+      renderer.setRenderTarget(was);
+      const ready = () => { stage.remove(mesh); show(); };
+      done.then(ready, ready);
     }
-    this.current = this.mesh(body);
-    this.scene.add(this.current);
     return check.ok;
   }
 
@@ -300,15 +389,17 @@ class Sky {
   }
 
   update(dt, camera) {
+    this.camera = camera;
     this.origin.value.copy(camera.position).multiplyScalar(1 / (CELL * 1.5));
     this.current.position.copy(camera.position);
-    if (this.fading) {
-      this.fading.position.copy(camera.position);
-      const u = this.fading.material.uniforms.uOpacity;
-      u.value -= dt / 4;
-      if (u.value <= 0) {
-        this.drop(this.fading);
-        this.fading = null;
+    for (const mesh of [...this.fading]) {
+      mesh.position.copy(camera.position);
+      mesh.userData.left -= dt / 6;
+      // eased at both ends, so neither the start nor the end of the fade can be seen
+      mesh.material.uniforms.uOpacity.value = THREE.MathUtils.smootherstep(mesh.userData.left, 0, 1);
+      if (mesh.userData.left <= 0) {
+        this.drop(mesh);
+        this.fading.splice(this.fading.indexOf(mesh), 1);
       }
     }
   }
@@ -340,6 +431,7 @@ export class World {
       uBass: { value: 0 }, uMid: { value: 0 }, uHigh: { value: 0 }, uBeat: { value: 0 },
       uChan: { value: new Float32Array(18).fill(0.5) },
       uMad: { value: 0 }, // 0..1: marderchen has turned up in the void and it has taken his colours
+      uMote: { value: new THREE.Color() }, // the zone's motes, in the air's colours
       uFogColor: { value: new THREE.Color(ORIGIN.palette.fog) }, uFogDensity: { value: 0.0022 / SIGHT },
       uDeep: { value: new THREE.Color(ORIGIN.palette.deep) }, uGlow: { value: new THREE.Color(ORIGIN.palette.glow) },
       uAccent: { value: new THREE.Color(ORIGIN.palette.accent) },
@@ -349,8 +441,8 @@ export class World {
       glow: this.G.uGlow.value.clone(), accent: this.G.uAccent.value.clone(), density: 0.0022 / SIGHT,
     };
     this.cells = new Map();
-    this.realm = "void"; // or marderchen's dimension, a separate grid reached through the ring above the hub
-    this.specs = new Map([["0,0,0", normalizeSpec(ORIGIN)], [GATE_SECTOR.join(","), normalizeSpec(GATE_SPEC)]]);
+    this.realm = "void"; // or marderchen's dimension through the ring above the hub, or the zone through the one below
+    this.specs = new Map([["0,0,0", normalizeSpec(ORIGIN)], [GATE_SECTOR.join(","), normalizeSpec(GATE_SPEC)], [ZONE_GATE.join(","), normalizeSpec(ZONE_GATE_SPEC)]]);
     this.probed = new Set();
     this.probing = new Set();
     this.pending = new Set();
@@ -394,7 +486,7 @@ export class World {
   }
 
   key(x, y, z) {
-    return `${this.realm === REALM ? "m:" : ""}${x},${y},${z}`;
+    return `${this.realm === REALM ? "m:" : this.realm === ZONE ? "z:" : ""}${x},${y},${z}`;
   }
 
   // Step into another grid of sectors: everything loaded is dropped and rebuilt around the traveller.
@@ -406,6 +498,17 @@ export class World {
     this.currentSpec = undefined;
     this.light = 1;
     this.fogBoost = 1;
+  }
+
+  // The zone moves on to another stage: its sectors take the new look where they stand. Nothing is
+  // built again; the colours ease over and the sky fades across (see enter and Sky).
+  restyle() {
+    for (const k of this.specs.keys()) {
+      if (!k.startsWith("z:")) continue;
+      const [x, y, z] = k.slice(2).split(",").map(Number);
+      this.specs.set(k, normalizeSpec(zoneSpec(x, y, z)));
+      this.onSpec(k, this.specs.get(k));
+    }
   }
 
   setSpec(k, raw) {
@@ -477,13 +580,27 @@ export class World {
     }
   }
 
+  // You against everything built in the sectors near you. In marderchen's dark rooms nothing is
+  // solid: his chaostyper's maze lets go only of someone who surges, and walls would trap them.
+  collide(position, velocity, radius) {
+    if (this.realm === REALM && this.currentSpec?.source === "chaostyper") return 0;
+    let impact = 0;
+    for (const cell of this.cells.values()) {
+      if (!cell.solids.length) continue;
+      const c = cell.group.position, near = CELL / 2 + 1800;
+      if (Math.abs(position.x - c.x) > near || Math.abs(position.y - c.y) > near || Math.abs(position.z - c.z) > near) continue;
+      impact = Math.max(impact, cell.collide(position, velocity, radius));
+    }
+    return impact;
+  }
+
   enter(spec) {
     this.currentSpec = spec;
     const s = spec ?? GHOST;
     // The void keeps one look everywhere: the fog, the far sky and how far you can see are the
     // hub's, whatever sector you are in. Sectors differ in what stands in them (their own colours
     // are on their structures), not in the air around them. His dimension has its own look.
-    const air = this.realm === REALM ? s : this.specs.get("0,0,0");
+    const air = this.realm !== "void" ? s : this.specs.get("0,0,0");
     this.target.fog.set(air.palette.fog);
     this.target.deep.set(air.palette.deep);
     this.target.glow.set(air.palette.glow);
@@ -503,8 +620,9 @@ export class World {
       if (this.cells.has(k)) continue;
       const cell = new Cell(this, x, y, z);
       this.cells.set(k, cell);
-      // his dimension is generated here, from his own things; nothing in it is asked of the server
-      if (this.realm === REALM && !this.specs.has(k)) this.setSpec(k, marderSpec(x, y, z));
+      // his dimension and the zone are generated here; nothing in them is asked of the server
+      const local = this.realm === REALM ? marderSpec : this.realm === ZONE ? zoneSpec : null;
+      if (local && !this.specs.has(k)) this.setSpec(k, local(x, y, z));
       else if (this.specs.has(k)) cell.materialize(this.specs.get(k));
       else this.request(x, y, z, true);
     }
@@ -544,6 +662,7 @@ export class World {
     G.uDeep.value.lerp(this.target.deep, ease);
     G.uGlow.value.lerp(this.target.glow, ease);
     G.uAccent.value.lerp(this.target.accent, ease);
+    G.uMote.value.copy(G.uGlow.value).lerp(G.uAccent.value, 0.3);
     G.uFogDensity.value += (this.target.density * this.fogBoost - G.uFogDensity.value) * ease;
     G.uLight.value += (this.light - G.uLight.value) * (1 - Math.exp(-dt * 0.6));
     this.sky.update(dt, camera);

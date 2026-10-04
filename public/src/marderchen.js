@@ -9,6 +9,7 @@ import * as THREE from "three";
 import { CELL, UNIT } from "./constants.js";
 import { hashCoords, mulberry32 } from "./noise.js";
 import { ORIGIN } from "./spec.js";
+import { NOISE_LIB } from "./shaders.js";
 import { Museum, MUSEUM_SECTOR } from "./museum.js";
 
 export const REALM = "marderchen";
@@ -366,9 +367,58 @@ class Meowmeter {
 // sentence writing itself, starting again, writing itself. The maze has no edge: walk or fly as
 // far as you like and it is the same few corridors coming round again. It only lets go of
 // someone who surges.
-const MAZE = 4, GANG = 150, PERIOD = MAZE * GANG, SIGHT = 300, HALF = CELL / 2 - 200; // cells per side, corridor width, repeat distance, how far the text can be seen, half the sector's void
+//
+// From outside it is a grey cloud: it thickens and darkens toward the middle, and the black is
+// only there once you are in it.
+const MAZE = 4, GANG = 150, PERIOD = MAZE * GANG, SIGHT = 300, HALF = 1000; // cells per side, corridor width, repeat distance, how far the text can be seen, half the black room
+const CLOUD = CELL / 2 - 20; // half the box the cloud is drawn in; it stays inside its sector
+const CLOUD_FRAG = /* glsl */ `
+uniform float uTime, uFogDensity, uLight;
+uniform vec3 uFogColor, uGlow;
+varying vec3 vWorld, vCentre;
+${NOISE_LIB}
+// a rounded block that holds the black room with room to spare, its surface pushed about by noise
+float shape(vec3 p, vec3 seed, out float n) {
+  vec3 q = abs(p) - vec3(1300.);
+  float sd = length(max(q, 0.)) + min(max(q.x, max(q.y, q.z)), 0.) - 650.;
+  n = 0.;
+  if (sd > 600. || sd < -950.) return sd; // out of the noise's reach either way
+  vec3 s = p / 900. + seed + vec3(0., uTime * 0.012, uTime * 0.006);
+  n = snoise(s) * 0.55 + snoise(s * 2.1) * 0.28 + snoise(s * 4.3) * 0.14;
+  return sd + n * 600.;
+}
+void main() {
+  vec3 ro = cameraPosition - vCentre, rd = vWorld - cameraPosition;
+  float far = length(rd);
+  rd /= far;
+  vec3 a = (-vec3(${CLOUD}.) - ro) / rd, b = (vec3(${CLOUD}.) - ro) / rd, lo = min(a, b);
+  float near = max(max(max(lo.x, lo.y), lo.z), 0.);
+  const float STEP = 60.;
+  float t = near + STEP * hash(vec3(gl_FragCoord.xy, 3.)); // dithered start, against banding
+  vec3 seed = vCentre / ${CELL}. * 7.31, col = vec3(0.);
+  float clear = 1.;
+  for (int i = 0; i < 72; i++) {
+    if (t > far || clear < 0.01) break;
+    vec3 p = ro + rd * t;
+    float n, sd = shape(p, seed, n);
+    if (sd > 600.) { t += max(sd - 580., STEP); continue; } // empty air: the noise cannot reach this far out
+    float d = smoothstep(0., 350., -sd) * smoothstep(${CLOUD}., ${CLOUD - 150}., max(abs(p.x), max(abs(p.y), abs(p.z))));
+    if (d > 0.001) {
+      float take = 1. - exp(-d * STEP * 0.004);
+      float deep = exp(-max(-sd - 200., 0.) / 400.); // black at the heart, where the room is
+      float lit = 0.6 + 0.4 * clamp(p.y / 2400. + n * 0.6 + 0.3, 0., 1.); // paler on top
+      vec3 c = (vec3(0.21, 0.21, 0.225) * lit + uGlow * 0.015) * deep * min(uLight, 1.5);
+      float f = t * uFogDensity;
+      c = mix(c, uFogColor, 1. - exp(-f * f));
+      col += clear * take * c;
+      clear *= 1. - take;
+    }
+    t += STEP;
+  }
+  gl_FragColor = vec4(col, 1. - clear);
+}`;
 class Chaostyper {
-  constructor() {
+  constructor(G) {
     this.chosencolor = 0;
     this.chaoscach = "124567890qwertyuiopljhgfdsazxcvbnm QWERTYUIOPLKJHGFDSAZXCVBNM_________?!?!&*℅™^°=~|•√Π÷×¶∆______ ";
     this.mewspeak = " don't know the future seens to be an error !MEOW! funnytextcreation isnt it? wiRrRrRr X›";
@@ -432,6 +482,17 @@ class Chaostyper {
     });
     this.faces.frustumCulled = false;
     this.room.add(this.faces);
+
+    // the clouds, one round each dark room near enough to be seen, drawn from the inside of their box
+    this.clouds = new THREE.InstancedMesh(new THREE.BoxGeometry(CLOUD * 2, CLOUD * 2, CLOUD * 2), new THREE.ShaderMaterial({
+      uniforms: { uTime: G.uTime, uFogDensity: G.uFogDensity, uLight: G.uLight, uFogColor: G.uFogColor, uGlow: G.uGlow },
+      vertexShader: `varying vec3 vWorld, vCentre;
+        void main(){ mat4 m = modelMatrix * instanceMatrix; vec4 wp = m * vec4(position, 1.); vWorld = wp.xyz; vCentre = m[3].xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
+      fragmentShader: CLOUD_FRAG,
+      side: THREE.BackSide, transparent: true, premultipliedAlpha: true, depthWrite: false,
+    }), 125);
+    this.clouds.count = 0;
+    this.clouds.frustumCulled = false;
   }
 
   malneu() {
@@ -467,16 +528,25 @@ class Chaostyper {
   update(dt, camera, surge) {
     const cx = Math.round(camera.position.x / CELL), cy = Math.round(camera.position.y / CELL), cz = Math.round(camera.position.z / CELL);
     let best = null, bestD = Infinity;
-    for (let x = cx - 1; x <= cx + 1; x++) for (let y = cy - 1; y <= cy + 1; y++) for (let z = cz - 1; z <= cz + 1; z++) {
+    const near = [];
+    for (let x = cx - 2; x <= cx + 2; x++) for (let y = cy - 2; y <= cy + 2; y++) for (let z = cz - 2; z <= cz + 2; z++) {
       if (!isDarkRoom(x, y, z)) continue;
       const d = tmp.set(x * CELL, y * CELL, z * CELL).distanceToSquared(camera.position);
+      near.push([d, x, y, z]);
       if (d < bestD) bestD = d, best = [x, y, z];
     }
-    this.room.visible = !!best;
-    if (!best) return (this.inside = 0, false);
-    const centre = this.room.position.set(best[0] * CELL, best[1] * CELL, best[2] * CELL), p = camera.position;
+    // furthest first, so that nearer clouds are laid over the ones behind them
+    near.sort((a, b) => b[0] - a[0]);
+    near.forEach(([, x, y, z], i) => this.clouds.setMatrixAt(i, place.makeTranslation(x * CELL, y * CELL, z * CELL)));
+    this.clouds.count = near.length;
+    this.clouds.instanceMatrix.needsUpdate = true;
+
+    const centre = best && this.room.position.set(best[0] * CELL, best[1] * CELL, best[2] * CELL), p = camera.position;
+    const inside = !!best && Math.max(Math.abs(p.x - centre.x), Math.abs(p.y - centre.y), Math.abs(p.z - centre.z)) <= HALF;
+    this.room.visible = inside;
+    this.clouds.visible = !inside;
+    if (!inside) return (this.inside = 0, false);
     for (this.takt += dt; this.takt >= 0.06; this.takt -= 0.06) this.malneu(); // 60ms ticks, like his setTimeout
-    if (Math.max(Math.abs(p.x - centre.x), Math.abs(p.y - centre.y), Math.abs(p.z - centre.z)) > HALF) return (this.inside = 0, false);
     this.inside += dt;
     if (!surge) {
       // no edge: past half a repeat in any direction you are set back by a whole one, and since
@@ -566,7 +636,7 @@ function textSprite(width, height, scale) {
   return { sprite, ctx: canvas.getContext("2d"), texture };
 }
 
-const forward = new THREE.Vector3(), tmp = new THREE.Vector3();
+const forward = new THREE.Vector3(), tmp = new THREE.Vector3(), place = new THREE.Matrix4();
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 const AVATAR_FRAMES = 29, AVATAR_USED = 16, CAT_FRAMES = 10; // the avatar's later frames are full-screen colour flashes; left out
 
@@ -592,7 +662,7 @@ export class Marderchen {
     }
     this.vortex.scale.setScalar(0.5);
     this.vortex.visible = false; // nothing of it shows until you are at the door
-    this.fadeEl = document.getElementById("fade");
+    this.fade = 0; // how dark it is at his door (main.js draws it)
     this.veil = 0; // the dark that lifts after you come through
     scene.add(this.vortex);
     // The door is a black hole: a ball of nothing filling the ring. You cannot see through it or
@@ -692,8 +762,9 @@ export class Marderchen {
       this.group.add(line.sprite);
       return line;
     });
-    this.typer = new Chaostyper();
+    this.typer = new Chaostyper(world.G);
     this.roam.add(this.typer.room);
+    this.group.add(this.typer.clouds);
 
     // loose lights for his fireworks and starflakes
     const sparks = 700;
@@ -1194,6 +1265,17 @@ export class Marderchen {
     this.time += dt;
     this.lastFrame = performance.now();
 
+    // in another dimension altogether (the zone): nothing of his door, nor of him, is there
+    if (world.realm !== REALM && world.realm !== "void") {
+      this.hole.visible = this.vortex.visible = false;
+      this.pull.set(0, 0, 0);
+      this.roll *= Math.exp(-dt * 2.5);
+      this.veil = Math.max(0, this.veil - dt / 1.9);
+      this.fade = Math.min(1, this.veil);
+      this.museum.update(dt, camera, false);
+      return;
+    }
+
     // ---- the door: a black hole in a ring, in whichever world you are in ----
     const centre = this.vortex.position.copy(this.centre(world.realm, tmp));
     const nearDoor = centre.distanceTo(camera.position);
@@ -1227,7 +1309,7 @@ export class Marderchen {
     // middle; you pass through while nothing can be seen; on the far side it lifts as slowly.
     const closing = this.spent ? 0 : 1 - THREE.MathUtils.smoothstep(nearDoor, HOLE * 1.0, HOLE * 2.6);
     this.veil = Math.max(0, this.veil - dt / 1.9);
-    this.fadeEl.style.opacity = Math.max(closing, Math.min(1, this.veil)).toFixed(3);
+    this.fade = Math.max(closing, Math.min(1, this.veil)); // main.js draws the dark: either door may be closing
     if (!this.spent && nearDoor < HOLE * 0.7) return this.travel(camera);
 
     this.museum.update(dt, camera, world.realm === REALM && world.currentSpec?.name === "marderchen's museum");

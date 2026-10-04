@@ -4,3 +4,5 @@ node_modules/
 # marderchen's persona, the notes behind it, his own "about me" and the mirror of his site stay local
 persona/
 public/marderchen/about.txt
+# the zone dimension's music, pictures and models: your own files, kept local
+/zone/

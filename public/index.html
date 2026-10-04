@@ -21,6 +21,11 @@
   #start h1 { margin: 0; font-weight: 200; font-size: clamp(40px, 9vw, 110px); letter-spacing: .5em; text-indent: .5em; text-shadow: 0 0 40px #5f8cff; }
   #start p { margin: 2.5em 0 0; opacity: .7; text-transform: lowercase; animation: breathe 3s ease-in-out infinite; }
   #start.gone { opacity: 0; pointer-events: none; }
+  /* volume: on the start screen and in the map's panel */
+  .volume { display: flex; align-items: center; gap: 10px; font: 300 12px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .1em; color: #cfdcff; text-transform: lowercase; }
+  .volume input { width: 160px; accent-color: #9fb8ff; cursor: pointer; }
+  .volume output { width: 3ch; opacity: .7; }
+  #start .volume { justify-content: center; margin-top: 2.2em; opacity: .75; }
   @keyframes breathe { 50% { opacity: .25; } }
 
   #hud { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity 3s ease 1.5s; }
@@ -70,10 +75,30 @@
   #stage .caption { font-family: monospace; font-size: 13px; letter-spacing: .06em; color: #ff00ff; text-transform: none; }
   #stage .warning { max-width: 46ch; text-align: center; font-family: monospace; font-size: 16px; line-height: 1.7; color: #ffff00; letter-spacing: .04em; }
   #coords { font-size: 13px; margin-bottom: .3em; letter-spacing: .14em; }
-  #map { opacity: 0; pointer-events: none; transition: opacity .25s ease; }
-  #map.on { opacity: 1; }
+  #map { opacity: 0; pointer-events: none; transition: opacity .25s ease; cursor: crosshair; }
+  #map.on { opacity: 1; pointer-events: auto; }
+  /* on the map: an exact place to go, and where to start */
+  #mapPanel {
+    position: fixed; left: 24px; bottom: 24px; z-index: 4; display: none; flex-direction: column; gap: 8px;
+    padding: 14px 16px; background: rgba(2, 3, 14, .85); border: 1px solid rgba(140, 160, 220, .3);
+    font: 300 12px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .08em; color: #cfdcff;
+  }
+  .mapping #mapPanel { display: flex; }
+  #mapPanel .row { display: flex; align-items: center; gap: 6px; }
+  #mapPanel .row span { width: 5.5em; opacity: .6; }
+  #mapPanel input {
+    width: 6.5em; padding: 4px 6px; background: rgba(140, 160, 220, .08); border: 1px solid rgba(140, 160, 220, .3);
+    color: #fff; font: inherit; letter-spacing: .04em;
+  }
+  #mapPanel button {
+    padding: 5px 10px; background: rgba(140, 160, 220, .12); border: 1px solid rgba(140, 160, 220, .4);
+    color: #fff; font: inherit; letter-spacing: .08em; cursor: pointer;
+  }
+  #mapPanel button:hover { background: rgba(140, 160, 220, .28); }
+  #mNote { min-height: 1.2em; opacity: .7; max-width: 44ch; }
   #sector, #help { transition: opacity .25s ease; }
   .mapping #sector, .mapping #help { opacity: 0; }
+  .seated #sector { opacity: 0; } /* at the well in the zone: the place's name would sit over the game */
   #meta .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: .7em; background: currentColor; vertical-align: 1px; }
   #meta.waiting .dot { animation: breathe 1s ease-in-out infinite; }
   #help { position: absolute; right: 6vw; bottom: 7vh; max-width: 46vw; font-size: 11px; opacity: .4; text-align: right; text-transform: lowercase; }
@@ -88,6 +113,13 @@
 <div id="wall"></div>
 <div id="fade"></div>
 <canvas id="map"></canvas>
+<div id="mapPanel">
+  <div class="row"><span>sector</span><input id="mSX" placeholder="x"><input id="mSY" placeholder="y"><input id="mSZ" placeholder="z"></div>
+  <div class="row"><span>offset</span><input id="mOX" placeholder="x"><input id="mOY" placeholder="y"><input id="mOZ" placeholder="z"></div>
+  <div class="row"><button id="mGo">go</button><button id="mSpawn">start here</button><button id="mRandom">random</button><button id="mOrigin">origin</button><button id="mHere">find me</button></div>
+  <div id="mNote">click the map to pick a spot, or type one</div>
+  <label class="volume">volume <input type="range" min="0" max="100" step="1"><output></output></label>
+</div>
 <div id="hud">
   <div id="sector"><div id="name"></div><div id="inscription"></div></div>
   <div id="entity"></div>
@@ -97,7 +129,8 @@
 </div>
 <div id="hint"></div>
 <div id="stage"></div>
-<div id="start"><div><h1>cvoid</h1><p id="prompt">click to materialize</p></div></div>
+<div id="start"><div><h1>cvoid</h1><p id="prompt">click to materialize</p>
+  <label class="volume">volume <input type="range" min="0" max="100" step="1"><output></output></label></div></div>
 <script type="module" src="/src/main.js"></script>
 </body>
 </html>

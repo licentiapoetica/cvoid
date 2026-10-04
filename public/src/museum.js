@@ -324,6 +324,11 @@ export class Museum {
   }
 
   // E: open the piece you are looking at, or close the one that is open
+  // whether E has a piece to open: one is being looked at, or one is in view
+  canOpen() {
+    return !!(this.open || this.gaze.exhibit || this.focus);
+  }
+
   async toggle() {
     if (this.open) return this.pending ? this.confirm() : this.close();
     const exhibit = this.gaze.exhibit ?? this.focus; // what you are looking straight at, else the nearest in view

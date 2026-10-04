@@ -17,6 +17,8 @@ const RUFFLE_DIR = path.join(here, "node_modules", "@ruffle-rs", "ruffle");
 // (see scripts/museum.mjs). A crawl in .cache/marderchen-archive works too.
 const ARCHIVE_DIR = [path.join(here, "persona", "marderchen"), path.join(here, ".cache", "marderchen-archive")].find(existsSync) ?? path.join(here, "persona", "marderchen");
 const MUSEUM_DIR = path.join(here, ".cache", "marderchen-museum");
+// the zone's own music, pictures and models: whatever the player puts in zone/, which git ignores
+const ZONE_DIR = path.resolve(here, process.env.CVOID_ZONE ?? "zone");
 const ARCHIVE_PUBLIC = /^(www\.marderchen\.lima-city\.de\/(FLASH|LSDex_gifs|any|wuselcode)\/[^/]+\.(swf|gif|jpe?g|txt)|www\.marderchen\.lima-city\.de\/xyz\/JW86_Break The Time Out_loop\.txt|marderchen\.lima-city\.de\/[^/]+\.gif)$/i;
 const CACHE = path.resolve(here, process.env.CVOID_CACHE ?? path.join(".cache", "sectors"));
 
@@ -347,6 +349,50 @@ async function marderchenLines(visit) {
 // His source files, one entry each: name, size, and the comments he wrote in it. In his dimension
 // every one of them becomes a sector of its own. Read once from the mirror of his site.
 let wuselList = null;
+// What is in zone/: each folder is a stage (its audio files are the layers of its music, played
+// together and brought in one by one as you clear lines), and each audio file lying loose in zone/
+// is a stage of its own. Pictures and models go with the stage whose folder they are in; loose ones
+// belong to every stage. A stage.json in a folder can set bpm, offset, root, mode, palette, behaviour.
+const ZONE_KINDS = { music: /\.(ogg|opus|mp3|wav|flac|m4a|webm)$/i, images: /\.(png|jpe?g|webp|gif)$/i, models: /\.(glb|gltf)$/i };
+const ZONE_LIMITS = { music: 8, images: 64, models: 4 };
+async function zoneStages() {
+  const url = (rel) => `/zone/${rel.split(path.sep).map(encodeURIComponent).join("/")}`;
+  const walk = async (dir, depth = 0) => {
+    const found = [];
+    for (const entry of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      if (entry.name.startsWith(".")) continue;
+      const full = path.join(dir, entry.name);
+      // links are followed, so files can stay where they are and be linked in
+      const stat = entry.isSymbolicLink() ? await fs.stat(full).catch(() => null) : entry;
+      if (stat?.isDirectory() && depth < 6) found.push(...await walk(full, depth + 1));
+      else if (stat?.isFile()) found.push(path.relative(ZONE_DIR, full));
+    }
+    return found.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  };
+  const sort = (files) => {
+    const out = {};
+    for (const [kind, test] of Object.entries(ZONE_KINDS)) out[kind] = files.filter((f) => test.test(f)).slice(0, ZONE_LIMITS[kind]).map(url);
+    return out;
+  };
+  const stages = [], loose = [];
+  for (const entry of await fs.readdir(ZONE_DIR, { withFileTypes: true }).catch(() => [])) {
+    if (entry.name.startsWith(".")) continue;
+    const stat = entry.isSymbolicLink() ? await fs.stat(path.join(ZONE_DIR, entry.name)).catch(() => null) : entry;
+    if (stat?.isFile()) loose.push(entry.name);
+    if (!stat?.isDirectory()) continue;
+    const files = (await walk(path.join(ZONE_DIR, entry.name))).filter((f) => !f.endsWith("stage.json"));
+    let config = {};
+    try {
+      config = JSON.parse(await fs.readFile(path.join(ZONE_DIR, entry.name, "stage.json"), "utf8"));
+    } catch { /* no settings: the stage takes a built-in look */ }
+    stages.push({ name: entry.name, ...sort(files), config });
+  }
+  for (const file of loose.filter((f) => ZONE_KINDS.music.test(f))) stages.push({ name: file.replace(/\.[^.]+$/, ""), music: [url(file)], images: [], models: [], config: {} });
+  stages.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  const shared = sort(loose);
+  return { stages: stages.filter((s) => s.music.length || s.images.length || s.models.length), images: shared.images, models: shared.models };
+}
+
 async function wuselcode() {
   if (wuselList) return wuselList;
   const dir = path.join(ARCHIVE_DIR, "www.marderchen.lima-city.de", "wuselcode");
@@ -564,6 +610,17 @@ const TYPES = {
   ".webm": "video/webm",
   ".wasm": "application/wasm",
   ".swf": "application/x-shockwave-flash",
+  ".webp": "image/webp",
+  ".jpeg": "image/jpeg",
+  ".ogg": "audio/ogg",
+  ".opus": "audio/ogg",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".flac": "audio/flac",
+  ".m4a": "audio/mp4",
+  ".glb": "model/gltf-binary",
+  ".gltf": "model/gltf+json",
+  ".bin": "application/octet-stream",
 };
 
 async function serveFile(res, root, rel) {
@@ -628,6 +685,7 @@ const server = http.createServer(async (req, res) => {
       }
     }
     if (url.pathname === "/api/wuselcode") return send(res, 200, await wuselcode());
+    if (url.pathname === "/api/zone") return send(res, 200, await zoneStages());
     if (url.pathname === "/api/sectors") {
       // everything Claude has dreamt so far, for the map (and for anyone who wants to export it)
       const files = await fs.readdir(CACHE).catch(() => []);
@@ -671,7 +729,7 @@ const server = http.createServer(async (req, res) => {
       line(sector ?? { error: unavailable ?? "generation failed", offline: !!unavailable });
       return res.end();
     }
-    for (const [prefix, dir] of [["/vendor/ruffle/", RUFFLE_DIR], ["/museum/src/", ARCHIVE_DIR], ["/museum/", MUSEUM_DIR]]) {
+    for (const [prefix, dir] of [["/vendor/ruffle/", RUFFLE_DIR], ["/museum/src/", ARCHIVE_DIR], ["/museum/", MUSEUM_DIR], ["/zone/", ZONE_DIR]]) {
       if (!url.pathname.startsWith(prefix)) continue;
       const rel = decodeURIComponent(url.pathname.slice(prefix.length));
       // Of the mirror, only what the game shows is served: his Flash, GIFs, photos, code, and the one

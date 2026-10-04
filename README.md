@@ -15,19 +15,29 @@ Without a key the game still runs: sectors come from a local deterministic gener
 
 Controls:
 
-- Mouse and keyboard: mouse look, `W A S D` fly, `Enter` autofly (keeps flying forward until
+- Mouse and keyboard: mouse look, `W A S D` fly, `Q` `E` roll, `Enter` autofly (keeps flying forward until
   `Enter` again or `S`), `Space` / `C` rise and sink, `Shift` surge,
-  `[` `]` look sensitivity, `I` invert vertical look, `M` mute.
+  `[` `]` look sensitivity, `I` invert vertical look, `M` mute, `-` `=` volume (also a slider on the
+  start screen and in the map's panel), `R` level out (upright again,
+  horizon level, still heading the same way; in the zone it also turns you to the well).
   `F` goes fullscreen. Outside fullscreen the browser keeps its own shortcuts, so `Ctrl+W`
   (close tab) and `Ctrl+Shift+W` (close window) still work mid-flight; the game makes the
   browser ask before leaving. In fullscreen on Chromium those keys go to the game, and
   left `Ctrl` can be used to sink.
 - Controller: left stick fly, right stick look, right / left trigger rise and sink,
-  `A` (cross) or left-stick click surge, d-pad left / right sensitivity, `X` (square) invert,
+  bumpers roll, `A` (cross) or left-stick click surge, d-pad up level out, d-pad left / right sensitivity, `X` (square) invert,
   `Y` (triangle) mute. Any button starts the game.
-- Map: `Tab` (controller: select) opens the map of every sector seen so far, one horizontal
-  layer at a time; `Page Up` / `Page Down` (bumpers) step through layers.
+- Map: `Tab` (controller: select) opens the map of every sector you have been in (only those;
+  remembered across visits), one horizontal layer at a time; `Page Up` / `Page Down` (bumpers) step
+  through layers. Scroll zooms, out over thousands of sectors; drag moves the view; a click picks a
+  spot and a double click goes there. Its panel takes an exact sector and offset (`go`), sets where
+  you start (`start here`), goes somewhere at random in what the map shows, and finds you again.
+  `O` or `origin` always takes you back to the hub, from any dimension, and starts you there again.
 - Touch: drag to look, hold a second finger to fly forward.
+
+What is built is solid: flying into a structure (or the zone's well) bounces you back off it with
+a knock, louder the harder you hit. Two exceptions: a recursion, which is made to be flown into
+forever, and marderchen's dark rooms, where his chaostyper's maze must let go of anyone who surges.
 
 ## How Claude is used
 
@@ -180,6 +190,81 @@ not strobe hard, but it is bright and pulses with the beat.
 
 "its free use it or parts if you want =^.^="
 
+## The zone
+
+Fly straight down from the hub. In sector `0, -1, 0` a ring of blocks turns round a black hole,
+the seven pieces tumbling about it. It pulls you through like his door does, into the zone: a
+dimension with a well hanging in it, and a falling-block game in the well that is part of the place.
+
+At the well, `P` (controller: start) sits you down; `P` again stands you up and pauses. In the
+zone `R` (seated, also right-stick click) levels you out facing the well, from wherever you are.
+`Space` starts a run, and before that `←` `→` choose the stage it starts on.
+
+- Keyboard: `←` `→` move, `↓` soft drop, `Space` hard drop, `↑` or `X` rotate, `Z` or `Ctrl`
+  rotate back, `A` turn round, `C` or `Shift` hold, `V` the Zone. Mouse look and `Q` `E` roll still work.
+- Controller: d-pad (or left stick) move, d-pad down soft drop, d-pad up hard drop, `A` rotate,
+  `B` / `X` rotate back, `Y` turn round, bumpers hold, triggers the Zone.
+
+The game (`public/src/stack.js`) follows the published guideline rules: seven-piece bags, SRS
+rotation and wall kicks, hold, five next pieces, ghost, lock delay with move resets, guideline
+gravity and scoring, T-spins, back-to-back, combos, perfect clears. And the Zone: clearing lines
+fills a meter; from a quarter full it can be set off, and then time stops for as long as the
+meter held (20 seconds full). Nothing falls; every line cleared sinks to the bottom of the well
+and waits there, and when time starts again they all go at once (n lines score 50 × n² × level).
+
+What it does to the place (`public/src/zone.js`):
+
+- Cleared lines burst out of the well as blocks that stay in the dimension for a minute or two,
+  carried by the stage's current (schooling, rising, orbiting, spiralling, raining, pulsing).
+- Every piece that lands sends a shock through all of them; a quad (four lines at once) or a T-spin a big one.
+- Flying through them knocks them out of the way and drags them along. The well itself rocks when
+  things land in it, and gives a little when you fly into it.
+- In the Zone time stops for the whole dimension: the blocks, the current, the sky. The music goes
+  under water. When it ends, everything piled up is thrown out in one blast.
+- A run is a journey through the stages, from the one you chose to the last; each lasts 24 lines.
+  Through a stage its song builds: it starts held back, darker and quieter, and opens up as the
+  lines add up. When the stage is done the next song crossfades in from its beginning and the
+  dimension eases into the next look (colours, sky, current) without a cut. Finishing the last
+  stage completes the journey.
+- Every action has its sound, played by the stage's own instrument, in its key and on its beat:
+  moving plays the column you are in, turning goes up clockwise and down the other way, and holds,
+  landings, drops, clears and the Zone each have theirs. In the zone the pieces stand steady; the
+  music does not make them flash.
+
+### Your own stages
+
+Out of the box there are seven stages of ours, with a small score of ours for each. Anything you
+put in `zone/` (next to `server.js`; `CVOID_ZONE` points elsewhere) becomes the stages instead. The
+folder is ignored by git, so files that are only yours to use stay on your machine:
+
+    zone/
+      first stage/
+        1 drums.ogg      the layers of its music, in name order, all started together:
+        2 bass.ogg       the first always plays, and one more comes in every 5 lines
+        3 lead.ogg
+        stage.json       optional, see below
+        sky_night.png    optional: pictures named like sky, back, bg, pano, env hang far behind the well
+        feather.png      optional: the first other picture is what the stage's swarm is made of
+        whale.glb        optional: models (.glb / .gltf) float behind the well, turning
+      a song.mp3         a loose audio file is a stage of its own
+
+Audio can be anything the browser plays (`ogg`, `opus`, `mp3`, `wav`, `flac`, `m4a`), pictures
+`png`, `jpg`, `webp`, `gif`. Loose pictures and models go with every stage. `stage.json` can set:
+
+    { "bpm": 120, "offset": 0.0, "root": 55, "mode": "minor", "behaviour": "orbit", "voice": "drop", "lines": 24,
+      "palette": { "fog": "#03243a", "deep": "#00070f", "glow": "#2fd5ff", "accent": "#c4fff4" } }
+
+`bpm` and `offset` (seconds to the first beat) put the pieces' sounds on the music's beat; without
+them they play at once. `root` is in Hz; `mode` is one of `minor`, `dorian`, `lydian`, `phrygian`,
+`whole`, `pentatonic` (for a song in a major key, `pentatonic` stays in tune); `behaviour` one of
+`school`, `rise`, `drift`, `spiral`, `orbit`, `pulse`, `rain`; `voice`, the instrument of the
+pieces' sounds, one of `bell`, `drop`, `marimba`, `chime`, `pluck`, `harp`; `lines`, how many lines
+the stage lasts (24). `title` is the name shown (else the
+folder's), and `look` names one of our stages (`open water`, `ember field`, `glass desert`,
+`night train`, `aurora`, `deep bloom`, `starfall`) to take the sky and anything else left out from.
+Folders are played in name order. Links into `zone/` are followed, so files can stay where they are.
+Reload the page after changing files.
+
 ## Coordinates
 
 Nothing is random per visit. Sectors sit on an integer grid, 5200 units apart (`public/src/constants.js`): `x` east,
@@ -198,6 +283,7 @@ your offset from its centre. A sector Claude has dreamt is stored as
 | `CVOID_CACHE` | `.cache/sectors` | where dreamt sectors are stored |
 | `CVOID_MAX_SECTORS` | `300` | cap on new Claude sectors per server run |
 | `CVOID_MAX_BEATS` | `600` | cap on entity turns per server run |
+| `CVOID_ZONE` | `zone` | where the zone's own stages are read from |
 
 ## Layout
 
