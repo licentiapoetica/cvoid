@@ -28,7 +28,8 @@ camera.rotation.order = "YXZ";
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.6, 0.6, 0.55);
+const BLOOM = 0.6;
+const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), BLOOM, 0.6, 0.55);
 composer.addPass(bloom);
 // the glow is added to the colour only: over such a hole it glows, without filling it
 Object.assign(bloom.blendMaterial, { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });
@@ -669,6 +670,12 @@ const game = {
   aiming,                                   // flying, the pointer held, no map open
   mapOpen: () => map.open,
   closeMap: () => { if (map.open) map.toggle(); lockPointer(); },
+  // how the picture is finished while in a dimension of its own (null: as cvoid's own): tone mapped
+  // or not (a page's colours shown as they are), and how much light glows
+  finish(look) {
+    renderer.toneMapping = look?.toneMapped === false ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
+    bloom.strength = look?.bloom ?? BLOOM;
+  },
   // a dimension of its own: its name, the letter its places are kept under, what it is called, and
   // what stands in each of its sectors
   addRealm(name, letter, title, spec) {
