@@ -13,7 +13,7 @@ const MODES = ["minor", "dorian", "lydian", "phrygian", "whole", "pentatonic"];
 export const ORIGIN = {
   name: "Origin",
   inscription: "Everything saved is kept here, turning.",
-  whispers: ["seven lights for seven days", "the hours are cubes", "you were always loading"],
+  whispers: [], // nothing hangs in the air at the hub: words here broke the spell
   palette: { fog: "#070d2c", deep: "#02030e", glow: "#5f8cff", accent: "#b9d4ff" },
   fogDensity: 0.3,
   layers: [{ kind: "hub", primitive: "cube", density: 1, scale: 1, order: 1, twist: 0.4, spin: 0.25 }],

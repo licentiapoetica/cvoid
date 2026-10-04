@@ -237,6 +237,7 @@ function setVolume(volume, say = false) {
   store("volume", volume);
   for (const label of sliders) {
     label.querySelector("input").value = Math.round(volume * 100);
+    label.querySelector("input").style.setProperty("--v", volume); // how much of the line is lit
     label.querySelector("output").textContent = Math.round(volume * 100);
   }
   if (say) note(`volume ${Math.round(volume * 100)}${audio.muted ? " · muted (m)" : ""}`);

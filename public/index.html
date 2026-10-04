@@ -23,9 +23,33 @@
   #start.gone { opacity: 0; pointer-events: none; }
   /* volume: on the start screen and in the map's panel */
   .volume { display: flex; align-items: center; gap: 10px; font: 300 12px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .1em; color: #cfdcff; text-transform: lowercase; }
-  .volume input { width: 160px; accent-color: #9fb8ff; cursor: pointer; }
-  .volume output { width: 3ch; opacity: .7; }
-  #start .volume { justify-content: center; margin-top: 2.2em; opacity: .75; }
+  /* a hairline like the structures' lit edges, and a small hollow square for a handle */
+  .volume input {
+    --v: 1; -webkit-appearance: none; appearance: none; width: 170px; height: 18px; margin: 0;
+    background: transparent; cursor: pointer; outline: none;
+  }
+  .volume input::-webkit-slider-runnable-track {
+    height: 1px; box-shadow: 0 0 6px rgba(95, 140, 255, .45);
+    background: linear-gradient(to right, #9fb8ff calc(4.5px + (100% - 9px) * var(--v)), rgba(140, 160, 220, .28) 0);
+  }
+  .volume input::-moz-range-track { height: 1px; background: rgba(140, 160, 220, .28); }
+  .volume input::-moz-range-progress { height: 1px; background: #9fb8ff; box-shadow: 0 0 6px rgba(95, 140, 255, .45); }
+  .volume input::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 9px; height: 9px; margin-top: -4px;
+    background: #02030e; border: 1px solid #cfdcff; box-shadow: 0 0 8px #5f8cff; transition: background .2s, box-shadow .2s;
+  }
+  .volume input::-moz-range-thumb {
+    width: 7px; height: 7px; border-radius: 0; background: #02030e; border: 1px solid #cfdcff;
+    box-shadow: 0 0 8px #5f8cff; transition: background .2s, box-shadow .2s;
+  }
+  .volume input:hover::-webkit-slider-thumb, .volume input:focus-visible::-webkit-slider-thumb { background: #9fb8ff; box-shadow: 0 0 12px #5f8cff; }
+  .volume input:hover::-moz-range-thumb, .volume input:focus-visible::-moz-range-thumb { background: #9fb8ff; box-shadow: 0 0 12px #5f8cff; }
+  .volume output { width: 3ch; opacity: .7; font-variant-numeric: tabular-nums; }
+  #start .volume { justify-content: center; gap: 16px; margin-top: 2.6em; opacity: .7; text-shadow: 0 0 12px rgba(95, 140, 255, .5); }
+  /* label and number as wide as each other, so the line sits under the middle of the screen */
+  #start .volume span, #start .volume output { width: 5em; }
+  #start .volume span { text-align: right; }
+  #start .volume output { text-align: left; }
   @keyframes breathe { 50% { opacity: .25; } }
 
   #hud { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity 3s ease 1.5s; }
@@ -118,7 +142,7 @@
   <div class="row"><span>offset</span><input id="mOX" placeholder="x"><input id="mOY" placeholder="y"><input id="mOZ" placeholder="z"></div>
   <div class="row"><button id="mGo">go</button><button id="mSpawn">start here</button><button id="mRandom">random</button><button id="mOrigin">origin</button><button id="mHere">find me</button></div>
   <div id="mNote">click the map to pick a spot, or type one</div>
-  <label class="volume">volume <input type="range" min="0" max="100" step="1"><output></output></label>
+  <label class="volume"><span>volume</span><input type="range" min="0" max="100" step="1"><output></output></label>
 </div>
 <div id="hud">
   <div id="sector"><div id="name"></div><div id="inscription"></div></div>
@@ -130,7 +154,7 @@
 <div id="hint"></div>
 <div id="stage"></div>
 <div id="start"><div><h1>cvoid</h1><p id="prompt">click to materialize</p>
-  <label class="volume">volume <input type="range" min="0" max="100" step="1"><output></output></label></div></div>
+  <label class="volume"><span>volume</span><input type="range" min="0" max="100" step="1"><output></output></label></div></div>
 <script type="module" src="/src/main.js"></script>
 </body>
 </html>
