@@ -10,7 +10,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { hashCoords, mulberry32 } from "./noise.js";
-import { CELL, hubPortal } from "./constants.js";
+import { CELL, hubPortal, hubSlot } from "./constants.js";
 import { voidHole } from "./hole.js";
 import { Stack, W, H, TOP_LEVEL } from "./stack.js";
 
@@ -18,9 +18,17 @@ export const ZONE = "zone";
 // the ring in the hub: on the circle of portals round the clock (six places, a sixth of a turn apart),
 // straight behind you as you arrive; the plugins take the others: f0ck ahead, then gumo, somafm, and
 // past the zone's 4chan and tiktok
-const HUB_GATE = hubPortal(Math.PI);
-const VOID_GATE = new THREE.Vector3(...HUB_GATE.at), GATE_AXIS = new THREE.Vector3(...HUB_GATE.in);
+// its place on the circle of portals round the clock (see hubSlot): set again once it is known which
+// plugins stand there too (see main.js)
+const VOID_GATE = new THREE.Vector3(), GATE_AXIS = new THREE.Vector3();
+export function placeZoneGate() {
+  const at = hubSlot("zone");
+  VOID_GATE.set(...at.at);
+  GATE_AXIS.set(...at.in);
+}
+placeZoneGate();
 const GATE_R = 130, HOLE = 112;     // the ring of blocks, and the dark that fills it
+const CLEAR = HOLE * 4; // how far from its middle you come out of it, either way: well clear of its dark, and of its pull
 const EXIT = new THREE.Vector3(0, 0, 800);    // in the zone, the way back out: behind where you arrive
 // The wells, one for each stage, along a winding way into the dimension: the first ahead as you
 // arrive, each next one further on and off to a side, all facing the way in
@@ -807,11 +815,11 @@ export class Zone {
     const { centre, axis } = this.gateAt(world.realm);
     if (entering) {
       // you come out in front of the ring, facing the well
-      camera.position.copy(centre).addScaledVector(axis, -HOLE * 1.5);
+      camera.position.copy(centre).addScaledVector(axis, -CLEAR);
       this.arrive(0, -0.02);
     } else {
       // and leaving, just in front of the ring in the hub, facing out of it into the hub
-      camera.position.copy(centre).addScaledVector(axis, HOLE * 1.5);
+      camera.position.copy(centre).addScaledVector(axis, CLEAR);
       this.arrive(Math.atan2(-axis.x, -axis.z), 0);
       this.stand();
     }

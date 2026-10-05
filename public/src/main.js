@@ -10,9 +10,9 @@ import { VoidAudio } from "./audio.js";
 import { VoidMap } from "./map.js";
 import { Entity } from "./entity.js";
 import { Marderchen, REALM } from "./marderchen.js";
-import { Zone, ZONE } from "./zone.js";
+import { Zone, ZONE, placeZoneGate } from "./zone.js";
 import { PadMap } from "./pad.js";
-import { SPAWN } from "./constants.js";
+import { SPAWN, setPortals, hubSlot, portalNames } from "./constants.js";
 import { draggablePanels } from "./panels.js";
 
 const $ = (id) => document.getElementById(id);
@@ -20,7 +20,9 @@ const canvas = $("view");
 
 // with an alpha channel: opaque everywhere, but a plugin may cut a hole in the picture to show
 // something it places behind it (a page, say), which what hangs in front then hides as it should
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance", alpha: true });
+// (no antialiasing of its own: the picture is drawn through the passes below, which it never reached;
+// the graphics panel's smooth edges are the passes' own)
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance", alpha: true });
 renderer.setClearColor(0x000000, 1);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
@@ -39,6 +41,25 @@ Object.assign(bloom.blendMaterial, { blending: THREE.CustomBlending, blendSrc: T
 composer.addPass(new OutputPass());
 const screen = screenPass(); // the glass it is all seen through (Tab panel: screen)
 composer.addPass(screen.pass);
+
+// The graphics panel's choices (Tab), remembered: resolution (auto follows the frame rate), a cap on the
+// frame rate, the glow, smooth edges, how many videos play at once in the plugins' dimensions, and how
+// the view follows the mouse
+const gfx = {
+  resolution: "auto", fps: 0, bloom: true, aa: false, videos: 3, loops: 4, ease: "normal",
+  ...(() => { try { return JSON.parse(localStorage.getItem("cvoid.graphics")) ?? {}; } catch { return {}; } })(),
+};
+const meter = { frames: 0, time: 0, fps: 0 }; // frames a second, as drawn (shown in the graphics panel)
+let rawInput = null; // whether the mouse comes raw (known once the pointer has been taken: see lockPointer)
+const LOOK_EASES = { off: 0, light: 60, normal: 30, heavy: 14 }; // (higher: tighter; off: the view is where the mouse put it)
+function applyGraphics() {
+  bloom.enabled = gfx.bloom;
+  const samples = gfx.aa ? 4 : 0;
+  for (const target of [composer.renderTarget1, composer.renderTarget2]) {
+    if (target.samples !== samples) { target.samples = samples; target.dispose(); } // (made again, so, at its next use)
+  }
+}
+applyGraphics();
 
 const audio = new VoidAudio();
 
@@ -86,7 +107,8 @@ map.load();
 
 // Resolution follows the frame rate: a slow GPU gets fewer pixels instead of a stalled driver.
 const MAX_RATIO = Math.min(window.devicePixelRatio, 1.5), MIN_RATIO = 0.5;
-let ratio = MAX_RATIO;
+const RESOLUTIONS = { auto: null, "50%": 0.5, "75%": 0.75, "100%": 1, sharp: Math.min(window.devicePixelRatio, 2) };
+let ratio = RESOLUTIONS[gfx.resolution] ?? MAX_RATIO;
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setPixelRatio(ratio);
@@ -101,8 +123,12 @@ function resize() {
 }
 // It goes by the typical frame (the median), not the average: one stall (a sector being built, a
 // shader compiled) is not a slow machine, and dropping the resolution for it is a visible jump.
-const pace = { time: 0, frames: [], hold: 0 };
+// A rise followed soon by another drop is the frame rate sitting at the edge: each such time it waits
+// twice as long before trying again, rather than going up and down (every change is a hitch).
+const pace = { time: 0, frames: [], hold: 0, clock: 0, raisedAt: -1e9, wait: 12 };
 function adaptResolution(dt) {
+  if (RESOLUTIONS[gfx.resolution]) return; // (a fixed one chosen)
+  pace.clock += dt;
   pace.time += dt;
   pace.frames.push(dt);
   pace.hold -= dt;
@@ -112,10 +138,12 @@ function adaptResolution(dt) {
   pace.frames = [];
   if (frame > 1 / 38 && ratio > MIN_RATIO) {
     ratio = Math.max(MIN_RATIO, ratio * 0.82);
-    pace.hold = 12; // don't climb straight back into the stall
+    pace.wait = pace.clock - pace.raisedAt < 20 ? Math.min(pace.wait * 2, 300) : 12;
+    pace.hold = pace.wait; // don't climb straight back into the stall
     resize();
   } else if (frame < 1 / 54 && ratio < MAX_RATIO && pace.hold <= 0) {
     ratio = Math.min(MAX_RATIO, ratio * 1.1);
+    pace.raisedAt = pace.clock;
     resize();
   }
 }
@@ -143,7 +171,9 @@ let lastShift = -Infinity, hyper = false;
 const BODY = 14;  // how wide you are, for bumping into things
 let bumpIn = 0;   // a knock is heard at most this often
 const MOUSE_LOOK = 0.0016;  // radians per count of raw mouse movement
-const LOOK_EASE = 30;       // higher = tighter; removes the stepping of low-rate mice without feeling laggy
+// how tightly the view follows the mouse (graphics panel: smoothing): it removes the stepping of low-rate
+// mice; higher is tighter, 0 none at all
+const lookEase = () => LOOK_EASES[gfx.ease] ?? 30;
 const PAD_LOOK = 2.6;       // radians per second at full stick
 const DEADZONE = 0.14;
 
@@ -208,6 +238,46 @@ const voice = new VoidVoice({ world, notice: () => hook("notice"), textEl: $("vo
   };
   show();
 }
+// the graphics panel (Tab): each choice at once, and remembered
+const keepGraphics = () => store("graphics", gfx);
+function choices(id, options, key, label = (v) => String(v), after = () => {}) {
+  const buttons = options.map((value) => {
+    const b = Object.assign(document.createElement("button"), { textContent: label(value) });
+    b.onclick = () => { gfx[key] = value; keepGraphics(); after(); show(); };
+    $(id).append(b);
+    return [value, b];
+  });
+  const show = () => { for (const [value, b] of buttons) b.classList.toggle("on", gfx[key] === value); };
+  show();
+}
+choices("gRes", Object.keys(RESOLUTIONS), "resolution", undefined, () => { ratio = RESOLUTIONS[gfx.resolution] ?? MAX_RATIO; pace.hold = 3; resize(); showNow(); });
+choices("gFps", [0, 120, 60, 30], "fps", (v) => (v ? String(v) : "no cap"));
+choices("gBloom", [true, false], "bloom", (v) => (v ? "on" : "off"), applyGraphics);
+choices("gAA", [false, true], "aa", (v) => (v ? "on" : "off"), applyGraphics);
+choices("gVideos", [1, 2, 3, 6], "videos");
+choices("gLoops", [2, 4, 6, 10], "loops");
+choices("gEase", Object.keys(LOOK_EASES), "ease");
+function showNow() {
+  const w = Math.round(innerWidth * ratio), h = Math.round(innerHeight * ratio);
+  $("gNow").textContent = `now ${Math.round(meter.fps)} frames a second · drawn at ${w} × ${h}${RESOLUTIONS[gfx.resolution] ? "" : " (auto)"}`;
+}
+function showSensitivity() {
+  $("gSens").value = Math.log(sensitivity).toFixed(2);
+  $("gSensOut").textContent = `${sensitivity.toFixed(2)}×`;
+}
+$("gSens").addEventListener("input", () => {
+  sensitivity = THREE.MathUtils.clamp(Math.exp(Number($("gSens").value)), 0.2, 5);
+  store("sensitivity", sensitivity);
+  $("gSensOut").textContent = `${sensitivity.toFixed(2)}×`;
+});
+for (const type of ["keydown", "keyup"]) $("gSens").addEventListener(type, (e) => e.stopPropagation()); // (its arrow keys are its own)
+function showRaw() {
+  $("gRaw").textContent = rawInput === null ? "raw input: known once the pointer is taken"
+    : rawInput ? "raw input: yes (the mouse as it moves, no acceleration)"
+    : "raw input: not in this browser, so the system's pointer acceleration applies (turn it off there for an even feel, and lower the smoothing)";
+}
+showSensitivity();
+showRaw();
 const fadeEl = $("fade");
 
 // Going somewhere at once, from the map: in the dark, into whichever dimension the place is in.
@@ -309,6 +379,7 @@ function look(dx, dy, scale) {
 function changeSensitivity(factor) {
   sensitivity = THREE.MathUtils.clamp(sensitivity * factor, 0.2, 5);
   store("sensitivity", sensitivity);
+  showSensitivity();
   note(`look sensitivity × ${sensitivity.toFixed(2)}`);
 }
 function toggleInvert() {
@@ -339,6 +410,7 @@ function toggleAutofly(on) {
   const taken = hook("autofly", on);
   if (taken) return void (typeof taken === "string" && note(taken));
   on ??= !autofly;
+  if (!on) portalFlight = null; // (a flight into a portal, stopped with it)
   if (on === autofly) return;
   autofly = on;
   note(autofly ? "autofly on · enter or s to stop" : "autofly off");
@@ -407,16 +479,23 @@ function start() {
   yaw = viewYaw = camera.rotation.y;
   pitch = viewPitch = camera.rotation.x;
   audio.start();
-  // a chosen place to start, set on the map; else everyone's, looking at the clock
+  // a chosen place to start, set on the map; else right where the start screen's turning view is, as it
+  // is (no jump: you simply take over), in the hub, looking at the clock
   if (map.spawn) teleport(map.spawn.realm, map.spawn.x, map.spawn.y, map.spawn.z);
-  else spawnHere();
   map.visit(world.currentKey); // where you begin counts as explored
   voice.arrived(); // (someone it knows, it greets)
   $("start").classList.add("gone");
   $("hud").classList.add("on");
   $("crosshair").classList.add("on");
+  document.body.classList.add("started"); // (the touch screen's menu button shows from now: see index.html)
   wakeHud(9); // where you begin, named a while (with the HUD's slow first reveal)
 }
+// the Tab panel, on a touch screen: its button opens it and closes it again
+$("menuButton").addEventListener("click", () => {
+  map.toggle();
+  $("menuButton").textContent = map.open ? "close" : "menu";
+});
+new MutationObserver(() => { $("menuButton").textContent = map.open ? "close" : "menu"; }).observe(document.body, { attributes: true, attributeFilter: ["class"] });
 
 // Raw mouse input where the browser offers it: the OS pointer acceleration curve
 // is what makes locked-pointer look feel slippery.
@@ -424,9 +503,11 @@ async function lockPointer() {
   if (!canvas.requestPointerLock || document.pointerLockElement === canvas) return;
   try {
     await canvas.requestPointerLock({ unadjustedMovement: true });
+    rawInput = !/firefox/i.test(navigator.userAgent); // (Firefox takes the option without a word, and gives no raw input)
   } catch (err) {
-    if (err.name === "NotSupportedError") canvas.requestPointerLock()?.catch?.(() => {});
+    if (err.name === "NotSupportedError") { rawInput = false; canvas.requestPointerLock()?.catch?.(() => {}); }
   }
+  showRaw();
 }
 
 $("start").addEventListener("click", () => {
@@ -530,7 +611,12 @@ async function toggleFullscreen() {
 const aiming = () => started && document.pointerLockElement === canvas && !map.open;
 document.addEventListener("mousedown", (e) => {
   if (e.button === 2 && aiming()) rightHeld = e.timeStamp;
-  if (e.button === 0 && aiming()) hook("mouse", e);
+  if (e.button === 0 && aiming()) {
+    // a portal in the hub under the crosshair: flown into; else the click is the plugins'
+    const portal = portalAimedAt();
+    if (portal) return flyIntoPortal(portal);
+    hook("mouse", e);
+  }
 });
 document.addEventListener("mouseup", (e) => {
   if (e.button !== 2 || !rightHeld) return;
@@ -637,32 +723,142 @@ window.addEventListener("gamepadconnected", () => {
   if (!started) $("prompt").textContent = "click or press any button to materialize";
 });
 
-// touch: drag to look, hold a second finger to fly forward
+// Touch: drag to look, hold a second finger to fly forward. A tap (one finger, short, hardly moved) with
+// the crosshair on a portal flies you into it, and on anything else is a click (a post in f0ck and the
+// like: listened to and flown to); a double tap surges, as Shift does, until the next double tap.
 const touches = new Map();
+let tapStart = null, lastTap = 0, tapLater = null, touchSurge = false, pressLater = null;
+// a flight a tap on a portal began: into that portal, and no further (see fly)
+let portalFlight = null; // { at, realm, nearest }
+// (cvoid's own flying by itself, stopped at once: not through the plugins, which, inside one of their
+// dimensions, take the asking for their tour and left it flying on)
+function stopFlying() {
+  portalFlight = null;
+  autofly = false;
+}
+// the portal the crosshair is on, in the hub (round the clock, and marderchen's door), if any
+// (what each is called, under the crosshair while it is on one: see showPortalName)
+const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen" };
+function portalAimedAt() {
+  if (world.realm !== "void") return null;
+  const spots = portalNames().map((name) => ({ name, at: new THREE.Vector3(...hubSlot(name).at) }));
+  spots.push({ name: "marderchen", at: marderchen.centre("void", new THREE.Vector3()) });
+  const ahead = camera.getWorldDirection(new THREE.Vector3());
+  let best = null, bestOff = 0.07; // (about four degrees: a portal far off is small)
+  for (const spot of spots) {
+    const to = spot.at.clone().sub(camera.position), distance = to.length();
+    if (distance < 1 || distance > 9000) continue;
+    const off = to.normalize().angleTo(ahead) - Math.atan(150 / distance); // (from its rim, not its middle)
+    if (off < bestOff) { bestOff = off; best = spot; }
+  }
+  return best;
+}
+// a portal in the hub, clicked or tapped: turned to, and flown into (and no further: see fly)
+function flyIntoPortal(portal) {
+  // clicked again at once (a double click) on the way into the same one: faster
+  if (portalFlight && portalFlight.at.distanceTo(portal.at) < 1 && performance.now() - portalFlight.since < 450) {
+    portalFlight.fast = true;
+    return note(`into ${PORTAL_NAMES[portal.name] ?? portal.name} · faster`);
+  }
+  const to = portal.at.clone().sub(camera.position), length = to.length() || 1;
+  face(Math.atan2(-to.x, -to.z), Math.asin(Math.max(-1, Math.min(1, to.y / length))));
+  autofly = true;
+  portalFlight = { at: portal.at, realm: world.realm, nearest: length, since: performance.now() };
+  note(`into ${PORTAL_NAMES[portal.name] ?? portal.name} · ${matchMedia("(pointer: coarse)").matches ? "tap to stop" : "s to stop"}`);
+}
+// the portal the crosshair is on, named under it (as a post's portals are in f0ck's dimensions)
+let portalNameEl = null;
+function showPortalName() {
+  const portal = started && !map.open && !portalFlight ? portalAimedAt() : null;
+  if (!portalNameEl && !portal) return;
+  if (!portalNameEl) {
+    portalNameEl = Object.assign(document.body.appendChild(document.createElement("div")), { id: "hubPortalName" });
+    Object.assign(portalNameEl.style, { position: "fixed", left: "50%", top: "calc(50% + 22px)", transform: "translateX(-50%)", zIndex: 3, pointerEvents: "none", padding: "3px 10px", background: "rgba(2, 3, 14, .62)", color: "#bfe6ff", font: '400 14px "Helvetica Neue", Helvetica, Arial, sans-serif', letterSpacing: ".1em", whiteSpace: "nowrap", transition: "opacity .15s ease", opacity: "0" });
+  }
+  if (portal) portalNameEl.textContent = PORTAL_NAMES[portal.name] ?? portal.name;
+  portalNameEl.style.opacity = portal ? "1" : "0";
+}
+function tap() {
+  // flying by itself (a portal tapped, or autofly): a tap stops it
+  if (autofly || portalFlight) {
+    stopFlying();
+    return note("stopped");
+  }
+  const portal = portalAimedAt();
+  if (portal) return flyIntoPortal(portal);
+  hook("mouse", { button: 0, touch: true });
+}
+// a long press (a finger held still): as a right click is, letting go of what you picked or calling off a
+// tour; and any flight by itself stops
+function longPress() {
+  if (autofly || portalFlight) { stopFlying(); }
+  hook("rightClick");
+  note("let go");
+}
+// the fingers on the screen, as the browser has them now (never a count kept along the way: a lift it
+// missed, the start screen going from under a finger, left one behind, and two fingers counted as one)
+function syncTouches(e) {
+  const now = new Set([...e.touches].map((t) => t.identifier));
+  for (const id of touches.keys()) if (!now.has(id)) touches.delete(id);
+  for (const t of e.touches) if (!touches.has(t.identifier)) touches.set(t.identifier, [t.clientX, t.clientY]);
+  touchThrust = e.touches.length > 1 && !map.open ? 1 : 0; // (the panel open: fingers are for it, not for flying)
+}
+// on the picture itself, every touch is cvoid's own: not a pinch to zoom the page, which a browser (Safari
+// above all, which zooms whatever the page asks) starts at a second finger, taking both away from it
+const onPicture = (e) => e.target === canvas || e.target === document.body || e.target === document.documentElement || !!e.target.closest?.("#start");
 window.addEventListener("touchstart", (e) => {
-  start();
-  for (const t of e.changedTouches) touches.set(t.identifier, [t.clientX, t.clientY]);
-  touchThrust = touches.size > 1 ? 1 : 0;
-}, { passive: true });
+  if (onPicture(e) && e.cancelable) e.preventDefault();
+  if (!started) { start(); syncTouches(e); return; }
+  syncTouches(e);
+  const t = e.changedTouches[0];
+  tapStart = e.touches.length === 1 ? { id: t.identifier, x: t.clientX, y: t.clientY, at: e.timeStamp } : null;
+  clearTimeout(pressLater);
+  if (tapStart && !map.open) {
+    const held = tapStart;
+    pressLater = setTimeout(() => { if (tapStart === held) { tapStart = null; longPress(); } }, 600);
+  }
+}, { passive: false });
 window.addEventListener("touchmove", (e) => {
+  if (onPicture(e) && e.cancelable) e.preventDefault();
   const t = e.changedTouches[0], last = touches.get(t.identifier);
-  if (last) look(t.clientX - last[0], t.clientY - last[1], 0.005 * sensitivity);
+  if (last && !map.open) look(t.clientX - last[0], t.clientY - last[1], 0.005 * sensitivity);
+  if (tapStart && tapStart.id === t.identifier && Math.hypot(t.clientX - tapStart.x, t.clientY - tapStart.y) > 12) { tapStart = null; clearTimeout(pressLater); } // (moved: a drag, not a tap nor a press)
   for (const c of e.changedTouches) touches.set(c.identifier, [c.clientX, c.clientY]);
-}, { passive: true });
+}, { passive: false });
+for (const type of ["gesturestart", "gesturechange"]) document.addEventListener(type, (e) => e.preventDefault()); // (Safari's own pinch)
 const touchEnd = (e) => {
-  for (const t of e.changedTouches) touches.delete(t.identifier);
-  touchThrust = touches.size > 1 ? 1 : 0;
+  clearTimeout(pressLater);
+  // (a finger lifted is what a browser lets sound begin on: a touch put down is not, and the start
+  // screen's touch is taken whole, so no click follows it)
+  if (audio.ctx?.state === "suspended") audio.ctx.resume().catch(() => {});
+  for (const t of e.changedTouches) {
+    const moved = tapStart && tapStart.id === t.identifier ? Math.hypot(t.clientX - tapStart.x, t.clientY - tapStart.y) : Infinity;
+    if (e.type === "touchend" && moved < 12 && e.timeStamp - tapStart.at < 300 && !map.open) {
+      // a tap: a second one soon after makes it a double tap (and the first is no tap of its own)
+      if (e.timeStamp - lastTap < 320) {
+        clearTimeout(tapLater);
+        lastTap = 0;
+        touchSurge = !touchSurge;
+        note(touchSurge ? "surge · double tap again to stop" : "surge off");
+      } else {
+        lastTap = e.timeStamp;
+        tapLater = setTimeout(tap, 320);
+      }
+    }
+    if (tapStart?.id === t.identifier) tapStart = null;
+  }
+  syncTouches(e);
 };
 window.addEventListener("touchend", touchEnd);
 window.addEventListener("touchcancel", touchEnd);
-if (matchMedia("(pointer: coarse)").matches) $("prompt").textContent = "tap to materialize · drag to look · two fingers to fly";
+if (matchMedia("(pointer: coarse)").matches) $("prompt").textContent = "tap to materialize · drag to look · two fingers to fly · tap a portal to fly into it · double tap to surge";
 
 const RISE_RAMP = 1.2; // seconds of holding space to reach the full faster climb
 let riseHold = 0;
 function fly(dt) {
   const axis = (pos, neg) => (keys.has(pos) ? 1 : 0) - (keys.has(neg) ? 1 : 0);
   // aim first, so thrust follows where the camera points this frame
-  const ease = 1 - Math.exp(-LOOK_EASE * dt);
+  const ease = lookEase() ? 1 - Math.exp(-lookEase() * dt) : 1;
   viewYaw += (yaw - viewYaw) * ease;
   viewPitch += (pitch - viewPitch) * ease;
   roll += (axis("KeyQ", "KeyE") + pad.roll) * ROLL * dt; // Q rolls left, E right
@@ -682,13 +878,19 @@ function fly(dt) {
     return;
   }
 
+  // a flight a tap on a portal began ends once through it, or once it is passed and falling behind
+  if (portalFlight) {
+    const d = camera.position.distanceTo(portalFlight.at);
+    portalFlight.nearest = Math.min(portalFlight.nearest, d);
+    if (world.realm !== portalFlight.realm || d > portalFlight.nearest + 400) { stopFlying(); }
+  }
   thrust.set(axis("KeyD", "KeyA") + pad.x, 0, axis("KeyS", "KeyW") + pad.y - touchThrust - (autofly ? 1 : 0));
   thrust.applyEuler(camera.rotation);
   thrust.y += axis("Space", "KeyC") - (keys.has("ControlLeft") ? 1 : 0) + pad.rise;
   if (thrust.lengthSq() > 1) thrust.normalize();
   const forward = thrust.dot(camera.getWorldDirection(ahead));
   if (forward > 0) thrust.addScaledVector(ahead, forward * (AHEAD - 1));
-  const surge = keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge ? SURGE * (hyper ? HYPER : 1) : 1;
+  const surge = (keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge || touchSurge ? SURGE * (hyper ? HYPER : 1) : 1) * (portalFlight?.fast ? 2.4 : 1); // (a portal double clicked: faster in)
   velocity.addScaledVector(thrust, THRUST * surge * dt);
   // holding space: the climb picks up the longer it is held, up to 1.6 times (a tap stays gentle)
   riseHold = keys.has("Space") ? Math.min(riseHold + dt, RISE_RAMP) : 0;
@@ -726,8 +928,14 @@ function idle(t) {
 
 let elapsed = 0, last = performance.now(), coordsTimer = 0, seatedBefore = false;
 renderer.setAnimationLoop((now) => {
+  // a cap on the frame rate (graphics panel): a frame come too soon is left out (a millisecond's grace,
+  // so a 60 on a 60 screen is not halved by the timer's jitter)
+  if (gfx.fps && now - last < 1000 / gfx.fps - 1) return;
   const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
+  meter.frames++;
+  meter.time += dt;
+  if (meter.time >= 0.5) { meter.fps = meter.frames / meter.time; meter.frames = 0; meter.time = 0; if (map.open) showNow(); }
   elapsed += dt;
   pollPad(dt);
   if (!started) { idle(elapsed); for (const p of plugins) p.idle?.(dt); } // (what they have in the hub moves behind the start screen too)
@@ -766,6 +974,8 @@ renderer.setAnimationLoop((now) => {
   screen.update(dt);
   composer.render(dt);
   if (map.open) map.draw(camera, viewYaw, world.realm);
+  showPortalName();
+  showPanelsFor();
   // where you are: the sector's grid coordinates, then your offset from its centre in units
   if ((coordsTimer -= dt) <= 0) {
     coordsTimer = 0.15;
@@ -775,7 +985,7 @@ renderer.setAnimationLoop((now) => {
   }
 });
 
-window.cvoid = { world, camera, renderer, entity, marderchen, zone, voice, map, plugins, padMap, CELL, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; } };
+window.cvoid = { world, camera, renderer, entity, marderchen, zone, voice, map, plugins, padMap, CELL, graphics: gfx, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; } };
 
 // The plugins (see the top), installed once the game around them is ready: what they are given.
 const game = {
@@ -800,7 +1010,11 @@ const game = {
     realmNames[name] = title;
   },
 };
-for (const url of await fetch("/api/plugins").then((r) => (r.ok ? r.json() : [])).catch(() => [])) {
+// the plugins this cvoid has: first, where their portals stand round the clock (evenly, see hubSlot), then each
+const pluginUrls = await fetch("/api/plugins").then((r) => (r.ok ? r.json() : [])).catch(() => []);
+setPortals(pluginUrls.map((url) => url.match(/\/plugins\/([^/]+)\//)?.[1]).filter(Boolean));
+placeZoneGate();
+for (const url of pluginUrls) {
   try {
     plugins.push((await import(url)).default(game) ?? {});
   } catch (err) {

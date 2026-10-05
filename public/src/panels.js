@@ -5,6 +5,7 @@
 
 const CONTROLS = "button, input, select, textarea, a, label, canvas, [contenteditable], output";
 const MIN_W = 180, MIN_H = 60;
+const narrow = matchMedia("(max-width: 760px)");
 
 export function draggablePanels({ stored, store }) {
   const placed = stored("panels", {}) ?? {}; // id -> { left, top, width, height }
@@ -31,6 +32,7 @@ export function draggablePanels({ stored, store }) {
     el.addEventListener("pointerdown", (e) => {
       el.style.zIndex = String(++front); // (the one touched comes to the front)
       if (e.button !== 0 || e.target.closest(CONTROLS)) return;
+      if (narrow.matches) return; // (a narrow screen has them one under another, scrolled: see index.html)
       // the corner it is resized by is the browser's: a press there is left to it, and the size it was
       // given remembered when it is let go
       const box = el.getBoundingClientRect();

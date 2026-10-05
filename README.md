@@ -20,6 +20,9 @@ Controls:
   `[` `]` look sensitivity, `I` invert vertical look, `M` mute, `-` `=` volume (also a slider on the
   start screen and in the map's panel), `R` level out (upright again,
   horizon level, still heading the same way; in the zone it also turns you to the well).
+  In the hub, with the crosshair on a portal (round the clock, or marderchen's door) its name shows
+  under the crosshair; click and you are turned to it and flown in (`S` stops it; it stops itself
+  once you are through, or past it).
   Hold the right mouse button to zoom in (about 2×, the view turning slower to match); let go
   to zoom back out. `F` goes fullscreen. Outside fullscreen the browser keeps its own shortcuts, so `Ctrl+W`
   (close tab) and `Ctrl+Shift+W` (close window) still work mid-flight; the game makes the
@@ -40,11 +43,25 @@ Controls:
   drone, wind, heartbeat), music (the zone's, marderchen's, the garden's), sounds (knocks, stings, the
   game's), voices (the entity's) and radio and posts (what plugins play); remembered, and a double
   click puts one back to 100.
+  The graphics panel (Tab, top left), for a smoother picture on a slower machine or browser:
+  resolution (auto follows the frame rate, waiting longer each time it would go up and down; or a
+  fixed 50%, 75%, 100%, or sharp, the screen's own up to 2×), a frame rate cap (120, 60, 30), the glow
+  on or off, smooth edges (antialiasing, off by default), how many videos play at once in the plugins'
+  dimensions, how many Flash loops (z0r's) at once, and the mouse: how much the view smooths it (off, light, normal, heavy) and its
+  sensitivity. It shows the frame rate and the size drawn at, and whether the browser gives raw mouse
+  input: Chrome does; Firefox does not, so the system's pointer acceleration applies there (turning
+  that off in the system, and the smoothing down, makes it even). Remembered.
   The Tab panel's windows (the map's, the keys, the controller page, and the plugins') can be put
   where you like: drag one by any part that is not a button or a field, and resize it by its corner;
   what is in it flows to fit. Each is remembered where you left it; pressed twice quickly (not on a
   control), it goes back where it began.
-- Touch: drag to look, hold a second finger to fly forward.
+- Touch: drag to look, hold a second finger to fly forward. Tap with the crosshair on a portal in the
+  hub (round the clock, or marderchen's door) to turn to it and fly into it; tap on anything else as
+  a click (a post in f0ck's dimensions: listened to and flown to). Double tap to surge, as Shift does,
+  until the next double tap. The crosshair is a small solid light-blue square.
+  The Tab panel opens from the "menu" button, top right (it reads "close" while open); on a narrow
+  screen its windows are one under another, scrolled through, and while it is open the fingers are
+  for it, not for flying.
 - With more than one controller connected, the one you use is the one listened to: it is kept until
   another has a button pressed or a stick pushed, so an idle one left plugged in does not get in the way.
 - The controller's buttons can be put where you want them: Tab, then `controller`. Every action, flying

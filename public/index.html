@@ -80,9 +80,30 @@
   #crosshair { opacity: 0; transition: opacity 3s ease 1.5s; pointer-events: none; z-index: 1; }
   #crosshair.on { opacity: 1; }
   .mapping #crosshair { opacity: 0; transition: opacity .25s ease; }
+  /* on a touch screen, the Tab panel's way in (there is no Tab key): a small button, top right, once
+     you have materialized; it reads "close" while the panel is open */
+  #menuButton {
+    position: fixed; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); z-index: 6; display: none;
+    padding: 8px 12px; background: rgba(2, 3, 14, .7); border: 1px solid rgba(143, 211, 255, .55); color: #cfeaff;
+    font: 300 12px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .14em; text-transform: lowercase; cursor: pointer;
+  }
+  @media (pointer: coarse) { body.started #menuButton { display: block; } }
+  /* inside a dimension, the Tab panel shows its own window and the general ones only (see main.js) */
+  body.mapping > .elsewhere { display: none !important; }
+  /* a narrow screen: the Tab panel's windows one under another, scrolled through, not laid over each
+     other where a wide screen has room for them (where they were moved to is let be) */
+  @media (max-width: 760px) {
+    body.mapping { overflow-y: auto; height: 100%; padding-top: 52px; touch-action: pan-y; }
+    body.mapping > [id$='Panel'] {
+      position: relative !important; left: auto !important; top: auto !important; right: auto !important; bottom: auto !important;
+      width: auto !important; height: auto !important; max-width: none !important; max-height: none !important;
+      margin: 10px 12px; z-index: 5; resize: none;
+    }
+  }
+  /* the crosshair: a small solid square of light blue, plainly seen against anything */
   #crosshair {
-    position: fixed; left: 50%; top: 50%; width: 5px; height: 5px; transform: translate(-50%, -50%);
-    border: 1px solid rgba(207, 220, 255, .26); box-shadow: 0 0 4px rgba(95, 140, 255, .18);
+    position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; transform: translate(-50%, -50%);
+    background: #8fd3ff; box-shadow: 0 0 0 1px rgba(2, 3, 14, .55), 0 0 6px rgba(143, 211, 255, .55);
   }
   #sector { position: absolute; left: 6vw; bottom: 14vh; max-width: 80vw; text-shadow: 0 0 18px rgba(0,0,0,.8); }
   #name { font-weight: 200; font-size: clamp(26px, 4.6vw, 60px); letter-spacing: .32em; line-height: 1.15; }
@@ -165,6 +186,27 @@
   .mapping #sector, .mapping #help { opacity: 0; transition: opacity .25s ease; }
   .seated #sector { opacity: 0; } /* at the well in the zone: the place's name would sit over the game */
   /* the keys, in the Tab panel: cvoid's own, then each plugin's (the gamepad's when one is in use) */
+  /* graphics and the mouse: what to give up for a smoother picture */
+  #gfxPanel {
+    position: fixed; left: 24px; top: 68px; z-index: 4; display: none; flex-direction: column; gap: 8px; max-width: min(420px, calc(100vw - 48px));
+    padding: 14px 16px; background: rgba(2, 3, 14, .85); border: 1px solid rgba(140, 160, 220, .3);
+    font: 300 12px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .08em; color: #cfdcff; text-transform: lowercase;
+  }
+  .mapping #gfxPanel { display: flex; }
+  .mapping.padding #gfxPanel { display: none; }
+  #gfxPanel .title { letter-spacing: .3em; opacity: .8; }
+  #gfxPanel .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  #gfxPanel .row > span { width: 8.5em; opacity: .6; }
+  #gfxPanel .choices { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+  #gfxPanel button {
+    padding: 4px 8px; background: rgba(140, 160, 220, .12); border: 1px solid rgba(140, 160, 220, .4);
+    color: #fff; font: inherit; letter-spacing: .08em; cursor: pointer;
+  }
+  #gfxPanel button:hover { background: rgba(140, 160, 220, .28); }
+  #gfxPanel button.on { background: rgba(95, 140, 255, .32); border-color: #9fb8ff; box-shadow: 0 0 8px rgba(95, 140, 255, .35); }
+  #gfxPanel input[type=range] { flex: 1; min-width: 8em; accent-color: #9fb8ff; }
+  #gfxPanel output { width: 4ch; text-align: right; }
+  #gfxPanel .of { opacity: .55; letter-spacing: .06em; font-size: 11px; line-height: 1.4; }
   #keysPanel {
     position: fixed; right: 24px; top: 68px; z-index: 4; display: none; flex-direction: column; gap: 10px; /* (below the map's own lines) */
     max-width: min(640px, calc(100vw - 48px)); max-height: calc(100vh - 92px); overflow-y: auto;
@@ -242,8 +284,23 @@
   <label class="volume"><span>volume</span><input type="range" min="0" max="100" step="1"><output></output></label>
 </div>
 <div id="keysPanel"><div class="title">keys</div><div id="keysList"></div></div>
+<div id="gfxPanel">
+  <div class="title">graphics</div>
+  <div class="row"><span>resolution</span><div class="choices" id="gRes"></div></div>
+  <div class="row"><span>frame rate</span><div class="choices" id="gFps"></div></div>
+  <div class="row"><span>glow</span><div class="choices" id="gBloom"></div></div>
+  <div class="row"><span>smooth edges</span><div class="choices" id="gAA"></div></div>
+  <div class="row"><span>videos at once</span><div class="choices" id="gVideos"></div></div>
+  <div class="row"><span>flash loops at once</span><div class="choices" id="gLoops"></div></div>
+  <div class="of" id="gNow"></div>
+  <div class="title">mouse</div>
+  <div class="row"><span>smoothing</span><div class="choices" id="gEase"></div></div>
+  <label class="row"><span>sensitivity</span><input type="range" id="gSens" min="-1.6" max="1.6" step="0.01"><output id="gSensOut"></output></label>
+  <div class="of" id="gRaw"></div>
+</div>
 <div id="padPanel"></div>
 <div id="crosshair"></div>
+<button id="menuButton" type="button" aria-label="menu">menu</button>
 <div id="note"></div>
 <div id="hud">
   <div id="sector"><div id="name"></div><div id="inscription"></div></div>

@@ -14,6 +14,17 @@ export const hubPortal = (angle) => ({
   at: [Math.sin(angle) * PORTAL_RING, 0, -Math.cos(angle) * PORTAL_RING],
   in: [-Math.sin(angle), 0, Math.cos(angle)],
 });
+// Who stands where on that circle: these, in this order round it (f0ck's straight ahead), each the same
+// way from the next, as many as there are (setPortals: the plugins this cvoid has, and the zone, which
+// is cvoid's own), so the circle is always evenly kept, however many there are. hubSlot(name): where
+// that one stands.
+export const PORTAL_ORDER = ["f0ck", "z0r", "gumo", "somafm", "zone", "chan", "shorts", "tiktok", "redgifs"];
+let portals = PORTAL_ORDER;
+export function setPortals(plugins) {
+  portals = PORTAL_ORDER.filter((name) => name === "zone" || plugins.includes(name));
+}
+export const portalNames = () => portals;
+export const hubSlot = (name) => hubPortal((Math.max(0, portals.indexOf(name)) / portals.length) * Math.PI * 2);
 // where everyone starts, unless they have chosen a place on the map (and where its origin button takes
 // you back to): in the hub, above the clock and off to one side, looking down at it a little
 export const SPAWN = [-380, 207, -313];

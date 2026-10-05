@@ -14,7 +14,8 @@ import { Museum, MUSEUM_SECTOR } from "./museum.js";
 
 export const REALM = "marderchen";
 export const GATE_SECTOR = [0, 1, 0]; // straight up from the hub
-const GATE_RADIUS = 60 * UNIT, HOLE = GATE_RADIUS * 0.88; // the ring, and the black hole that fills it
+const GATE_RADIUS = 36 * UNIT, HOLE = GATE_RADIUS * 0.88; // the ring, and the black hole that fills it (smaller than the portals round the clock: a door of his own)
+const CLEAR = HOLE * 4; // how far from its middle you come out of it, either way: well clear of its dark, and of its pull
 
 export const WORDS = [
   "by marderchen just use and have fun",
@@ -50,8 +51,8 @@ const PROJECTS = [
 ];
 
 const RAINBOW = ["#ff0000", "#ff8800", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#ff00ff"];
-const RING = `ring 30 60 | cube 0 0 0 5.5 5.5 5.5
-ring 12 76 | sphere 0 0 0 4 4 4 !`;
+const RING = `ring 30 36 | cube 0 0 0 3.6 3.6 3.6
+ring 12 46 | sphere 0 0 0 2.6 2.6 2.6 !`;
 
 // "marderchens MEOW letters": drawn as lines of cubes, the way his wuselline() draws a line as a
 // row of little rectangles with a rainbow running along it. The W is his own outline, from
@@ -101,7 +102,7 @@ export const GATE_SPEC = {
   orbs: { count: 0 },
   sound: ORIGIN.sound,
   fieldGlsl: ORIGIN.fieldGlsl,
-  blueprint: `${RING}\n${meowBlueprint(0, 105, -80, 45)}`,
+  blueprint: `${RING}\n${meowBlueprint(0, 66, -80, 30)}`,
   dream: 0.1,
   rainbow: 1,
   source: "marderchen",
@@ -660,7 +661,7 @@ export class Marderchen {
       this.vortex.setMatrixAt(i, v.matrix);
       this.vortexT[i] = t;
     }
-    this.vortex.scale.setScalar(0.5);
+    this.vortex.scale.setScalar(0.3);
     this.vortex.visible = false; // nothing of it shows until you are at the door
     this.fade = 0; // how dark it is at his door (main.js draws it)
     this.veil = 0; // the dark that lifts after you come through
@@ -906,11 +907,11 @@ export class Marderchen {
     const centre = this.centre(world.realm, tmp);
     if (entering) {
       // you come out just above the ring in the middle of his workshop, slowed to a drift, facing the clock
-      camera.position.set(centre.x, centre.y + HOLE * 1.5, centre.z);
+      camera.position.set(centre.x, centre.y + CLEAR, centre.z);
       this.arrive(0, -0.04);
     } else {
       // and leaving, just below the ring over the hub, the way you came
-      camera.position.set(centre.x, centre.y - HOLE * 1.5, centre.z);
+      camera.position.set(centre.x, centre.y - CLEAR, centre.z);
       this.arrive(camera.rotation.y, camera.rotation.x);
     }
     this.spent = true; // it will not take you again until you have got clear of it

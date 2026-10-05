@@ -289,6 +289,20 @@ export class VoidAudio {
   }
 
   // the hall's echo: noise in both ears, dying away over seconds and darkening as it does
+  // where what was playing goes as you pass through a portal: a long hall, ringing on after it has stopped
+  // (see the f0ck plugin's ringOut); made the first time it is wanted
+  portalTail() {
+    if (!this.ctx) return null;
+    if (!this.tailIn) {
+      this.tailIn = this.ctx.createGain();
+      const hall = this.ctx.createConvolver(), level = this.ctx.createGain();
+      hall.buffer = this.hall(this.ctx, 4.5);
+      level.gain.value = 1.6;
+      this.tailIn.connect(hall).connect(level).connect(this.master);
+    }
+    return this.tailIn;
+  }
+
   hall(ctx, seconds) {
     const length = Math.floor(ctx.sampleRate * seconds), buffer = ctx.createBuffer(2, length, ctx.sampleRate);
     for (let ch = 0; ch < 2; ch++) {
