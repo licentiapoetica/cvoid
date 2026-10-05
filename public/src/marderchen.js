@@ -839,6 +839,51 @@ export class Marderchen {
     );
     this.dampf.frustumCulled = false;
     this.group.add(this.dampf);
+    // and beside it his headphones, pink and fluffy, with cat ears on the band: he wore them all the
+    // time. Set down on their cups, the band arched over; the insides of the ears glow softly, running
+    // through his rainbow (see update), and the fluff round band and cups is a haze of little points.
+    const rosa = new THREE.MeshBasicMaterial({ color: 0xc45a92, fog: false }), polster = new THREE.MeshBasicMaterial({ color: 0xe6a3c8, fog: false });
+    const rosaKante = new THREE.LineBasicMaterial({ color: 0xffc2e2, fog: false });
+    const fluffig = (geometry, material, x, y, z, sx, sy, sz, rx = 0, ry = 0, rz = 0) => {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(x, y, z);
+      mesh.scale.set(sx, sy, sz);
+      mesh.rotation.set(rx, ry, rz);
+      mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 28), rosaKante));
+      return mesh;
+    };
+    this.kopfhoerer = new THREE.Group();
+    const BUEGEL = 15; // the band's radius; the cups hang at its ends
+    this.kopfhoerer.add(fluffig(new THREE.TorusGeometry(BUEGEL, 2.4, 6, 20, Math.PI), rosa, 0, 8, 0, 1, 1, 1));               // the band
+    for (const side of [-1, 1]) {
+      this.kopfhoerer.add(fluffig(tube, rosa, side * BUEGEL, 8, 0, 16, 5, 16, 0, 0, Math.PI / 2));                            // a cup
+      this.kopfhoerer.add(fluffig(new THREE.TorusGeometry(6, 2.6, 6, 14), polster, side * (BUEGEL - 3.4), 8, 0, 1, 1, 1, 0, Math.PI / 2, 0)); // its cushion
+      // a cat ear on the band, leaning out a little, its inside lit
+      const a = Math.PI / 2 - side * 0.62, ex = Math.cos(a) * BUEGEL, ey = 8 + Math.sin(a) * BUEGEL;
+      const ohr = fluffig(new THREE.ConeGeometry(4.6, 9, 3), rosa, ex, ey + 4.4, 0, 1, 1, 0.55, 0, 0, -side * 0.3);
+      const innen = new THREE.Mesh(new THREE.ConeGeometry(2.6, 6, 3), new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false }));
+      innen.position.set(0, -0.6, 1.4);
+      ohr.add(innen);
+      (this.ohrLichter ??= []).push(innen.material);
+      this.kopfhoerer.add(ohr);
+    }
+    const flausch = [];
+    for (let i = 0; i < 260; i++) {
+      if (i < 150) { // round the band
+        const a = Math.random() * Math.PI, r = BUEGEL + rand(-3.4, 3.4);
+        flausch.push(Math.cos(a) * r, 8 + Math.sin(a) * r, rand(-3.4, 3.4));
+      } else { // round the cups' rims
+        const side = i % 2 ? 1 : -1, a = Math.random() * Math.PI * 2, r = rand(6.5, 9.5);
+        flausch.push(side * (BUEGEL + rand(-3.5, 2)), 8 + Math.sin(a) * r, Math.cos(a) * r);
+      }
+    }
+    this.kopfhoerer.add(new THREE.Points(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(flausch, 3)),
+      new THREE.PointsMaterial({ color: 0xf7b6da, size: 1.6, transparent: true, opacity: 0.8, depthWrite: false, fog: false })));
+    this.kopfhoerer.position.set(-372, -214, -92); // on the workbench, left of the mouse
+    this.kopfhoerer.rotation.y = 0.35;
+    this.kopfhoerer.scale.setScalar(1.7);
+    this.group.add(this.kopfhoerer);
+
     this.mausIn = 6;
     this.zug = 0;     // seconds since the last click
     this.zugStark = 1; // and how deep a breath it was (yours are deeper than his idle ones)
@@ -1479,6 +1524,11 @@ export class Marderchen {
     if ((this.mausIn -= dt) <= 0) this.zieh(camera, 1);
     this.mausBeige.color.setHex(this.mausAimed(camera) ? 0xc4b886 : 0x8f8560);
     this.mausTaste.position.y = this.zug < 0.3 ? 6.4 : 7.2;
+    // the light inside his headphones' cat ears, running slowly through the rainbow (kept under the glow)
+    for (const [i, licht] of this.ohrLichter.entries()) {
+      const d = rainbowcalc(this.time * 120 + i * 400);
+      licht.color.setRGB((d[0] / 400) * 0.5, (d[1] / 400) * 0.5, (d[2] / 400) * 0.5);
+    }
     if (this.zug < 6) {
       const at = this.dampf.geometry.attributes.position;
       for (let i = 0; i < at.count; i++) at.setXYZ(i, at.getX(i) + Math.sin(i * 1.7 + this.time) * 5 * dt, at.getY(i) + (9 + (i % 7) * 2.5) * dt, at.getZ(i) + Math.cos(i * 2.3 + this.time) * 5 * dt);
