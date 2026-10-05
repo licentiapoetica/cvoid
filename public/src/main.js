@@ -767,6 +767,17 @@ function flyIntoPortal(portal) {
   note(`into ${PORTAL_NAMES[portal.name] ?? portal.name} · ${matchMedia("(pointer: coarse)").matches ? "tap to stop" : "s to stop"}`);
 }
 // the portal the crosshair is on, named under it (as a post's portals are in f0ck's dimensions)
+// The Tab panel inside a dimension: its own window and the general ones (the map's, the keys, graphics,
+// the controller), not every other dimension's too; in the hub, where you choose where to go, all of them.
+// A plugin's window is known by its id (<name>Panel, or one named here) and the dimension it belongs to.
+const PANEL_REALMS = { f0ckPanel: "f0ck", chanPanel: "chan", tiktokPanel: "tiktok", redgifsPanel: "redgifs", shortsPanel: "shorts", z0rPanel: "z0r", somaPanel: "somafm" };
+let panelsFor = null;
+function showPanelsFor() {
+  const realm = world.realm;
+  if (realm === panelsFor) return;
+  panelsFor = realm;
+  for (const [id, owner] of Object.entries(PANEL_REALMS)) document.getElementById(id)?.classList.toggle("elsewhere", realm !== "void" && realm !== owner);
+}
 let portalNameEl = null;
 function showPortalName() {
   const portal = started && !map.open && !portalFlight ? portalAimedAt() : null;
