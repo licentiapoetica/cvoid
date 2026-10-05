@@ -90,6 +90,7 @@ void main(){
 const ahead = new THREE.Vector3(), to = new THREE.Vector3(), spot = new THREE.Vector3(), yawOnly = new THREE.Euler(0, 0, 0, "YXZ");
 const seg = new THREE.Line3(), near = new THREE.Vector3(), drift = new THREE.Vector3();
 const ZERO = new THREE.Vector2(), DOWN = new THREE.Vector2(0, -0.035);
+const pullV = new THREE.Vector3(), paceV = new THREE.Vector3(), paceNow = new THREE.Vector3();
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 
 export class Back {
@@ -106,6 +107,10 @@ export class Back {
     this.approach = 0; // how fast you come at it (eased: a frame without moving does not undo it)
     this.fade = 0;    // the dark as you go in (main.js draws it)
     this.home = new THREE.Vector3();     // where it would float (eased towards you)
+    this.speed = new THREE.Vector3();    // and how it is going (see place)
+    this.yourPace = new THREE.Vector3(); // how you are going, eased
+    this.keen = 1.7;
+    this.carry = 1;
     this.position = new THREE.Vector3(); // where it is, bobbing (the flight into it follows this: see flyIntoPortal)
     this.lastCam = null;
 
@@ -204,20 +209,35 @@ export class Back {
     let through = false;
     if (visible) {
       // It floats towards its place at your side, unhurried. Never long in front of what you look at:
-      // come before it (left behind as you turned, or drifted there), it moves aside, quickly. But turned
-      // to on purpose (your view coming round to it), the crosshair on it, clicked, or come near: it waits.
+      // before it a moment (left behind as you turned, or drifted there) and not aimed at, it moves aside,
+      // quickly. The crosshair put on it (in that moment, turning to it), clicked, or come near: it waits.
       to.copy(this.position).sub(camera.position);
       const distance = to.length() || 1;
       const facing = camera.getWorldDirection(ahead).dot(to.divideScalar(distance));
-      // (your view coming round to it: measured by the turn alone, as if it had stayed where it was)
-      const turningTo = !!this.lastDir && facing > this.lastDir.dot(to) + 0.0004;
-      (this.lastDir ??= new THREE.Vector3()).copy(ahead);
       const onIt = facing > Math.cos(Math.atan((BACK_HOLE * 1.3) / distance));
       this.dwell = onIt ? (this.dwell ?? 0) + dt : 0;
-      const waits = this.held || onIt || turningTo || distance < 160 || this.approach > 40;
-      const inTheWay = facing > CLEAR_OF && !waits;
-      const follow = waits ? 0 : inTheWay ? 1 : THREE.MathUtils.smoothstep(distance, 160, 420);
-      this.place(camera, false, dt * (distance > 3000 || inTheWay ? 6 : 1.4) * follow);
+      const headingAt = THREE.MathUtils.smoothstep(facing, 0.94, 0.985); // (going its way, not just on past it)
+      // regarded (aimed at, near the crosshair, or turned to), it goes on waiting a moment after, so its own
+      // drifting off the crosshair does not send it off as if it were in the way
+      const nearCrosshair = facing > Math.cos(Math.atan((BACK_HOLE * 3) / distance));
+      // (on its way aside, its own passing under the crosshair is not your aiming at it)
+      const aside = (this.before ?? 0) > 0.6;
+      this.regard = (onIt && !aside) || (nearCrosshair && this.regard > 0) ? 1.5 : Math.max(0, (this.regard ?? 0) - dt); // (near the crosshair keeps a regard, never begins one)
+      const waits = this.held || this.regard > 0 || distance < 160 || (this.approach > 40 && headingAt > 0.5);
+      this.before = facing > CLEAR_OF && !waits ? (this.before ?? 0) + dt : 0; // (how long it has been before you, not aimed at)
+      const inTheWay = this.before > 0.6;
+      // going aside: to whichever side of what you see it is on already (never across the middle), and
+      // keeping to that side after
+      if (inTheWay && !aside) this.side = spot.copy(this.position).project(camera).x >= 0 ? 1 : -1;
+      // how keenly it goes to its place (eased from one way of going to another, never switched at once),
+      // and how much it keeps your pace (none while it waits: it stays where it is, to be flown into)
+      const keen = waits ? 0 : distance > 3000 ? 4 : inTheWay ? 3.2 : 1.7 * THREE.MathUtils.smoothstep(distance, 160, 420);
+      this.keen += (keen - this.keen) * Math.min(1, dt * 2.5);
+      this.carry += ((waits ? 0 : 1) - this.carry) * Math.min(1, dt * 2.5);
+      // (a step too long for one frame is being put somewhere, not speed: it is not taken on)
+      if (this.lastCam && dt > 0 && this.lastCam.distanceTo(camera.position) < 300) this.yourPace.lerp(paceNow.copy(camera.position).sub(this.lastCam).divideScalar(dt), Math.min(1, dt * 6));
+      this.place(camera, false, dt);
+      const follow = this.carry;
       // bobbing as it hovers, a slow small circling with it
       // (less while it waits for you: it is easier to fly into)
       this.position.copy(this.home).add(drift.set(Math.sin(this.time * 0.7) * 9, Math.sin(this.time * 1.3) * 11, Math.cos(this.time * 0.9) * 7).multiplyScalar(0.3 + 0.7 * follow));
@@ -225,7 +245,7 @@ export class Back {
       // coming at it: its mouth opens round you and the dark gathers, smoothly, before you are in
       const towards = this.lastCam && dt > 0 ? ahead.copy(camera.position).sub(this.lastCam).dot(to) / dt : 0; // (to: the way to it, from you)
       this.approach += (towards - this.approach) * Math.min(1, dt * 4);
-      const closing = THREE.MathUtils.smoothstep(this.approach, 10, 80);
+      const closing = THREE.MathUtils.smoothstep(this.approach, 10, 80) * headingAt;
       const nearness = 1 - THREE.MathUtils.smoothstep(distance, BACK_HOLE * 1.2, BACK_HOLE * 9);
       this.open += (closing * nearness - this.open) * Math.min(1, dt * 5);
       this.fade = closing * (1 - THREE.MathUtils.smoothstep(distance, BACK_HOLE * 0.9, BACK_HOLE * 5));
@@ -352,10 +372,21 @@ export class Back {
   }
 
   // its place beside you (turned as you are, but not tipped as you look up or down), at once or easing
-  place(camera, now, rate = 0) {
+  // It moves as a thing with weight does: drawn towards its place by a spring (keen: how strongly), its
+  // own speed easing towards yours (carry: how much), so it gathers speed and glides to a stop, and
+  // keeps by you at any pace without falling behind.
+  place(camera, now, dt = 0) {
     yawOnly.set(0, camera.rotation.y, 0);
-    spot.copy(SPOT).applyEuler(yawOnly).add(camera.position);
-    if (now) this.home.copy(spot);
-    else this.home.lerp(spot, 1 - Math.exp(-rate));
+    spot.copy(SPOT).setX(Math.abs(SPOT.x) * (this.side ?? -1)).applyEuler(yawOnly).add(camera.position);
+    if (now) {
+      this.home.copy(spot);
+      this.speed.set(0, 0, 0);
+      this.yourPace.set(0, 0, 0);
+      return;
+    }
+    const k = this.keen, damp = Math.max(2 * k, 2.2);
+    const pull = pullV.copy(spot).sub(this.home).multiplyScalar(k * k).add(paceV.copy(this.yourPace).multiplyScalar(this.carry).sub(this.speed).multiplyScalar(damp));
+    this.speed.addScaledVector(pull, dt);
+    this.home.addScaledVector(this.speed, dt);
   }
 }
