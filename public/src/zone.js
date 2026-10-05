@@ -824,6 +824,7 @@ export class Zone {
       this.stand();
     }
     this.spent = true;
+    this.inHole = false;
     this.veil = 1.3;
     this.audio.sting();
     if (entering) this.audio.setZoneStage(this.look);
@@ -864,24 +865,32 @@ export class Zone {
       this.ring.instanceMatrix.needsUpdate = true;
       this.ring.rotation.z += dt * 0.2;
     }
-    if (distance > HOLE * 2.8) this.spent = false;
+    // The ring you have just come out of does not draw you: not until you are beyond its reach (and
+    // inside, the way out only ever draws gently, from close by). Flying into it on purpose always
+    // takes you through. (As the others round the clock do: see the f0ck plugin's updateGate.)
+    const inside = this.world.realm === ZONE;
+    if (distance > (inside ? 1400 : 1000)) this.spent = false;
     // the pull: a cone either side of the ring, gentle far off, strong at the end, and turning
     offset.copy(camera.position).sub(centre);
     const along = offset.dot(axis);
     tmp.copy(offset).addScaledVector(axis, -along);
-    const radial = tmp.length() || 1, wide = GATE_R + Math.abs(along) * 0.55, REACH = 900;
+    const radial = tmp.length() || 1, wide = GATE_R + Math.abs(along) * 0.55, REACH = inside ? 420 : 900;
     let suck = 0;
     if (!this.spent && Math.abs(along) < REACH && radial < wide) {
       suck = (1 - Math.abs(along) / REACH) ** 1.5 * (1 - radial / wide);
       tmp.divideScalar(radial);
-      this.pull.copy(tmp).multiplyScalar(-190).addScaledVector(axis, -Math.sign(along) * 260).add(tmp2.crossVectors(axis, tmp).multiplyScalar(70)).multiplyScalar(suck);
+      this.pull.copy(tmp).multiplyScalar(-190).addScaledVector(axis, -Math.sign(along) * 260).add(tmp2.crossVectors(axis, tmp).multiplyScalar(70)).multiplyScalar(suck * (inside ? 0.45 : 1));
     }
-    this.roll += suck ** 2 * dt * 1.6;
+    this.roll += suck ** 2 * dt * (inside ? 0.6 : 1.6);
     this.roll -= Math.round(this.roll / (Math.PI * 2)) * Math.PI * 2;
     if (!suck) this.roll *= Math.exp(-dt * 2.5);
-    const closing = this.spent ? 0 : 1 - THREE.MathUtils.smoothstep(distance, HOLE, HOLE * 2.6);
+    // (coming back to the one you came out of, the dark gathers only at its mouth)
+    const closing = 1 - THREE.MathUtils.smoothstep(distance, HOLE * 0.7, this.spent ? HOLE * 1.3 : HOLE * 2.6);
     this.fade = Math.max(closing, Math.min(1, this.veil));
-    if (!this.spent && distance < HOLE * 0.7) this.travel(camera);
+    // through only by flying into it from outside: not by being in it already
+    const inHole = distance < HOLE * 0.7, cameIn = inHole && !this.inHole;
+    this.inHole = inHole;
+    if (cameIn) this.travel(camera);
   }
 
   // ---- playing ----
