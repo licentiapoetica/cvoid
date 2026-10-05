@@ -43,10 +43,10 @@ const screen = screenPass(); // the glass it is all seen through (Tab panel: scr
 composer.addPass(screen.pass);
 
 // The graphics panel's choices (Tab), remembered: resolution (auto follows the frame rate), a cap on the
-// frame rate, the glow, smooth edges, how many videos play at once in the plugins' dimensions, and how
+// frame rate and whether frames keep time with the screen (vsync), the glow, smooth edges, how many videos play at once in the plugins' dimensions, and how
 // the view follows the mouse
 const gfx = {
-  resolution: "auto", fps: 0, bloom: true, aa: false, videos: 3, loops: 4, ease: "normal",
+  resolution: "auto", fps: 0, vsync: true, bloom: true, aa: false, videos: 3, loops: 4, ease: "normal",
   ...(() => { try { return JSON.parse(localStorage.getItem("cvoid.graphics")) ?? {}; } catch { return {}; } })(),
 };
 const meter = { frames: 0, time: 0, fps: 0 }; // frames a second, as drawn (shown in the graphics panel)
@@ -133,7 +133,8 @@ function adaptResolution(dt) {
   pace.frames.push(dt);
   pace.hold -= dt;
   if (pace.time < 1.5) return;
-  const frame = pace.frames.sort((a, b) => a - b)[pace.frames.length >> 1];
+  // (measured against the frames' own pace when a cap slows them on purpose: 30 a second is not a stall)
+  const aim = frameAim() / 1000, frame = pace.frames.sort((a, b) => a - b)[pace.frames.length >> 1] * Math.min(1, (1 / 60) / aim);
   pace.time = 0;
   pace.frames = [];
   if (frame > 1 / 38 && ratio > MIN_RATIO) {
@@ -251,7 +252,8 @@ function choices(id, options, key, label = (v) => String(v), after = () => {}) {
   show();
 }
 choices("gRes", Object.keys(RESOLUTIONS), "resolution", undefined, () => { ratio = RESOLUTIONS[gfx.resolution] ?? MAX_RATIO; pace.hold = 3; resize(); showNow(); });
-choices("gFps", [0, 120, 60, 30], "fps", (v) => (v ? String(v) : "no cap"));
+choices("gFps", [0, 120, 60, 30], "fps", (v) => (v ? String(v) : "no cap"), runFrames);
+choices("gVsync", [true, false], "vsync", (v) => (v ? "on" : "off"), runFrames);
 choices("gBloom", [true, false], "bloom", (v) => (v ? "on" : "off"), applyGraphics);
 choices("gAA", [false, true], "aa", (v) => (v ? "on" : "off"), applyGraphics);
 choices("gVideos", [1, 2, 3, 6], "videos");
@@ -259,7 +261,7 @@ choices("gLoops", [2, 4, 6, 10], "loops");
 choices("gEase", Object.keys(LOOK_EASES), "ease");
 function showNow() {
   const w = Math.round(innerWidth * ratio), h = Math.round(innerHeight * ratio);
-  $("gNow").textContent = `now ${Math.round(meter.fps)} frames a second · drawn at ${w} × ${h}${RESOLUTIONS[gfx.resolution] ? "" : " (auto)"}`;
+  $("gNow").textContent = `now ${Math.round(meter.fps)} frames a second${gfx.vsync ? "" : " · vsync off"} · drawn at ${w} × ${h}${RESOLUTIONS[gfx.resolution] ? "" : " (auto)"}`;
   $("gFpsNow").textContent = `·  ${Math.round(meter.fps)} fps`; // (and in its title, plainly)
 }
 function showSensitivity() {
@@ -940,11 +942,52 @@ function idle(t) {
   camera.lookAt(0, 0, 0);
 }
 
+// The frames' clock (graphics panel). With vsync (the default) they come with the screen's refreshes,
+// and a cap takes whole ones: a refresh come too soon is left out (a millisecond's grace, so a 60 on a
+// 60 screen is not halved by the timer's jitter), so on a 100 Hz screen a cap of 60 is 50, every second
+// refresh, and motion stays even. Without, they are drawn on a clock of their own, at the cap exactly
+// or as fast as they can, and the screen shows the newest at each refresh: any rate, though motion is
+// less even when it does not divide the screen's.
+let freeAt = 0, freeTimer = 0;
+// the time between frames aimed at, in milliseconds (none: a 60 screen's, as good as it gets for most)
+const frameAim = () => (gfx.fps ? 1000 / gfx.fps : 1000 / 60);
+// without vsync: a frame, then the next when its time comes (a cap), or at once (none: a message, which
+// is not held back as a nested timer is). Each run of it has its own number, so a change of choice
+// never leaves two going; and in a hidden tab it only ticks over.
+const freeChannel = new MessageChannel();
+let freeRunning = 0;
+function freeRun(run) {
+  if (run !== freeRunning || gfx.vsync) return;
+  const now = performance.now();
+  if (document.hidden) { freeTimer = setTimeout(freeRun, 250, run); return; }
+  if (gfx.fps) {
+    const gap = 1000 / gfx.fps;
+    if (now < freeAt - 0.5) { freeTimer = setTimeout(freeRun, freeAt - now, run); return; }
+    freeAt = now - freeAt > gap ? now + gap : freeAt + gap; // (kept in step; fallen far behind, it starts afresh)
+  }
+  frame(now);
+  if (gfx.fps) freeTimer = setTimeout(freeRun, Math.max(0, freeAt - performance.now()), run);
+  else freeChannel.port1.postMessage(run);
+}
+freeChannel.port2.onmessage = (e) => freeRun(e.data);
+function runFrames() {
+  clearTimeout(freeTimer);
+  const run = ++freeRunning;
+  if (gfx.vsync) {
+    renderer.setAnimationLoop((now) => {
+      if (gfx.fps && now - last < 1000 / gfx.fps - 1) return; // (this refresh sits out)
+      frame(now);
+    });
+  } else {
+    renderer.setAnimationLoop(null);
+    freeAt = performance.now();
+    freeRun(run);
+  }
+  showNow();
+}
+
 let elapsed = 0, last = performance.now(), coordsTimer = 0, seatedBefore = false;
-renderer.setAnimationLoop((now) => {
-  // a cap on the frame rate (graphics panel): a frame come too soon is left out (a millisecond's grace,
-  // so a 60 on a 60 screen is not halved by the timer's jitter)
-  if (gfx.fps && now - last < 1000 / gfx.fps - 1) return;
+function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
   meter.frames++;
@@ -997,7 +1040,8 @@ renderer.setAnimationLoop((now) => {
     const signed = (n) => (n < 0 ? "−" : "+") + Math.abs(n);
     $("coords").textContent = `${realmNames[world.realm] ? `${realmNames[world.realm]} · ` : ""}sector ${cell(p.x)}, ${cell(p.y)}, ${cell(p.z)} · offset ${signed(off(p.x))} ${signed(off(p.y))} ${signed(off(p.z))}`;
   }
-});
+}
+runFrames();
 
 window.cvoid = { world, camera, renderer, entity, marderchen, zone, voice, map, plugins, padMap, CELL, graphics: gfx, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; } };
 

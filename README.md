@@ -45,7 +45,9 @@ Controls:
   click puts one back to 100.
   The graphics panel (Tab, top left), for a smoother picture on a slower machine or browser:
   resolution (auto follows the frame rate, waiting longer each time it would go up and down; or a
-  fixed 50%, 75%, 100%, or sharp, the screen's own up to 2×), a frame rate cap (120, 60, 30), the glow
+  fixed 50%, 75%, 100%, or sharp, the screen's own up to 2×), a frame rate cap (120, 60, 30), vsync (on: frames keep time with the screen's
+  refreshes, so a cap takes whole ones, 50 for a 60 cap on a 100 Hz screen, and motion stays even; off:
+  frames on a clock of their own, at the cap exactly or as fast as they can), the glow
   on or off, smooth edges (antialiasing, off by default), how many videos play at once in the plugins'
   dimensions, how many Flash loops (z0r's) at once, and the mouse: how much the view smooths it (off, light, normal, heavy) and its
   sensitivity. It shows the frame rate and the size drawn at, and whether the browser gives raw mouse
