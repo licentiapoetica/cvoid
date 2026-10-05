@@ -777,7 +777,7 @@ const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm",
 function portalAimedAt() {
   // (each with the size of its dark sphere: the crosshair on that, and nowhere round it; the way back
   // floating beside you, wherever you are)
-  const spots = back.open ? [{ name: "back", label: back.label, at: back.position, hole: BACK_HOLE }] : [];
+  const spots = back.ready ? [{ name: "back", label: back.label, at: back.position, hole: BACK_HOLE }] : [];
   if (world.realm === "void") spots.push(...portalNames().map((name) => ({ name, at: new THREE.Vector3(...hubSlot(name).at), hole: name === "zone" ? 112 : 104 })));
   const ahead = camera.getWorldDirection(new THREE.Vector3());
   let best = null, bestOff = 0;
@@ -941,7 +941,8 @@ function fly(dt) {
   if (thrust.lengthSq() > 1) thrust.normalize();
   const forward = thrust.dot(camera.getWorldDirection(ahead));
   if (forward > 0) thrust.addScaledVector(ahead, forward * (AHEAD - 1));
-  const surge = (keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge || touchSurge ? SURGE * (hyper ? HYPER : 1) : 1) * (portalFlight?.fast ? 2.4 : 1); // (a portal double clicked: faster in)
+  // (a portal double clicked: in as fast as anything flies, Shift twice's hyper speed)
+  const surge = portalFlight?.fast ? SURGE * HYPER : keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge || touchSurge ? SURGE * (hyper ? HYPER : 1) : 1;
   velocity.addScaledVector(thrust, THRUST * surge * dt);
   // holding space: the climb picks up the longer it is held, up to 1.6 times (a tap stays gentle)
   riseHold = keys.has("Space") ? Math.min(riseHold + dt, RISE_RAMP) : 0;
@@ -1055,7 +1056,7 @@ function frame(now) {
     else audio.entityVoice(0, 0); // and its hum does not follow you out (left humming, it buzzed on in every other dimension)
     entity.meddle(dt); // (its ways with the sound reach everywhere)
   }
-  fadeEl.style.opacity = Math.max(marderchen.fade, zone.fade, ...plugins.map((p) => p.fade ?? 0)).toFixed(3); // the dark at any door
+  fadeEl.style.opacity = Math.max(marderchen.fade, zone.fade, back.fade, ...plugins.map((p) => p.fade ?? 0)).toFixed(3); // the dark at any door
   world.sky.render(renderer, camera);
   if (document.visibilityState === "visible") adaptResolution(dt);
   audio.setSpeed(velocity.length());

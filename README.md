@@ -24,9 +24,12 @@ Controls:
   under the crosshair; click and you are turned to it and flown in (`S` stops it; it stops itself
   once you are through, or past it).
   Once you have gone somewhere (through a portal, into a tag's room, out of one, or across the map),
-  a small portal floats along beside you, ahead and low to the left: the way back. Click it (or fly
-  into it) and you are back where you were before, in that dimension and room, where you were a few
-  seconds before you went; again, and a step further back. Looked at or come near, it waits.
+  a companion floats along beside you, ahead and low to the left, bobbing: the way back, a mouth of
+  dark burnt into the air, its edge smouldering, giving off a thin smoke. Click it (or fly into it;
+  its mouth opens round you and the dark gathers) and you are back where you were before, in that
+  dimension and room, where you were a few seconds before you went; again, and a step further back.
+  Looked at or come near, it waits. Double clicking a portal (or the companion) flies you in as fast
+  as anything flies. `V` shoots a laser straight ahead; clicking a portal shoots one at it.
   Hold the right mouse button to zoom in (about 2×, the view turning slower to match); let go
   to zoom back out. `F` goes fullscreen. Outside fullscreen the browser keeps its own shortcuts, so `Ctrl+W`
   (close tab) and `Ctrl+Shift+W` (close window) still work mid-flight; the game makes the
