@@ -23,15 +23,17 @@ Controls:
   In the hub, with the crosshair on a portal (round the clock) its name shows
   under the crosshair; click and you are turned to it and flown in (`S` stops it; it stops itself
   once you are through, or past it).
-  Once you have gone somewhere (through a portal, into a tag's room, out of one, or across the map),
-  a companion floats along at your side, off to the left, bobbing: Irrlicht, the way back (its name and
-  where it goes are said under the crosshair when it is aimed at), a mouth of dark burnt
+  In the hub, and once you have gone somewhere (through a portal, into a tag's room, out of one, or
+  across the map), a companion floats along at your side, off to the left, bobbing: Irrlicht, the way back (its name is said
+  under the crosshair when it is aimed at), a mouth of dark burnt
   into the air, its edge burning in a cold blue fire, giving off a thin mist, two eyes in its dark that
   blink, glance about and show how it is (wide when it has just come, pleased when you look at it,
-  happy as you fly in, narrowed at speed, anxious left behind, drowsy when you keep still). It never
+  happy as you fly in, narrowed at speed, anxious left behind, drowsy when you keep still, annoyed and rolling its eyes when a sector takes long to materialize). It never
   stays in front of what you look at: it moves aside, unless you turn to it. Click it (or fly into it;
   its mouth opens round you and the dark gathers) and you are back where you were before, in that
   dimension and room, where you were a few seconds before you went; again, and a step further back.
+  Right click it (long press on touch) and it takes you to the origin instead, facing the clock; again,
+  and it takes you back (remembered; from the origin, the way back still goes where you were).
   The crosshair on it, or come near, it waits. Double clicking a portal (or the companion) flies you in as fast
   as anything flies. `V` shoots a laser straight ahead; clicking a portal shoots one at it.
   Hold the right mouse button to zoom in (about 2×, the view turning slower to match); let go
@@ -42,7 +44,8 @@ Controls:
 - Controller: left stick fly, right stick look, right / left trigger rise and sink,
   bumpers roll, `A` (cross) or left-stick click surge, `X` (square) interact: opens or enters what you
   look at (a post, a museum piece, a 4chan thread, the well you are beside), and with nothing there
-  recentres the view; right-stick click autofly, d-pad left / right sensitivity, `Y` (triangle) mute.
+  recentres the view; right-stick click held zooms in (smoothly, and back out when let go), d-pad up
+  autofly, d-pad left / right sensitivity, `Y` (triangle) mute.
   Any button starts the game. Invert look and recentring alone have no button until you give them one.
 - Map: `Tab` (controller: select) opens the map of every sector you have been in (only those;
   remembered across visits), one horizontal layer at a time; `Page Up` / `Page Down` (bumpers) step

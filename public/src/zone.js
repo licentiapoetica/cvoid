@@ -377,6 +377,8 @@ export class Zone {
     this.kickV = new THREE.Vector3();
     this.callout = { text: "", life: 0, sub: "" };
     this.padDir = 0;
+    this.padMap = null;   // the controller's buttons, as mapped (see pad.js), once one has been used
+    this.usingPad = false; // the hints name its buttons, not the keys: it was used last
     this.panelIn = 0;
 
     // ---- the ring: a black hole in a ring of blocks, with the seven pieces turning round it ----
@@ -810,6 +812,7 @@ export class Zone {
   }
 
   travel(camera) {
+    if (window.cvoid?.held?.(true)) return; // (held where you are, a group's member: see main.js)
     const { world } = this, entering = world.realm !== ZONE;
     world.setRealm(entering ? ZONE : "void");
     const { centre, axis } = this.gateAt(world.realm);
@@ -875,8 +878,9 @@ export class Zone {
     const along = offset.dot(axis);
     tmp.copy(offset).addScaledVector(axis, -along);
     const radial = tmp.length() || 1, wide = GATE_R + Math.abs(along) * 0.55, REACH = inside ? 420 : 900;
+    const held = !!window.cvoid?.held?.(); // (a group's member: it neither draws nor darkens, and does not take them)
     let suck = 0;
-    if (!this.spent && Math.abs(along) < REACH && radial < wide) {
+    if (!this.spent && !held && Math.abs(along) < REACH && radial < wide) {
       suck = (1 - Math.abs(along) / REACH) ** 1.5 * (1 - radial / wide);
       tmp.divideScalar(radial);
       this.pull.copy(tmp).multiplyScalar(-190).addScaledVector(axis, -Math.sign(along) * 260).add(tmp2.crossVectors(axis, tmp).multiplyScalar(70)).multiplyScalar(suck * (inside ? 0.45 : 1));
@@ -885,7 +889,7 @@ export class Zone {
     this.roll -= Math.round(this.roll / (Math.PI * 2)) * Math.PI * 2;
     if (!suck) this.roll *= Math.exp(-dt * 2.5);
     // (coming back to the one you came out of, the dark gathers only at its mouth)
-    const closing = 1 - THREE.MathUtils.smoothstep(distance, HOLE * 0.7, this.spent ? HOLE * 1.3 : HOLE * 2.6);
+    const closing = held ? 0 : 1 - THREE.MathUtils.smoothstep(distance, HOLE * 0.7, this.spent ? HOLE * 1.3 : HOLE * 2.6);
     this.fade = Math.max(closing, Math.min(1, this.veil));
     // through only by flying into it from outside: not by being in it already
     const inHole = distance < HOLE * 0.7, cameIn = inHole && !this.inHole;
@@ -916,7 +920,7 @@ export class Zone {
     this.seated = true;
     this.arrive(0, 0); // facing the well
     if (this.stack.state === "playing") this.say("", "");
-    else this.say(this.look.name, this.stages.length > 1 ? "space to start · ← → another well" : "space to start");
+    else this.say(this.look.name, () => `${this.keyFor("start", "space")} to start${this.stages.length > 1 ? ` · ${this.usingPad ? "stick ← →" : "← →"} another well` : ""}`);
   }
 
   stand() {
@@ -925,7 +929,7 @@ export class Zone {
     this.paused = false; // (standing up is a pause of its own: P sits you down again where you were)
     for (const action of ["left", "right", "soft"]) this.stack.release(action);
     this.padDir = 0;
-    if (this.stack.state === "playing") this.say("paused", "p to come back");
+    if (this.stack.state === "playing") this.say("paused", () => `${this.keyFor("sit", "p")} to come back`);
   }
 
   // Esc, or the pointer let go: the run held while you stay seated; Esc again or a click goes on
@@ -934,7 +938,7 @@ export class Zone {
     this.paused = true;
     for (const action of ["left", "right", "soft"]) this.stack.release(action);
     this.padDir = 0;
-    this.say("paused", "esc or click to go on · p to stand up", 1e9);
+    this.say("paused", () => (this.usingPad ? `${this.keyFor("start", this.keyFor("sit", "esc"))} to go on` : "esc or click to go on · p to stand up"), 1e9);
   }
 
   resume() {
@@ -949,7 +953,7 @@ export class Zone {
     this.boss = null;
     if (this.atDeep) {
       this.setStage(0);
-      return this.say(this.stages[0].name, "a journey begins at the first well · space to start", 4);
+      return this.say(this.stages[0].name, () => `a journey begins at the first well · ${this.keyFor("start", "space")} to start`, 4);
     }
     this.audio.setZoneStage(this.look, true); // every run starts its song from the beginning
     this.stack.start();
@@ -960,6 +964,7 @@ export class Zone {
 
   // the keyboard while sitting at the well; returns whether the key was the game's
   key(e, down) {
+    this.usePad(false);
     if (!this.seated) {
       if (down && !e.repeat && e.code === "KeyP" && this.nearWell) return this.sit(), true;
       return false;
@@ -993,11 +998,13 @@ export class Zone {
     // round the stages only: the deep void is not a place to start (from there: to the first or the last)
     const from = this.atDeep ? (step > 0 ? -1 : 0) : this.stage;
     this.setStage((from + step + this.stages.length) % this.stages.length);
-    this.say(this.stages[this.stage]?.name ?? "the deep void", `stage ${this.stage + 1} of ${this.stages.length} · level ${this.stageLevel(this.stage)} · space to start`);
+    this.say(this.stages[this.stage]?.name ?? "the deep void", () => `stage ${this.stage + 1} of ${this.stages.length} · level ${this.stageLevel(this.stage)} · ${this.keyFor("start", "space")} to start`);
   }
 
   // a controller at the well, its buttons as the player has mapped them (pad: the PadMap, see pad.js)
   pad(gp, pad) {
+    this.padMap = pad;
+    if (pad.newly.size) this.usePad(true);
     const hit = (id) => pad.hit(id);
     if (!this.seated) {
       if (hit("sit") && this.nearWell) this.sit();
@@ -1032,8 +1039,26 @@ export class Zone {
     if (hit("hold")) this.stack.press("hold");
   }
 
+  // what to press for an action, on whichever was used last: the controller's button for it (the first,
+  // as mapped), or the key
+  keyFor(id, key) {
+    const [button] = this.usingPad ? this.padMap.buttons(id) : [];
+    return button === undefined ? key : this.padMap.name(button);
+  }
+  // the keyboard used, or the controller: what is said over the well names the one in hand
+  usePad(on) {
+    if (on === this.usingPad) return;
+    this.usingPad = on;
+    if (this.callout.life > 0 && typeof this.callout.sub === "function") this.drawCallout();
+  }
+
+  // the words over the well (sub: the line under them, or a function making it, when it names what to press)
   say(text, sub = "", seconds = 2.2) {
     this.callout = { text, sub, life: seconds, total: seconds };
+    this.drawCallout();
+  }
+  drawCallout() {
+    const { text } = this.callout, sub = typeof this.callout.sub === "function" ? this.callout.sub() : this.callout.sub;
     const { ctx, texture } = this.word;
     ctx.clearRect(0, 0, 1024, 256);
     ctx.textAlign = "center";
@@ -1155,7 +1180,7 @@ export class Zone {
         audio.zoneSound(won ? "journey" : "over");
         if (best) this.store("zone.best", (this.best = e.score));
         const said = e.reason === "deep" ? "the void is quiet" : deep ? "the void keeps you" : won ? "journey complete" : "game over";
-        return this.say(said, `${e.score.toLocaleString()}${best ? " · best" : ""} · space to ${deep ? "begin again, at the first well" : "play again"}`, 1e9);
+        return this.say(said, () => `${e.score.toLocaleString()}${best ? " · best" : ""} · ${this.keyFor("start", "space")} to ${deep ? "begin again, at the first well" : "play again"}`, 1e9);
       }
     }
   }
@@ -1397,7 +1422,7 @@ export class Zone {
 
     // at the well
     const near = this.nearWell;
-    this.hintEl.textContent = this.seated ? "" : near ? (stack.state === "playing" ? "P · back to the well" : "P · play") : "";
+    this.hintEl.textContent = this.seated ? "" : near ? `${this.keyFor("sit", "P")} · ${stack.state === "playing" ? "back to the well" : "play"}` : "";
   }
 
   // The wells are solid: you bounce off them, and the game's rocks back from the knock. Returns how hard.

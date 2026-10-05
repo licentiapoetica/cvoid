@@ -11,7 +11,8 @@ export const ACTIONS = [
   ["flight", "surge", "surge", [0, 10]],
   ["flight", "rollLeft", "roll left", [4]],
   ["flight", "rollRight", "roll right", [5]],
-  ["flight", "autofly", "autofly", [11]],
+  ["flight", "autofly", "autofly", [12]],
+  ["flight", "zoom", "zoom (held)", [11]],
   ["flight", "levelOut", "recentre the view", []],
   ["flight", "map", "map", [8]],
   ["flight", "layerUp", "map layer up", [5]],
@@ -56,6 +57,8 @@ export class PadMap {
       if (`${this.bound.autofly}` === "12") this.bound.autofly = [11];
       if (`${this.bound.invert}` === "2") this.bound.invert = [];
     }
+    // saved before R3 zoomed (it was autofly's): autofly, still there, goes to d-pad up
+    if ((saved?.version ?? 0) < 4 && `${this.bound.autofly}` === "11") this.bound.autofly = [12];
     this.swap = !!saved?.swap; // the sticks the other way round: the right one flies, the left one looks
     this.names = PLAYSTATION;
     this.id = "";
@@ -69,7 +72,7 @@ export class PadMap {
   }
 
   save() {
-    this.store("pad", { version: 3, bound: this.bound, swap: this.swap });
+    this.store("pad", { version: 4, bound: this.bound, swap: this.swap });
     this.onChange?.(); // (the page drawn again)
     this.onSaved?.();  // (and the help line: see main.js)
   }
@@ -143,10 +146,11 @@ export class PadMap {
   named(id) {
     return this.buttons(id).map((i) => this.name(i)).join(" ") || "none";
   }
-  // the help line for a group (see showHelp in main.js): "sticks fly and look · ✕ L3 surge · ..."
+  // the help for a group (see showHelp in main.js), each entry its buttons and what they do:
+  // [["sticks", "fly and look"], ["✕ L3", "surge"], ...]
   help(group) {
-    const sticks = group === "well" ? [`${this.swap ? "right" : "left"} stick move`, `${this.swap ? "left" : "right"} stick look`] : [`sticks fly and look${this.swap ? " (swapped)" : ""}`];
-    return [...sticks, ...this.actions.filter((a) => a.group === group && this.buttons(a.id).length).map((a) => `${this.named(a.id)} ${a.label}`)].join(" · ");
+    const sticks = group === "well" ? [[`${this.swap ? "right" : "left"} stick`, "move"], [`${this.swap ? "left" : "right"} stick`, "look"]] : [["sticks", `fly and look${this.swap ? " (swapped)" : ""}`]];
+    return [...sticks, ...this.actions.filter((a) => a.group === group && this.buttons(a.id).length).map((a) => [this.named(a.id), a.label])];
   }
 
   // the controller page: the next button pressed goes to an action (in place of its buttons, or beside them)

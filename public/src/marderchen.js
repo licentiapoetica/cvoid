@@ -968,6 +968,7 @@ export class Marderchen {
 
   // Going through. This happens in the dark, in the middle of the hole, so nothing is seen to jump.
   travel(camera) {
+    if (window.cvoid?.held?.(true)) return; // (held where you are, a group's member: see main.js)
     const { world } = this, entering = world.realm !== REALM;
     world.setRealm(entering ? REALM : "void");
     const { centre, axis } = this.gateAt(world.realm);
@@ -1423,7 +1424,8 @@ export class Marderchen {
     const along = tmp.dot(axis);
     tmp.addScaledVector(axis, -along);
     const radial = tmp.length() || 1, wide = GATE_R + Math.abs(along) * 0.55, REACH = inside ? 420 : 900;
-    if (!this.spent && Math.abs(along) < REACH && radial < wide) {
+    const held = !!window.cvoid?.held?.(); // (a group's member: it neither draws nor darkens, and does not take them)
+    if (!this.spent && !held && Math.abs(along) < REACH && radial < wide) {
       suck = (1 - Math.abs(along) / REACH) ** 1.5 * (1 - radial / wide);
       tmp.divideScalar(radial);
       this.pull.copy(tmp).multiplyScalar(-190).addScaledVector(axis, -Math.sign(along) * 260).add(forward.crossVectors(axis, tmp).multiplyScalar(70)).multiplyScalar(suck * (inside ? 0.45 : 1));
@@ -1434,7 +1436,7 @@ export class Marderchen {
     // The dark. It gathers smoothly as you close on the hole and is complete before you reach the
     // middle; you pass through while nothing can be seen; on the far side it lifts as slowly (and
     // coming back to the one you came out of, it gathers only at its mouth)
-    const closing = 1 - THREE.MathUtils.smoothstep(nearDoor, HOLE * 0.7, this.spent ? HOLE * 1.3 : HOLE * 2.6);
+    const closing = held ? 0 : 1 - THREE.MathUtils.smoothstep(nearDoor, HOLE * 0.7, this.spent ? HOLE * 1.3 : HOLE * 2.6);
     this.veil = Math.max(0, this.veil - dt / 1.9);
     this.fade = Math.max(closing, Math.min(1, this.veil)); // main.js draws the dark: either door may be closing
     // through only by flying into it from outside: not by being in it already

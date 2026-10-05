@@ -79,9 +79,10 @@ function onSector(spec, shown, key) {
     : spec.source === "void" ? "nothing was ever here"
     : spec.source === "chaostyper" ? "don't know the future seens to be an error"
     : spec.source === "marderchen" ? "[MEOW] by marderchen · its free · have fun :3 =^.^="
-    : spec.source === "zone" ? "the zone · R looks at the well · P plays at it"
+    : spec.source === "zone" ? zoneStatus()
     : hook("status", spec) || "local noise · claude unreachable";
   const name = spec ? spec.name : "· · ·";
+  hud.spec = spec;
   const changed = hud.key !== key || $("name").textContent !== name;
   $("name").textContent = name;
   $("inscription").textContent = spec ? spec.inscription : "";
@@ -168,6 +169,7 @@ const ROLL = 1.4;          // radians per second
 const THRUST = 150, SURGE = 9, DRAG = 1.6;
 const ZOOM = 0.5, ZOOM_AFTER = 0.18; // right button held: the lens narrows to this (about 2× nearer), once held this many seconds
 let rightHeld = 0; // when the right button went down (0: it is up)
+let padZoom = false; // the controller's zoom button (see pad.js) held: zoomed in, as with the right button
 const AHEAD = 1.4; // flying forward (W) goes this much faster than sideways, back or up
 // Shift surges; tapped twice quickly and held, it surges harder still, until it is let go
 const HYPER = 3, DOUBLE_TAP = 300; // ms between the two taps
@@ -212,7 +214,7 @@ function fireLaser() {
   lasers.shoot({ from, to: from.clone().addScaledVector(camera.getWorldDirection(new THREE.Vector3()), 2600) });
 }
 // the way back (see back.js): each place called by its dimension's name, and the room's in it
-const back = new Back({ scene, world, name: (realm, room) => {
+const back = new Back({ scene, world, textEl: $("irrlicht"), toOrigin: stored("irrlichtToOrigin", false), heading: () => yaw, name: (realm, room) => {
   const where = realm === "void" ? "the void" : realmNames[realm] ?? realm;
   return room ? `${where} · ${room.label ?? room.key}` : where;
 } });
@@ -227,7 +229,8 @@ const back = new Back({ scene, world, name: (realm, room) => {
 // its sectors · target(): what R turns you to · notice(): what you are with (for the void's voice) ·
 // leaveRealm / enterRealm(realm, camera): going there by the map · help: its keys, for the help line ·
 // interact(): the controller's interact button, true when it opened or entered something of its own ·
-// pad(pad): the controller each frame of flight, before cvoid's own buttons (its own actions: pad.addActions)
+// pad(pad): the controller each frame of flight, before cvoid's own buttons (its own actions: pad.addActions) ·
+// hold(): a reason, while it keeps you where you are (no portal, no way back, no jump by the map)
 const plugins = [];
 const hook = (name, ...args) => {
   for (const p of plugins) {
@@ -299,38 +302,67 @@ showRaw();
 const fadeEl = $("fade");
 
 // Going somewhere at once, from the map: in the dark, into whichever dimension the place is in.
+// (Its ways in and out are not refused while it goes: see cvoid.held.)
+let moving = false;
 function teleport(realm, x, y, z) {
   zone.stand();
   if (world.realm !== realm) {
-    if (world.realm === ZONE) zone.travel(camera); // back out to the void first
-    else if (world.realm === REALM) marderchen.travel(camera);
-    else hook("leaveRealm", world.realm, camera);
-    if (realm === ZONE) zone.travel(camera);
-    else if (realm === REALM) marderchen.travel(camera);
-    else hook("enterRealm", realm, camera);
+    moving = true;
+    try {
+      if (world.realm === ZONE) zone.travel(camera); // back out to the void first
+      else if (world.realm === REALM) marderchen.travel(camera);
+      else hook("leaveRealm", world.realm, camera);
+      if (realm === ZONE) zone.travel(camera);
+      else if (realm === REALM) marderchen.travel(camera);
+      else hook("enterRealm", realm, camera);
+    } finally {
+      moving = false;
+    }
   }
   camera.position.set(x, y, z);
   velocity.set(0, 0, 0);
   autofly = false;
   zone.veil = Math.max(zone.veil, 1.1); // the jump happens in the dark, which lifts
 }
-// Through the way back (see back.js): out of the room you are in if it is left behind, into the place's
-// dimension, its room, and where you were, facing as you faced, in the dark that lifts
+// Somewhere at once, in the dark that lifts: out of the room you are in if it is left behind, into the
+// place's dimension, its room ({ key, label } of the viewer that dimension is: see the f0ck plugin), and
+// there, facing as given. The way back's places carry their viewer, and are always put back in its room;
+// anyone else's (a group's leader's: see the together plugin) only when it is another room.
+function goTo(place) {
+  stopFlying();
+  const from = back.where();
+  if (from.viewer && from.realm !== place.realm && from.room) from.viewer.exitRoom(false);
+  teleport(place.realm, place.position.x, place.position.y, place.position.z);
+  if (place.viewer) place.viewer.backTo(place.room);
+  else if (place.realm !== from.realm || (place.room?.key ?? null) !== (from.room?.key ?? null)) back.where().viewer?.backTo(place.room ?? null);
+  face(place.yaw, place.pitch);
+}
+// Through the way back (see back.js): where you were, facing as you faced
 function goBack() {
+  if (held()) return;
   const place = back.take();
   if (!place) return;
-  stopFlying();
-  const leaving = back.where().viewer;
-  if (leaving && leaving.realm !== place.realm && leaving.room) leaving.exitRoom(false);
-  teleport(place.realm, place.position.x, place.position.y, place.position.z);
-  place.viewer?.backTo(place.room);
-  face(place.yaw, place.pitch);
+  goTo(place);
   audio.sting();
-  note(`${COMPANION} takes you back to ${place.name}`);
+  note(place.origin ? `${COMPANION} takes you to the origin` : `${COMPANION} takes you back to ${place.name}`);
+}
+// Irrlicht right clicked (or long pressed): to the origin from now on, or back again (remembered)
+function turnBack() {
+  const toOrigin = back.turn();
+  store("irrlichtToOrigin", toOrigin);
+  note(toOrigin ? `${COMPANION} takes you to the origin now · right click: back` : `${COMPANION} takes you back now · right click: to the origin`);
+}
+// A plugin keeping you where you are (the together plugin's group, whose members go only where its leader
+// goes): no portal, no way back, no jump by the map. Its reason is said instead, and returned.
+function held(say = note) {
+  const why = hook("hold");
+  if (why) say(why);
+  return why;
 }
 map.bind({
   spawn: spawnAt,
   onGo(realm, x, y, z) {
+    if (held((why) => map.note(why))) return;
     if (realm === "void" && x === SPAWN[0] && y === SPAWN[1] && z === SPAWN[2]) spawnHere(); // (the origin: looking at the clock)
     else teleport(realm, x, y, z);
     if (map.open) map.toggle(); // and you see where you are
@@ -361,10 +393,8 @@ function showHelp(mode = helpMode) {
   const blocks = groups.map(([of, keys]) => {
     const title = Object.assign(document.createElement("div"), { className: "of", textContent: of });
     const list = Object.assign(document.createElement("div"), { className: "keys" });
-    for (const entry of keys.split(" · ")) {
-      // "w a s d fly" -> the keys, and what they do (the first word that is not a key on its own)
-      const words = entry.split(" "), at = Math.max(1, words.findIndex((w, i) => i > 0 && w.length > 2 && !/^(shift|ctrl|enter|space|tab|right|left|click|wheel|esc|backspace|arrows|stick|sticks|left-stick|right-stick|d-pad|triggers|bumpers|select|start)$/.test(w)));
-      list.append(Object.assign(document.createElement("b"), { textContent: words.slice(0, at).join(" ") }), Object.assign(document.createElement("span"), { textContent: words.slice(at).join(" ") }));
+    for (const [key, what] of entries(keys)) {
+      list.append(Object.assign(document.createElement("b"), { textContent: key }), Object.assign(document.createElement("span"), { textContent: what }));
     }
     return [title, list];
   });
@@ -373,7 +403,23 @@ function showHelp(mode = helpMode) {
   left.append(...blocks[0]);
   right.append(...blocks.slice(1).flat());
   $("keysList").replaceChildren(left, ...(blocks.length > 1 ? [right] : []));
-  $("help").textContent = zone.seated ? HELP[`play-${mode}`] : "";
+  $("help").textContent = zone.seated ? entries(HELP[`play-${mode}`]).map((entry) => entry.join(" ")).join(" · ") : "";
+  if (hud.spec?.source === "zone") $("status").textContent = zoneStatus();
+}
+// A help line as its entries, [keys, what they do]: the controller's come so already (see PadMap.help);
+// "w a s d fly" is split at the first word that is not a key on its own
+function entries(keys) {
+  if (Array.isArray(keys)) return keys;
+  return keys.split(" · ").map((entry) => {
+    const words = entry.split(" "), at = Math.max(1, words.findIndex((w, i) => i > 0 && w.length > 2 && !/^(shift|ctrl|enter|space|tab|right|left|click|wheel|esc|backspace|arrows|stick|sticks|left-stick|right-stick|d-pad|triggers|bumpers|select|start)$/.test(w)));
+    return [words.slice(0, at).join(" "), words.slice(at).join(" ")];
+  });
+}
+// the zone's line under its name, with the keys or the controller's buttons, whichever was used last
+function zoneStatus() {
+  if (helpMode !== "pad") return "the zone · R looks at the well · P plays at it";
+  const [sit] = padMap.buttons("sit");
+  return `the zone${sit === undefined ? "" : ` · ${padMap.name(sit)} plays at it`}`;
 }
 // a word on what just happened, under the crosshair for a moment
 function note(text) {
@@ -392,10 +438,18 @@ function wakeHud(seconds = 6) {
 }
 showHelp();
 
+// The crosshair goes when you have been still a while (watching a post, say, or on tour: nothing looked
+// round, no key, no button), and is back at once with the next of any of them
+const STILL = 3; // seconds
+let stirred = 0;
+function stir() { stirred = performance.now(); }
+for (const type of ["keydown", "mousedown", "wheel", "touchstart"]) window.addEventListener(type, stir, { passive: true });
+
 // Free look: nothing stops at straight up or straight down. Keep pulling back and you go over the
 // top and fly on upside down. While you are upside down, left and right are swapped back so that
 // moving the mouse left still turns the view left.
 function look(dx, dy, scale) {
+  if (dx || dy) stir();
   if (dx || dy) for (const p of plugins) p.look?.(dx, dy); // (a plugin flying you somewhere lets you look about)
   // rolled over, the mouse still moves the view the way it moves on the screen
   const c = Math.cos(viewRoll), s = Math.sin(viewRoll);
@@ -467,6 +521,21 @@ for (const label of sliders) {
 }
 setVolume(stored("volume", 1));
 
+// The traveller's name, on the start screen: optional, remembered, and theirs to type (no key in it flies,
+// and a click in it does not start). Enter materializes. Plugins ask for it with player().
+let playerName = stored("player", "");
+{
+  const field = document.querySelector("#start .player input");
+  field.value = playerName;
+  field.addEventListener("input", () => { playerName = field.value.trim(); store("player", playerName); });
+  for (const type of ["click", "pointerdown"]) field.addEventListener(type, (e) => e.stopPropagation());
+  field.addEventListener("keyup", (e) => e.stopPropagation());
+  field.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.code === "Enter" || e.code === "NumpadEnter") { field.blur(); start(); lockPointer(); }
+  });
+}
+
 // The mix, under the volume in the Tab panel: how loud each kind of sound is (0 to 150%), remembered.
 {
   const MIX = [["void", "the void"], ["music", "music"], ["sounds", "sounds"], ["voice", "voices"], ["media", "radio, posts"]];
@@ -516,9 +585,12 @@ function start() {
   if (map.spawn) teleport(map.spawn.realm, map.spawn.x, map.spawn.y, map.spawn.z);
   map.visit(world.currentKey); // where you begin counts as explored
   voice.arrived(); // (someone it knows, it greets)
+  if (playerName) back.greet(playerName); // (and Irrlicht, by the name given on the start screen)
   $("start").classList.add("gone");
+  document.querySelector("#start .player input").blur(); // (started some other way, a key must fly, not type)
   $("hud").classList.add("on");
   $("crosshair").classList.add("on");
+  setTimeout(() => $("crosshair").classList.add("woken"), 4500); // (in slowly the first time, and quickly back from then on)
   document.body.classList.add("started"); // (the touch screen's menu button shows from now: see index.html)
   wakeHud(9); // where you begin, named a while (with the HUD's slow first reveal)
 }
@@ -656,7 +728,10 @@ document.addEventListener("mouseup", (e) => {
   if (e.button !== 2 || !rightHeld) return;
   const click = e.timeStamp - rightHeld < ZOOM_AFTER * 1000;
   rightHeld = 0;
-  if (click && aiming()) hook("rightClick");
+  if (click && aiming()) {
+    if (portalAimedAt()?.name === "back") return turnBack(); // (Irrlicht under the crosshair: where it takes you)
+    hook("rightClick");
+  }
 });
 document.addEventListener("pointerlockchange", () => { if (document.pointerLockElement !== canvas) rightHeld = 0; });
 document.addEventListener("contextmenu", (e) => { if (document.pointerLockElement === canvas) e.preventDefault(); });
@@ -691,10 +766,11 @@ function activePad() {
 }
 function pollPad(dt) {
   pad.x = pad.y = pad.rise = pad.roll = 0;
-  pad.surge = false;
+  pad.surge = padZoom = false;
   const gp = activePad();
   if (!gp) return;
   padMap.frame(gp);
+  if (padMap.now.size || gp.axes.slice(0, 4).some((v) => Math.abs(v) > DEADZONE)) stir();
   if (padMap.waiting()) return; // (the controller page is waiting for a button to map)
   const hit = (id) => padMap.hit(id), down = (id) => padMap.down(id);
   const { move, aim } = padMap.sticks(gp);
@@ -708,7 +784,7 @@ function pollPad(dt) {
   zone.pad(gp, padMap);
   // squared response: fine aim near the centre, full speed at the rim
   const rx = stick(aim[0]), ry = stick(aim[1]);
-  look(rx * Math.abs(rx) * dt, ry * Math.abs(ry) * dt * 0.75, PAD_LOOK * sensitivity);
+  look(rx * Math.abs(rx) * dt, ry * Math.abs(ry) * dt * 0.75, PAD_LOOK * sensitivity * (camera.fov / 70)); // (zoomed in, turning less, as the mouse does)
   if (zone.seated) {
     // at the well the pad plays; the look stick still looks round
     if (helpMode !== "pad" && (rx || ry || padMap.now.size)) showHelp("pad");
@@ -726,6 +802,7 @@ function pollPad(dt) {
   if (hit("mute")) toggleMute();
   if (hit("interact")) interact();
   if (hit("autofly")) toggleAutofly();
+  padZoom = down("zoom");
   if (hit("levelOut")) levelOut();
   if (pad.y > 0.5) toggleAutofly(false); // pulling back stops it
   if (hit("map")) map.toggle();
@@ -790,18 +867,22 @@ function portalAimedAt() {
 }
 // a portal in the hub, clicked or tapped: turned to, and flown into (and no further: see fly)
 function flyIntoPortal(portal) {
+  if (held()) return;
+  if (portal.name === "back" && !back.next) return note(back.toOrigin ? `${COMPANION} · you are at the origin` : `${COMPANION} · nowhere to go back to yet`); // (in the hub, before you have been anywhere: only company)
   // clicked again at once (a double click) on the way into the same one: faster
   if (portalFlight && portalFlight.at.distanceTo(portal.at) < 1 && performance.now() - portalFlight.since < 450) {
     portalFlight.fast = true;
     return note(`into ${portal.label ?? PORTAL_NAMES[portal.name] ?? portal.name} · faster`);
   }
+  if (portal.name === "back") hook("autofly", false); // (on a tour: the tour is over, you are going back)
   const to = portal.at.clone().sub(camera.position), length = to.length() || 1;
   face(Math.atan2(-to.x, -to.z), Math.asin(Math.max(-1, Math.min(1, to.y / length))));
   autofly = true;
   portalFlight = { at: portal.at, realm: world.realm, nearest: length, since: performance.now() };
-  // a beam to it, as at a post, held while you fly it
+  // a beam to it, as at a post, held while you fly it (Irrlicht, beside you: only a flash, gone at once)
   const flight = portalFlight;
-  lasers.shoot({ from: lasers.muzzle(camera), to: portal.at, hold: () => portalFlight === flight });
+  if (portal.name === "back") lasers.shoot({ from: lasers.muzzle(camera), to: portal.at, fade: 0.3 });
+  else lasers.shoot({ from: lasers.muzzle(camera), to: portal.at, hold: () => portalFlight === flight });
   note(`${portal.label ?? `into ${PORTAL_NAMES[portal.name] ?? portal.name}`} · ${matchMedia("(pointer: coarse)").matches ? "tap to stop" : "s to stop"}`);
 }
 // the portal the crosshair is on, named under it (as a post's portals are in f0ck's dimensions)
@@ -841,6 +922,7 @@ function tap() {
 // a long press (a finger held still): as a right click is, letting go of what you picked or calling off a
 // tour; and any flight by itself stops
 function longPress() {
+  if (!portalFlight && portalAimedAt()?.name === "back") return turnBack(); // (on Irrlicht: as a right click)
   if (autofly || portalFlight) { stopFlying(); }
   hook("rightClick");
   note("let go");
@@ -857,6 +939,7 @@ function syncTouches(e) {
 // above all, which zooms whatever the page asks) starts at a second finger, taking both away from it
 const onPicture = (e) => e.target === canvas || e.target === document.body || e.target === document.documentElement || !!e.target.closest?.("#start");
 window.addEventListener("touchstart", (e) => {
+  if (e.target.closest?.("#start .player")) return; // (a tap on the name field is for typing in it)
   if (onPicture(e) && e.cancelable) e.preventDefault();
   if (!started) { start(); syncTouches(e); return; }
   syncTouches(e);
@@ -903,7 +986,8 @@ window.addEventListener("touchend", touchEnd);
 window.addEventListener("touchcancel", touchEnd);
 if (matchMedia("(pointer: coarse)").matches) $("prompt").textContent = "tap to materialize · drag to look · two fingers to fly · tap a portal to fly into it · double tap to surge";
 
-const RISE_RAMP = 1.2; // seconds of holding space to reach the full faster climb
+const RISE = 2;        // rising and sinking go this much faster than sideways
+const RISE_RAMP = 1.2; // seconds of holding rise or sink to reach the full faster climb (or fall)
 let riseHold = 0;
 function fly(dt) {
   const axis = (pos, neg) => (keys.has(pos) ? 1 : 0) - (keys.has(neg) ? 1 : 0);
@@ -936,16 +1020,17 @@ function fly(dt) {
   }
   thrust.set(axis("KeyD", "KeyA") + pad.x, 0, axis("KeyS", "KeyW") + pad.y - touchThrust - (autofly ? 1 : 0));
   thrust.applyEuler(camera.rotation);
-  thrust.y += axis("Space", "KeyC") - (keys.has("ControlLeft") ? 1 : 0) + pad.rise;
+  const lift = Math.max(-1, Math.min(1, axis("Space", "KeyC") - (keys.has("ControlLeft") ? 1 : 0) + pad.rise));
+  thrust.y += lift;
   if (thrust.lengthSq() > 1) thrust.normalize();
   const forward = thrust.dot(camera.getWorldDirection(ahead));
   if (forward > 0) thrust.addScaledVector(ahead, forward * (AHEAD - 1));
   // (a portal double clicked: in as fast as anything flies, Shift twice's hyper speed)
   const surge = portalFlight?.fast ? SURGE * HYPER : keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge || touchSurge ? SURGE * (hyper ? HYPER : 1) : 1;
   velocity.addScaledVector(thrust, THRUST * surge * dt);
-  // holding space: the climb picks up the longer it is held, up to 1.6 times (a tap stays gentle)
-  riseHold = keys.has("Space") ? Math.min(riseHold + dt, RISE_RAMP) : 0;
-  velocity.y += THRUST * surge * dt * 0.6 * (riseHold / RISE_RAMP);
+  // up and down faster than sideways (see RISE), and picking up the longer rise or sink is held, by 0.6 more (a tap stays gentle)
+  riseHold = lift ? Math.min(riseHold + dt, RISE_RAMP) : 0;
+  velocity.y += THRUST * surge * dt * lift * (RISE - 1 + 0.6 * (riseHold / RISE_RAMP));
   velocity.addScaledVector(marderchen.museum.current, dt); // the museum's vortex pulls gently onward
   velocity.addScaledVector(marderchen.pull, dt);           // and the portal at his door pulls hard
   velocity.addScaledVector(zone.pull, dt);                 // as does the ring down to the zone
@@ -954,7 +1039,9 @@ function fly(dt) {
   // a plugin flying you somewhere: steered there, and turned to it
   // Shift on the way hurries the flight (twice tapped: more)
   const hurry = surge > 1 ? (hyper ? 4 : 2.5) : 1;
-  const steer = hook("steer", camera, dt, hurry);
+  // (not while flying into a portal you clicked: Irrlicht, on a tour, is gone into, not steered away from)
+  const steer = portalFlight ? null : hook("steer", camera, dt, hurry);
+  back.touring = !!steer; // (a plugin flying you: Irrlicht keeps out of its way, see back.js)
   if (steer) {
     velocity.lerp(steer.velocity, 1 - Math.exp(-3 * (steer.hurry ?? 1) * dt));
     if (steer.look) face(steer.look.yaw, steer.look.pitch);
@@ -1030,6 +1117,9 @@ function frame(now) {
   if (meter.time >= 0.5) { meter.fps = meter.frames / meter.time; meter.frames = 0; meter.time = 0; if (map.open) showNow(); }
   elapsed += dt;
   pollPad(dt);
+  if (keys.size || rightHeld) stir(); // (a key held, flying, is not being still)
+  $("crosshair").classList.toggle("still", started && performance.now() - stirred > STILL * 1000);
+  back.touring = false; // (fly says so again, while a plugin flies you)
   if (!started) { idle(elapsed); marderchen.idle(dt, camera); for (const p of plugins) p.idle?.(dt); } // (what they have in the hub moves behind the start screen too)
   else if (!marderchen.museum.open && !hook("busy")) fly(dt); // a piece is open: stay where you are
   const heard = audio.features(dt);
@@ -1044,7 +1134,7 @@ function frame(now) {
     zone.update(dt, camera, velocity);
     for (const p of plugins) p.update?.(dt, camera);
     back.held = !!portalFlight && portalFlight.at === back.position; // (clicked: it waits to be flown into)
-    if (back.update(dt, camera, started && !map.open)) goBack();
+    if (back.update(dt, camera, started && !hook("hold"))) goBack(); // (held where you are, it keeps away; the Tab panel open, it stays)
     voice.update(dt, velocity.length(), $("entity").classList.contains("show"));
     if (zone.seated !== seatedBefore) {
       seatedBefore = zone.seated;
@@ -1060,8 +1150,8 @@ function frame(now) {
   world.sky.render(renderer, camera);
   if (document.visibilityState === "visible") adaptResolution(dt);
   audio.setSpeed(velocity.length());
-  // the lens widens a little at speed, and narrows (zooms in) while the right button is held
-  const zooming = rightHeld && performance.now() - rightHeld > ZOOM_AFTER * 1000;
+  // the lens widens a little at speed, and narrows (zooms in) while the right button (or the controller's zoom) is held
+  const zooming = padZoom || (rightHeld && performance.now() - rightHeld > ZOOM_AFTER * 1000);
   const fov = (70 + Math.min(velocity.length() / 500, 1) * 18) * (zooming ? ZOOM : 1);
   if (Math.abs(fov - camera.fov) > 0.05) {
     camera.fov += (fov - camera.fov) * Math.min(1, dt * 4);
@@ -1083,16 +1173,24 @@ function frame(now) {
 runFrames();
 
 // (viewers: the f0ck plugin's viewers, each registering itself as it is made: see back.js)
-window.cvoid = { world, camera, renderer, entity, marderchen, zone, back, voice, map, plugins, padMap, CELL, graphics: gfx, viewers: [], meteors, lasers, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; } };
+window.cvoid = {
+  world, camera, renderer, entity, marderchen, zone, back, voice, map, plugins, padMap, CELL, graphics: gfx, viewers: [], meteors, lasers, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; },
+  // Held where you are (see held: a group's member, say), asked by every way into a dimension or a room (its
+  // ring, a tag's portal, a search): they neither draw you nor take you, and with say, the reason is said.
+  // Never while you are being put somewhere (the group taking you along, the way back, the map).
+  held: (say = false) => (moving ? null : say ? held() : hook("hold")),
+};
 
 // The plugins (see the top), installed once the game around them is ready: what they are given.
 const game = {
   scene, world, audio, map, camera, canvas, velocity, keys, stored, store,
   pad: padMap, // the controller's buttons, as mapped (see pad.js): a plugin may add actions of its own
   arrive, face, note, lockPointer, levelOut, showHelp: () => showHelp(),
+  goTo,                                     // somewhere at once: { realm, room?, position, yaw, pitch } (see goTo)
   lasers, fireLaser,                        // beams (see laser.js): a plugin may shoot, draw another's, or listen
   started: () => started,
-  aiming,                                   // flying, the pointer held, no map open
+  player: () => playerName,                 // the name the traveller gave on the start screen ("" if none)
+  aiming,                                  // flying, the pointer held, no map open
   mapOpen: () => map.open,
   closeMap: (lock = true) => { if (map.open) map.toggle(); if (lock) lockPointer(); }, // (lock false: something else takes the screen)
   // how the picture is finished while in a dimension of its own (null: as cvoid's own): tone mapped

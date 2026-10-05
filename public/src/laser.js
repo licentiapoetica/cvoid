@@ -17,6 +17,7 @@ void main(){
   gl_FragColor = vec4(uColor * a, 1.);
 }`;
 const SHOT = 0.35;     // seconds its tip takes to get there (a long one a little longer)
+const FADE = 0.9;      // seconds it fades in, once there (and no longer held)
 const MOST = 24;       // beams at once, everyone's together: the oldest goes first
 const UP = new THREE.Vector3(0, 1, 0), WHITE = new THREE.Color(1, 1, 1);
 const way = new THREE.Vector3(), down = new THREE.Vector3();
@@ -35,8 +36,8 @@ export class Lasers {
 
   // A beam. from and to: points (to may be one that moves, a portal floating along: it is followed);
   // colour: its own (else the void's glow, paled); hold(): kept while true, after its tip is there;
-  // mine: yours, so told to the listeners (another's, drawn only)
-  shoot({ from, to, colour = null, hold = null, mine = true }) {
+  // fade: seconds it takes to fade after that; mine: yours, so told to the listeners (another's, drawn only)
+  shoot({ from, to, colour = null, hold = null, fade = FADE, mine = true }) {
     if (this.beams.length >= MOST) this.drop(this.beams[0]);
     const u = { uColor: { value: new THREE.Color() }, uHead: { value: 0 }, uFade: { value: 1 }, uLen: { value: 1 }, uTime: this.world.G.uTime };
     const mesh = new THREE.Mesh(GEO, new THREE.ShaderMaterial({
@@ -45,7 +46,7 @@ export class Lasers {
     mesh.frustumCulled = false;
     mesh.raycast = () => {};
     this.scene.add(mesh);
-    const beam = { mesh, u, from: from.clone(), to, colour, hold, realm: this.world.realm };
+    const beam = { mesh, u, from: from.clone(), to, colour, hold, fade, realm: this.world.realm };
     this.beams.push(beam);
     this.place(beam);
     if (mine) for (const listen of this.listeners) listen(beam.from, to.clone());
@@ -64,7 +65,7 @@ export class Lasers {
       const { u } = beam;
       if (beam.realm !== this.world.realm) { this.drop(beam); continue; } // (left behind in another dimension)
       u.uHead.value = Math.min(1, u.uHead.value + dt / (SHOT * Math.min(2, Math.max(1, u.uLen.value / 3000))));
-      if (u.uHead.value >= 1 && !beam.hold?.()) u.uFade.value -= dt / 0.9;
+      if (u.uHead.value >= 1 && !beam.hold?.()) u.uFade.value -= dt / beam.fade;
       if (u.uFade.value <= 0) { this.drop(beam); continue; }
       this.place(beam);
     }

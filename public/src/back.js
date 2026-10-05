@@ -1,11 +1,13 @@
 // The way back: a companion, called Irrlicht (a will-o'-the-wisp: a cold flame that keeps by travellers
-// in the dark). Once you have gone somewhere (through a portal, into a tag's room, out of
-// one, or across the map in one jump), it floats along at your side, off to the left and a little low,
+// in the dark). In the hub, and once you have gone somewhere (through a portal, into a tag's room, out
+// of one, or across the map in one jump), it floats along at your side, off to the left and a little low,
 // bobbing as it goes, the way a small machine keeps by someone it looks after. It is not a portal like
 // the others: a mouth of dark burnt into the air, its edge burning in a cold blue fire (icefire), giving
 // off a thin mist that trails behind it as it moves. Through it, you are back where you were before: the dimension, the room
 // in it, and where you were a few seconds before you went (not already in the pull of what took you),
 // facing as you faced. Taken, it takes you a step further back the next time, as far as it remembers.
+// In the hub with nowhere to go back to, it only keeps you company: not a way anywhere, it does not open.
+// Right clicked, it takes you to the origin instead (from anywhere but the hub), and again, back.
 //
 // It follows lazily, and waits where it is while you look at it or come near, so it can be flown into
 // (or clicked, as the portals round the clock are: see main.js). Flying into it, its mouth opens wide
@@ -15,18 +17,28 @@
 // MOODS): wide and looking all round when it has just come; calm, glancing now and then; looking back
 // at you, pleased, when you look at it; happy, two arches, as you fly into it; narrowed and looking
 // ahead when you go fast; wide and anxious when you have left it far behind; drowsy, nodding off, when
-// you have kept still a long while.
+// you have kept still a long while; annoyed, half lidded, looking sideways at you and rolling its eyes,
+// the longer the more often, when where you are takes a long while to materialize.
+//
+// Given a name on the start screen, it greets you by it as the flight begins: a few words beside it, in
+// its own cold blue, its eyes two happy arches while it says them.
 import * as THREE from "three";
 import { NOISE_LIB } from "./shaders.js";
+import { SPAWN } from "./constants.js";
 
 export const NAME = "Irrlicht";       // what it is called: said under the crosshair when it is aimed at
 export const BACK_HOLE = 26;          // its mouth's dark (the crosshair on this is on it)
 const MOUTH = 92;                     // the burning disc drawn round it, edge to edge
+const OPENS = 1.2;                    // how much wider its mouth opens as you go into it
+const REACH = BACK_HOLE * 1.7;        // that near, going into it, you are through
 const KEEP = 20;                      // how many places back it remembers
 const BEFORE = 2.5;                   // seconds before a jump: where you were then
 const FAR = 2500;                     // moved this far in one frame: a jump (the map)
 const SPOT = new THREE.Vector3(-260, 0, -300); // where it floats, from you: off to the left, at the side of what you see (above where the place's name is written)
 const CLEAR_OF = 0.9; // and never long in front of what you look at: within this of straight ahead (cosine, ~25 degrees) it moves aside
+const BORED = 8; // seconds of the place round you not yet materialized (Claude still writing it) before it is annoyed
+const GREET_AFTER = 2.6, GREET_FOR = 4.2, GREET_WAIT = 30; // seconds: after it has come, its greeting said this long, and given up on if it has not come by then
+const GREETINGS = [(n) => `hello, ${n}`, (n) => `oh, ${n}. there you are`, (n) => `${n}! let's go`, (n) => `hi ${n}. i'll keep by you`];
 const SMOKE = 48, EMBERS = 16; // (a thin smoke: it smoulders, it does not billow)
 
 // the mouth: a disc of dark with a ragged edge that smoulders, embers crawling along it, charred round it
@@ -89,28 +101,34 @@ void main(){
 
 const ahead = new THREE.Vector3(), to = new THREE.Vector3(), spot = new THREE.Vector3(), yawOnly = new THREE.Euler(0, 0, 0, "YXZ");
 const seg = new THREE.Line3(), near = new THREE.Vector3(), drift = new THREE.Vector3();
-const ZERO = new THREE.Vector2(), DOWN = new THREE.Vector2(0, -0.035);
-const pullV = new THREE.Vector3(), paceV = new THREE.Vector3(), paceNow = new THREE.Vector3();
+const ZERO = new THREE.Vector2(), DOWN = new THREE.Vector2(0, -0.035), side = new THREE.Vector2();
+const words = new THREE.Vector3(), up = new THREE.Vector3();
+const pullV = new THREE.Vector3(), moved = new THREE.Vector3(), step = new THREE.Vector3(), toIt = new THREE.Vector3();
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 
 export class Back {
-  // name(realm, room): what a place is called, for the name under the crosshair
-  constructor({ scene, world, name }) {
-    Object.assign(this, { world, name });
+  // name(realm, room): what a place is called, for the name under the crosshair; textEl: where it speaks;
+  // heading(): the way the view is turning to (it eases round: see main.js face)
+  constructor({ scene, world, name, textEl, toOrigin, heading }) {
+    Object.assign(this, { world, name, textEl, heading });
+    this.greeting = null; // { text, at (when it is said; null till it has come), by (given up on after) } (see greet)
     this.places = [];
     this.recent = []; // where you have been these last seconds: { t, position, yaw, pitch }
     this.time = 0;
     this.here = null;
     this.returning = false;
+    this.toOrigin = !!toOrigin; // where it takes you: back (false), or to the origin (see next)
     this.shown = 0;   // 0 to 1: it comes and goes softly
     this.open = 0;    // 0 to 1: its mouth opening as you fly into it
     this.approach = 0; // how fast you come at it (eased: a frame without moving does not undo it)
+    this.into = 0;    // 0 to 1: how surely you are going into it (eased)
+    this.closer = 0;  // how fast you near it, its own drifting taken out (eased)
     this.fade = 0;    // the dark as you go in (main.js draws it)
     this.home = new THREE.Vector3();     // where it would float (eased towards you)
-    this.speed = new THREE.Vector3();    // and how it is going (see place)
-    this.yourPace = new THREE.Vector3(); // how you are going, eased
+    this.speed = new THREE.Vector3();    // and how it is going, beside you (see place)
     this.keen = 1.7;
     this.carry = 1;
+    this.pace = 0;    // how fast you are going, eased
     this.position = new THREE.Vector3(); // where it is, bobbing (the flight into it follows this: see flyIntoPortal)
     this.lastCam = null;
 
@@ -165,13 +183,57 @@ export class Back {
     return { key: `${realm}|${room?.key ?? ""}`, realm, viewer, room };
   }
 
-  // the place it goes to, if any
-  get next() { return this.places.at(-1) ?? null; }
-  get label() { return this.next ? `${NAME} · back to ${this.next.name}` : ""; }
+  // the place it goes to, if any: back, or (right clicked: see main.js) to the origin, from anywhere but
+  // the hub, facing the clock as at the start
+  get next() {
+    if (!this.toOrigin) return this.places.at(-1) ?? null;
+    if (this.atHub()) return null;
+    const at = new THREE.Vector3(...SPAWN), length = at.length() || 1;
+    return { origin: true, realm: "void", viewer: null, room: null, name: "the origin", position: at, yaw: Math.atan2(at.x, at.z), pitch: Math.asin(-at.y / length) };
+  }
+  get label() { return NAME; }
   get ready() { return this.shown > 0.5; }
 
+  // the hub sector of the void itself, where it is with you even before you have been anywhere
+  atHub() { return this.world.realm === "void" && this.world.currentKey === "0,0,0"; }
+
+  // the traveller's name: said beside it a moment after it has come (and not at all if it has not come soon)
+  greet(name) {
+    this.greeting = { text: GREETINGS[Math.floor(Math.random() * GREETINGS.length)](name), at: null, by: this.time + GREET_WAIT };
+  }
+
+  // its greeting, while it is said: beside it, above its mouth, wherever it is on the screen
+  speak(dt, camera, visible) {
+    const g = this.greeting, el = this.textEl;
+    if (!g || !el) return;
+    if (g.at === null) {
+      if (visible && this.shown > 0.9) g.at = this.time + GREET_AFTER;
+      else if (this.time > g.by) this.greeting = null;
+      return;
+    }
+    const saying = this.time >= g.at && this.time < g.at + GREET_FOR;
+    if (this.time >= g.at && el.textContent !== g.text) el.textContent = g.text;
+    words.copy(this.position).addScaledVector(up.set(0, 1, 0).applyQuaternion(camera.quaternion), MOUTH * 0.45 * this.mouth.scale.x).project(camera);
+    const onScreen = visible && words.z < 1 && Math.abs(words.x) < 1.1 && Math.abs(words.y) < 1.1;
+    el.classList.toggle("show", saying && onScreen);
+    if (onScreen) {
+      const w = innerWidth, half = el.offsetWidth / 2 + 12; // (kept whole on the screen)
+      el.style.left = `${THREE.MathUtils.clamp((words.x + 1) / 2 * w, half, w - half)}px`;
+      el.style.top = `${(1 - words.y) / 2 * innerHeight}px`;
+    }
+    if (this.time >= g.at + GREET_FOR) this.greeting = null;
+  }
   // taken: the place it goes to, no longer kept (and the jump there is not itself a place to go back to)
+  // to the origin, or back again: it blinks, taking it in
+  turn() {
+    this.toOrigin = !this.toOrigin;
+    if (this.mood) this.mood.blinkIn = 0;
+    return this.toOrigin;
+  }
+
+  // (to the origin: where you were is kept as any other place left, to go back to)
   take() {
+    if (this.toOrigin) return this.next;
     const place = this.places.pop() ?? null;
     if (place) this.returning = true;
     return place;
@@ -202,7 +264,8 @@ export class Back {
       if (this.recent.length > 40) this.recent.shift();
     }
 
-    const want = started && this.places.length ? 1 : 0;
+    const want = started && (this.next || this.atHub()) ? 1 : 0;
+    if (want && this.shown <= 0.01) this.place(camera, true); // (coming, it comes at your side, not from wherever it was last)
     this.shown += (want - this.shown) * Math.min(1, dt * 2.5);
     const visible = this.shown > 0.01;
     this.mouth.visible = this.smoke.visible = this.embers.visible = visible;
@@ -222,49 +285,92 @@ export class Back {
       const nearCrosshair = facing > Math.cos(Math.atan((BACK_HOLE * 3) / distance));
       // (on its way aside, its own passing under the crosshair is not your aiming at it)
       const aside = (this.before ?? 0) > 0.6;
-      this.regard = (onIt && !aside) || (nearCrosshair && this.regard > 0) ? 1.5 : Math.max(0, (this.regard ?? 0) - dt); // (near the crosshair keeps a regard, never begins one)
-      const waits = this.held || this.regard > 0 || distance < 160 || (this.approach > 40 && headingAt > 0.5);
-      this.before = facing > CLEAR_OF && !waits ? (this.before ?? 0) + dt : 0; // (how long it has been before you, not aimed at)
+      // a tour flying you (a plugin's: see main.js), it is not being come to, only passed: it does not wait
+      // for the view the tour turns over it, keeps out of the tour's way, and is not gone through
+      const touring = this.touring && !this.held;
+      // turning to it: the crosshair brought nearer it by your turning (not by its own drifting), from
+      // within a good way round it. It waits for you then, before you are on it, to be clicked.
+      const off = Math.acos(THREE.MathUtils.clamp(facing, -1, 1));
+      const wasOff = this.lastDir ? Math.acos(THREE.MathUtils.clamp(this.lastDir.dot(to), -1, 1)) : off; // (to: the way to it now)
+      // (within ~43 degrees, turning to it at 2 a second or more; not flying fast, when a turn its way would
+      // leave it waiting, far behind at once: then only the crosshair on it)
+      const drifting = 1 - THREE.MathUtils.smoothstep(this.pace, 250, 700);
+      const seeking = dt > 0 && drifting > 0.5 && off < 0.75 && (wasOff - off) / dt > 0.04;
+      (this.lastDir ??= new THREE.Vector3()).copy(ahead);
+      this.regard = ((onIt || seeking) && !aside && !touring) || (nearCrosshair && this.regard > 0) ? 1.5 : Math.max(0, (this.regard ?? 0) - dt); // (near the crosshair keeps a regard, never begins one)
+      // (how far you went this frame, exactly: carried that far, it keeps by you at any pace, through any stall)
+      if (this.lastCam) moved.copy(camera.position).sub(this.lastCam);
+      else moved.set(0, 0, 0);
+      if (dt > 0) this.pace += (moved.length() / dt - this.pace) * Math.min(1, dt * 4);
+      // come near it, drifting, it waits; but swept near you as you turn at speed, it is not being come to
+      // (waiting then, it would be left far behind at once)
+      const waits = this.held || (!touring && (this.regard > 0 || (distance < 160 && drifting > 0.5) || (this.approach > 40 && headingAt > 0.5)));
+      // (on a tour: your way, as it is to it, leading near it: out of it at once)
+      let onWay = false;
+      if (touring && this.lastPos) {
+        step.copy(moved).sub(this.position).add(this.lastPos);
+        const going = step.length(), along = going > 1e-6 ? step.dot(to) / going : 0;
+        onWay = along > 0 && distance * Math.sqrt(Math.max(0, 1 - along * along)) < BACK_HOLE * 5 && distance < 1500;
+      }
+      this.before = (facing > CLEAR_OF || onWay) && !waits ? (this.before ?? 0) + dt * (onWay ? 4 : 1) : 0; // (how long it has been before you, not aimed at)
       const inTheWay = this.before > 0.6;
       // going aside: to whichever side of what you see it is on already (never across the middle), and
       // keeping to that side after
       if (inTheWay && !aside) this.side = spot.copy(this.position).project(camera).x >= 0 ? 1 : -1;
       // how keenly it goes to its place (eased from one way of going to another, never switched at once),
       // and how much it keeps your pace (none while it waits: it stays where it is, to be flown into)
-      const keen = waits ? 0 : distance > 3000 ? 4 : inTheWay ? 3.2 : 1.7 * THREE.MathUtils.smoothstep(distance, 160, 420);
+      const keen = waits ? 0 : distance > 3000 ? 4 : inTheWay ? 3.2 : 1.7 * THREE.MathUtils.lerp(1, THREE.MathUtils.smoothstep(distance, 160, 420), drifting);
       this.keen += (keen - this.keen) * Math.min(1, dt * 2.5);
       this.carry += ((waits ? 0 : 1) - this.carry) * Math.min(1, dt * 2.5);
-      // (a step too long for one frame is being put somewhere, not speed: it is not taken on)
-      if (this.lastCam && dt > 0 && this.lastCam.distanceTo(camera.position) < 300) this.yourPace.lerp(paceNow.copy(camera.position).sub(this.lastCam).divideScalar(dt), Math.min(1, dt * 6));
-      this.place(camera, false, dt);
+      this.place(camera, false, dt, moved);
       const follow = this.carry;
       // bobbing as it hovers, a slow small circling with it
       // (less while it waits for you: it is easier to fly into)
       this.position.copy(this.home).add(drift.set(Math.sin(this.time * 0.7) * 9, Math.sin(this.time * 1.3) * 11, Math.cos(this.time * 0.9) * 7).multiplyScalar(0.3 + 0.7 * follow));
 
-      // coming at it: its mouth opens round you and the dark gathers, smoothly, before you are in
+      // coming at it (how fast you near it, in the world: see waits)
       const towards = this.lastCam && dt > 0 ? ahead.copy(camera.position).sub(this.lastCam).dot(to) / dt : 0; // (to: the way to it, from you)
       this.approach += (towards - this.approach) * Math.min(1, dt * 4);
-      const closing = THREE.MathUtils.smoothstep(this.approach, 10, 80) * headingAt;
-      const nearness = 1 - THREE.MathUtils.smoothstep(distance, BACK_HOLE * 1.2, BACK_HOLE * 9);
-      this.open += (closing * nearness - this.open) * Math.min(1, dt * 5);
-      this.fade = closing * (1 - THREE.MathUtils.smoothstep(distance, BACK_HOLE * 0.9, BACK_HOLE * 5));
+      // going into it: your way as it is to it (its own bobbing and drifting taken out), leading into its
+      // mouth, not just near it. Then its mouth opens round you and the dark gathers, steadily the
+      // nearer you are, all the way in: it does not swell at the last, nor falter as it bobs off your line.
+      let into = 0, closer = 0;
+      if (this.next && !touring && this.lastCam && this.lastPos && dt > 0) {
+        step.copy(camera.position).sub(this.lastCam).sub(this.position).add(this.lastPos);
+        toIt.copy(this.position).sub(camera.position);
+        const going = step.length();
+        if (going > 1e-6) {
+          closer = step.dot(toIt) / (toIt.length() || 1) / dt;
+          const miss = toIt.cross(step.divideScalar(going)).length(); // (how far from its middle your way goes)
+          into = THREE.MathUtils.smoothstep(closer, 10, 60) * (1 - THREE.MathUtils.smoothstep(miss, BACK_HOLE * 1.5, BACK_HOLE * 4));
+        }
+      }
+      this.into += (into - this.into) * Math.min(1, dt * (3 + Math.max(0, closer) / 100)); // (sooner sure, the faster you come)
+      this.closer += (closer - this.closer) * Math.min(1, dt * 8);
+      const nearing = Math.max(this.closer, closer);
+      const soon = nearing > 1 ? (distance - REACH) / nearing : Infinity; // (seconds till you are through)
+      this.open = this.into * (1 - THREE.MathUtils.smoothstep(distance, REACH, BACK_HOLE * 12));
+      // (wholly dark as you are through: the nearer, or, flying fast, the sooner)
+      this.fade = this.into * Math.max(1 - THREE.MathUtils.smoothstep(distance, REACH, BACK_HOLE * 7), 1 - THREE.MathUtils.smoothstep(soon, 0.03, 0.4));
+      const closing = this.into;
       this.feel(dt, camera, { distance, onIt, closing });
       this.mouth.position.copy(this.position);
       this.mouth.quaternion.copy(camera.quaternion); // (it always faces you)
-      this.mouth.scale.setScalar((0.25 + 0.75 * this.shown) * (1 + 2.2 * this.open));
+      this.mouth.scale.setScalar((0.25 + 0.75 * this.shown) * (1 + OPENS * this.open));
       this.mouth.material.uniforms.uShow.value = this.shown;
       this.mouth.material.uniforms.uOpen.value = this.open;
 
       // through: its mouth reached (the whole way since the last frame, so no flight is too fast for it)
-      if (this.shown > 0.9 && this.lastCam) {
+      if (this.next && !touring && this.shown > 0.9 && this.lastCam) {
         seg.set(this.lastCam, camera.position);
-        through = seg.closestPointToPoint(this.position, true, near).distanceTo(this.position) < BACK_HOLE * 0.8 * (1 + 1.2 * this.open);
+        through = seg.closestPointToPoint(this.position, true, near).distanceTo(this.position) < Math.max(BACK_HOLE * 0.8, REACH * this.open);
       }
     } else {
-      this.open = this.fade = this.approach = 0;
+      this.open = this.fade = this.approach = this.into = this.closer = 0;
     }
+    this.lastPos = (this.lastPos ?? new THREE.Vector3()).copy(this.position);
     this.burn(dt, camera, visible);
+    this.speak(dt, camera, visible);
     this.lastCam = (this.lastCam ?? new THREE.Vector3()).copy(camera.position);
     return through;
   }
@@ -274,6 +380,9 @@ export class Back {
     const u = this.mouth.material.uniforms, m = (this.mood ??= { lid: 0.15, wide: 1, smile: 0, look: new THREE.Vector2(), glance: new THREE.Vector2(), glanceIn: 0, blinkIn: 3, blink: 0, still: 0, speed: 0, born: this.time });
     m.speed += ((this.lastCam && dt > 0 ? this.lastCam.distanceTo(camera.position) / dt : 0) - m.speed) * Math.min(1, dt * 3);
     m.still = m.speed < 8 ? m.still + dt : 0;
+    // waiting for where you are: not yet there at all, or Claude still writing its sky
+    const spec = this.world.currentSpec;
+    m.waited = !spec || spec.partial ? (m.waited ?? 0) + dt : 0;
     // where it would look: about it (its glances), at you (the middle of its face), or the way you go
     if ((m.glanceIn -= dt) <= 0) {
       m.glanceIn = THREE.MathUtils.randFloat(1.2, 3.6);
@@ -283,7 +392,21 @@ export class Back {
     const towardYou = new THREE.Vector2(-ahead2.x, -ahead2.y).normalize().multiplyScalar(0.05);
     let lid = 0.18, wide = 1, smile = 0, look = m.glance, mood = "calm";
     if (closing > 0.4 || this.open > 0.3) { mood = "happy"; lid = 0; wide = 1.1; smile = 1; look = ZERO; }
+    else if (this.greeting?.at != null && this.time >= this.greeting.at) { mood = "greeting"; lid = 0; wide = 1.15; smile = 1; look = towardYou.multiplyScalar(0.4); }
     else if (this.time - m.born < 2.2) { mood = "new"; lid = 0; wide = 1.3; if (m.glanceIn > 0.6) m.glanceIn = 0.6; }
+    else if (m.waited > BORED) {
+      // annoyed: a flat look sideways at you, and now and then its eyes rolled up and over, lids lifting
+      // as they go (the longer it waits, the sooner again)
+      mood = "annoyed"; lid = 0.44; wide = 0.95; look = side.copy(towardYou).multiplyScalar(0.8);
+      m.rollIn ??= 2;
+      if ((m.rollIn -= dt) <= 0) { m.roll = 0; m.rollIn = THREE.MathUtils.randFloat(2.5, 6) * Math.max(0.4, 1 - (m.waited - BORED) / 60); }
+      if (m.roll !== undefined && m.roll < 1) {
+        m.roll = Math.min(1, m.roll + dt / 0.9);
+        const a = m.roll * Math.PI; // (up, round, and down the other side)
+        look = side.set(-Math.cos(a) * 0.05, Math.sin(a) * 0.05);
+        lid = 0.44 - 0.34 * Math.sin(a);
+      }
+    }
     else if (onIt) { mood = "seen"; lid = 0.04; wide = 1.15; smile = 0.3; look = ZERO; }
     else if (distance > 900) { mood = "behind"; lid = 0; wide = 1.28; look = towardYou; }
     else if (m.speed > 700) { mood = "fast"; lid = 0.46; look = towardYou; }
@@ -371,21 +494,25 @@ export class Back {
     for (const s of this.sparks) s.life = 0;
   }
 
-  // its place beside you (turned as you are, but not tipped as you look up or down), at once or easing
-  // It moves as a thing with weight does: drawn towards its place by a spring (keen: how strongly), its
-  // own speed easing towards yours (carry: how much), so it gathers speed and glides to a stop, and
-  // keeps by you at any pace without falling behind.
-  place(camera, now, dt = 0) {
-    yawOnly.set(0, camera.rotation.y, 0);
+  // its place beside you (turned as you are, but not tipped as you look up or down), at once or easing.
+  // Turned as you will be once the view has eased round, not as you are this moment: come out of a portal
+  // facing another way, it is put beside where you will look, not where you looked, which the view then
+  // turns onto (and it would be in the middle of what you see)
+  // It goes along with you, carried as far as you went (carry: how much; none while it waits), and
+  // beside you it moves as a thing with weight does: drawn towards its place by a spring (keen: how
+  // strongly), so it gathers speed and glides to a stop. However fast you go, it neither falls behind
+  // nor overshoots: your speed is not its to catch up with, only where it is beside you.
+  place(camera, now, dt = 0, moved = null) {
+    yawOnly.set(0, this.heading?.() ?? camera.rotation.y, 0);
     spot.copy(SPOT).setX(Math.abs(SPOT.x) * (this.side ?? -1)).applyEuler(yawOnly).add(camera.position);
     if (now) {
       this.home.copy(spot);
       this.speed.set(0, 0, 0);
-      this.yourPace.set(0, 0, 0);
       return;
     }
+    if (moved) this.home.addScaledVector(moved, this.carry);
     const k = this.keen, damp = Math.max(2 * k, 2.2);
-    const pull = pullV.copy(spot).sub(this.home).multiplyScalar(k * k).add(paceV.copy(this.yourPace).multiplyScalar(this.carry).sub(this.speed).multiplyScalar(damp));
+    const pull = pullV.copy(spot).sub(this.home).multiplyScalar(k * k).addScaledVector(this.speed, -damp);
     this.speed.addScaledVector(pull, dt);
     this.home.addScaledVector(this.speed, dt);
   }

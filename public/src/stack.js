@@ -196,7 +196,12 @@ export class Stack {
         this.shift(dir);
         break;
       }
-      case "soft": input.soft = true; break;
+      case "soft":
+        input.soft = true;
+        // what had built up toward the next row at the slower pace is at most one row's worth now: else
+        // pressing late in a slow row's wait spends it all at soft speed, and the piece drops many rows at once
+        this.fall = Math.min(this.fall, Math.min(gravity(this.level), gravity(1) / SOFT));
+        break;
       case "hard": this.hardDrop(); break;
       case "cw": this.rotate(1); break;
       case "ccw": this.rotate(3); break;
