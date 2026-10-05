@@ -1,6 +1,6 @@
 // The controller, as the player has it: which buttons (of the browser's standard layout) each
 // action is on, remembered in the browser, and changed on the controller page of the Tab panel
-// (click an action, press the button). Flying (main.js) and playing at the well (zone.js) both
+// (click an action, press the button). Flying (main.js) and the plugins' own actions (see addActions)
 // ask it what was pressed, rather than knowing the buttons themselves.
 
 // [group, id, what it does, the buttons it is on unless the player says otherwise]
@@ -17,24 +17,12 @@ export const ACTIONS = [
   ["flight", "map", "map", [8]],
   ["flight", "layerUp", "map layer up", [5]],
   ["flight", "layerDown", "map layer down", [4]],
-  ["flight", "open", "open a museum piece", [1]],
   ["flight", "slower", "look slower", [14]],
   ["flight", "faster", "look faster", [15]],
   ["flight", "invert", "invert look", []],
   ["flight", "mute", "mute", [3]],
-  ["well", "sit", "sit down, stand up", [9]],
-  ["well", "start", "start a run, go on", [0, 12]],
-  ["well", "left", "move left", [14]],
-  ["well", "right", "move right", [15]],
-  ["well", "softDrop", "soft drop", [13]],
-  ["well", "hardDrop", "hard drop", [12]],
-  ["well", "rotate", "rotate", [0]],
-  ["well", "rotateBack", "rotate back", [1, 2]],
-  ["well", "flip", "turn round", [3]],
-  ["well", "hold", "hold", [4, 5]],
-  ["well", "lookAtWell", "look at the well", [11]],
 ].map(([group, id, label, buttons]) => ({ group, id, label, buttons }));
-const GROUPS = { flight: "flying", well: "at the well" };
+const GROUPS = { flight: "flying" };
 
 // what the buttons are called on the controller in hand
 const PLAYSTATION = ["✕", "○", "□", "△", "L1", "R1", "L2", "R2", "create", "options", "L3", "R3", "d-pad up", "d-pad down", "d-pad left", "d-pad right", "PS", "touchpad"];
@@ -133,7 +121,7 @@ export class PadMap {
   value(gp, id) {
     return Math.max(0, ...this.buttons(id).map((i) => gp.buttons[i]?.value ?? 0));
   }
-  // the sticks: one flies (or moves in the well), the other looks
+  // the sticks: one flies (or moves, in a plugin's game), the other looks
   sticks(gp) {
     const left = [gp.axes[0] ?? 0, gp.axes[1] ?? 0], right = [gp.axes[2] ?? 0, gp.axes[3] ?? 0];
     return this.swap ? { move: right, aim: left } : { move: left, aim: right };
@@ -147,9 +135,10 @@ export class PadMap {
     return this.buttons(id).map((i) => this.name(i)).join(" ") || "none";
   }
   // the help for a group (see showHelp in main.js), each entry its buttons and what they do:
-  // [["sticks", "fly and look"], ["✕ L3", "surge"], ...]
-  help(group) {
-    const sticks = group === "well" ? [[`${this.swap ? "right" : "left"} stick`, "move"], [`${this.swap ? "left" : "right"} stick`, "look"]] : [["sticks", `fly and look${this.swap ? " (swapped)" : ""}`]];
+  // [["sticks", "fly and look"], ["✕ L3", "surge"], ...]; move: what the moving stick does instead of
+  // flying (a plugin's game: "move"), each stick then named on its own
+  help(group, move = null) {
+    const sticks = move ? [[`${this.swap ? "right" : "left"} stick`, move], [`${this.swap ? "left" : "right"} stick`, "look"]] : [["sticks", `fly and look${this.swap ? " (swapped)" : ""}`]];
     return [...sticks, ...this.actions.filter((a) => a.group === group && this.buttons(a.id).length).map((a) => [this.named(a.id), a.label])];
   }
 

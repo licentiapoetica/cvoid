@@ -8,10 +8,8 @@ export class VoidMap {
     this.ctx = canvas.getContext("2d");
     this.sectors = new Map();
     // the other dimensions, each mapped separately: the letter their places are kept under, what is
-    // known of each place, and what the dimension is called (a plugin may add its own: see addRealm)
+    // known of each place, and what the dimension is called (the plugins add them: see addRealm)
     this.realms = new Map();
-    this.addRealm("marderchen", "m", "marderchen's dimension");
-    this.addRealm("zone", "z", "the zone");
     this.open = false;
     this.layer = 0; // offset from the layer the player is on
     this.mark = null; // the sector where the entity says it is waiting

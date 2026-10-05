@@ -13,13 +13,6 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(here, "public");
 const THREE_DIR = path.join(here, "node_modules", "three");
 const RUFFLE_DIR = path.join(here, "node_modules", "@ruffle-rs", "ruffle");
-// marderchen's art is served from the mirror of his site in persona/marderchen/, which git ignores
-// (see scripts/museum.mjs). A crawl in .cache/marderchen-archive works too.
-const ARCHIVE_DIR = [path.join(here, "persona", "marderchen"), path.join(here, ".cache", "marderchen-archive")].find(existsSync) ?? path.join(here, "persona", "marderchen");
-const MUSEUM_DIR = path.join(here, ".cache", "marderchen-museum");
-// the zone's own music, pictures and models: whatever the player puts in zone/, which git ignores
-const ZONE_DIR = path.resolve(here, process.env.CVOID_ZONE ?? "zone");
-const ARCHIVE_PUBLIC = /^(www\.marderchen\.lima-city\.de\/(FLASH|LSDex_gifs|any|wuselcode)\/[^/]+\.(swf|gif|jpe?g|txt)|www\.marderchen\.lima-city\.de\/xyz\/JW86_Break The Time Out_loop\.txt|marderchen\.lima-city\.de\/[^/]+\.gif)$/i;
 const CACHE = path.resolve(here, process.env.CVOID_CACHE ?? path.join(".cache", "sectors"));
 
 const PORT = Number(process.env.PORT ?? 5173);
@@ -232,14 +225,6 @@ async function voidVoice(journey) {
   return { lines, source: "claude" };
 }
 
-// marderchen's persona lives in a file his friends can edit; everything after the first rule is the prompt.
-const MARDERCHEN_SYSTEM = await fs.readFile(path.join(here, "persona", "marderchen.md"), "utf8")
-  .then((text) => text.slice(text.indexOf("---") + 3).trim())
-  .catch(() => null);
-const MARDER_EFFECTS = ["rainbowpower", "ratemal", "meowchor", "firework", "optical", "starflakes", "meowletters", "lightsoff", "none"];
-const LINES_JSON_SCHEMA = obj({ lines: { type: "array", items: str }, effect: { type: "string", enum: MARDER_EFFECTS } });
-const Lines = z.object({ lines: z.array(z.string()).min(1), effect: z.enum(MARDER_EFFECTS) });
-
 const ENTITY_JSON_SCHEMA = obj({
   act: { type: "string", enum: ACTS },
   lines: { type: "array", items: str },
@@ -364,101 +349,6 @@ async function entityBeat(journey) {
   return result;
 }
 
-// What marderchen says, in his dimension. Same care as the entity: what the browser sends is untrusted text.
-async function marderchenLines(visit) {
-  const said = Array.isArray(visit.said) ? visit.said.slice(-16).map((l) => clip(l, 90)).filter(Boolean) : [];
-  const prompt = [
-    `What is happening: ${clip(visit.event, 80) || "he is busy"}.`,
-    `The traveller has been in the dimension for ${Math.round(Number(visit.minutes) || 0)} minutes.`,
-    `Nearest thing: ${clip(visit.near, 60) || "the matrix"}.`,
-    said.length ? `Lines already said:\n${said.map((l) => `- ${l}`).join("\n")}` : "He has not said anything yet.",
-    "What does marderchen say (one or two lines), and what does he do to the place as he says it?",
-  ].join("\n");
-  const params = {
-    model: MODEL,
-    max_tokens: 2000,
-    output_config: { format: { type: "json_schema", schema: LINES_JSON_SCHEMA } },
-    system: [{ type: "text", text: MARDERCHEN_SYSTEM, cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content: prompt }],
-  };
-  if (TAKES_EFFORT) params.output_config.effort = EFFORT;
-  if (TAKES_FALLBACKS) {
-    params.betas = ["server-side-fallback-2026-07-01"];
-    params.fallbacks = "default";
-  }
-  const response = await client.beta.messages.create(params);
-  if (response.stop_reason === "refusal" || response.stop_reason === "max_tokens") throw new Error(`marderchen: ${response.stop_reason}`);
-  const { lines, effect } = Lines.parse(JSON.parse(response.content.find((block) => block.type === "text")?.text ?? ""));
-  const result = lines.slice(0, 2).map((l) => clip(l, 90)).filter(Boolean);
-  console.log(`[cvoid] marderchen · ${effect} · "${result.join(" / ")}"`);
-  return { lines: result, effect };
-}
-
-// His source files, one entry each: name, size, and the comments he wrote in it. In his dimension
-// every one of them becomes a sector of its own. Read once from the mirror of his site.
-let wuselList = null;
-// What is in zone/: each folder is a stage (its audio files are the layers of its music, played
-// together and brought in one by one as you clear lines), and each audio file lying loose in zone/
-// is a stage of its own. Pictures and models go with the stage whose folder they are in; loose ones
-// belong to every stage. A stage.json in a folder can set bpm, offset, root, mode, palette, behaviour.
-const ZONE_KINDS = { music: /\.(ogg|opus|mp3|wav|flac|m4a|webm)$/i, images: /\.(png|jpe?g|webp|gif)$/i, models: /\.(glb|gltf)$/i };
-const ZONE_LIMITS = { music: 8, images: 64, models: 4 };
-
-async function zoneStages() {
-  const url = (rel) => `/zone/${rel.split(path.sep).map(encodeURIComponent).join("/")}`;
-  const walk = async (dir, depth = 0) => {
-    const found = [];
-    for (const entry of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
-      if (entry.name.startsWith(".")) continue;
-      const full = path.join(dir, entry.name);
-      // links are followed, so files can stay where they are and be linked in
-      const stat = entry.isSymbolicLink() ? await fs.stat(full).catch(() => null) : entry;
-      if (stat?.isDirectory() && depth < 6) found.push(...await walk(full, depth + 1));
-      else if (stat?.isFile()) found.push(path.relative(ZONE_DIR, full));
-    }
-    return found.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  };
-  const sort = (files) => {
-    const out = {};
-    for (const [kind, test] of Object.entries(ZONE_KINDS)) out[kind] = files.filter((f) => test.test(f)).slice(0, ZONE_LIMITS[kind]).map(url);
-    return out;
-  };
-  const stages = [], loose = [];
-  for (const entry of await fs.readdir(ZONE_DIR, { withFileTypes: true }).catch(() => [])) {
-    if (entry.name.startsWith(".")) continue;
-    const stat = entry.isSymbolicLink() ? await fs.stat(path.join(ZONE_DIR, entry.name)).catch(() => null) : entry;
-    if (stat?.isFile()) loose.push(entry.name);
-    if (!stat?.isDirectory()) continue;
-    const files = (await walk(path.join(ZONE_DIR, entry.name))).filter((f) => !f.endsWith("stage.json"));
-    let config = {};
-    try {
-      config = JSON.parse(await fs.readFile(path.join(ZONE_DIR, entry.name, "stage.json"), "utf8"));
-    } catch { /* no settings: the stage takes a built-in look */ }
-    stages.push({ name: entry.name, ...sort(files), config });
-  }
-  for (const file of loose.filter((f) => ZONE_KINDS.music.test(f))) stages.push({ name: file.replace(/\.[^.]+$/, ""), music: [url(file)], images: [], models: [], config: {} });
-  stages.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-  const shared = sort(loose);
-  return { stages: stages.filter((s) => s.music.length || s.images.length || s.models.length), images: shared.images, models: shared.models };
-}
-
-async function wuselcode() {
-  if (wuselList) return wuselList;
-  const dir = path.join(ARCHIVE_DIR, "www.marderchen.lima-city.de", "wuselcode");
-  const names = (await fs.readdir(dir).catch(() => [])).filter((n) => n.endsWith(".txt")).sort();
-  const list = [];
-  for (const file of names) {
-    const body = await fs.readFile(path.join(dir, file)).catch(() => null);
-    if (!body || body.length < 200 || body.subarray(0, 3).toString("latin1") === "ID3") continue; // not music, not empties
-    const text = body.toString("latin1");
-    if (/404 Not Found/.test(text.slice(0, 300))) continue;
-    const comments = [...text.matchAll(/\/\/(?!www|[a-z]+\.[a-z])\s*([^\n\r]{20,160})/g)].map((m) => m[1].trim())
-      .filter((c) => /[a-zA-Z]{4}/.test(c) && (c.match(/[;{}=\[\]()]/g) ?? []).length < 5 && !/https?:|\.jpg/.test(c));
-    list.push({ file, bytes: body.length, comments: [...new Set(comments)].slice(0, 8) });
-  }
-  return (wuselList = list);
-}
-
 async function readBody(req, limit = 8192) {
   let body = "";
   for await (const chunk of req) {
@@ -528,7 +418,7 @@ async function neighbourNotes(x, y, z) {
   for (const [dx, dy, dz, label] of dirs) {
     const nx = x + dx, ny = y + dy, nz = z + dz;
     if (nx === 0 && ny === 0 && nz === 0) {
-      notes.push(`${label}: the origin hub (deep blue fog, a glass crystal ringed by twelve cubes, seven coloured orbs; round it all, level with the clock, a wide circle of portals: a ring of tumbling falling-block pieces round a black hole${HUB_EXTRAS.map((extra) => `, ${extra}`).join("")})`);
+      notes.push(`${label}: the origin hub (deep blue fog, a glass crystal ringed by twelve cubes, seven coloured orbs; round it all, level with the clock, a wide circle of portals${HUB_EXTRAS.length ? `: ${HUB_EXTRAS.join(", ")}` : ""})`);
       continue;
     }
     const n = await readCached(nx, ny, nz);
@@ -678,10 +568,10 @@ async function serveFile(res, root, rel) {
   if (file !== root && !file.startsWith(root + path.sep)) return send(res, 403, "forbidden");
   try {
     const body = await fs.readFile(file);
-    // marderchen kept his music on his webspace as .txt ("rename back to .mp3 hihihi"): say what it really is
+    // an mp3 kept under another name (as .txt, on old webspace that would not take music): said as it is
     const mp3 = path.extname(file) === ".txt" && (body.subarray(0, 3).toString("latin1") === "ID3" || (body[0] === 0xff && (body[1] & 0xe0) === 0xe0));
     // the game's own pages and scripts (and its plugins') are never served from a browser's cache: a
-    // reload always gets the current code. His art and the libraries can be kept for a day.
+    // reload always gets the current code. Pictures, sound and the libraries can be kept for a day.
     const fresh = (root === PUBLIC || root.startsWith(PLUGINS + path.sep)) && /\.(html|js|json|css)$/.test(file);
     res.writeHead(200, {
       "content-type": mp3 ? "audio/mpeg" : TYPES[path.extname(file)] ?? "application/octet-stream",
@@ -702,7 +592,7 @@ function send(res, status, body) {
 // What is cvoid's own on its address: its page and files, its plugins' files and its own API (a
 // plugin passing a whole other site through on cvoid's address leaves these alone; "/" is cvoid's
 // unless a page framed inside cvoid's goes there).
-const CVOID_PATHS = /^\/(index\.html|museum-player\.html|src\/|marderchen\/|vendor\/|museum\/|zone\/|plugins\/|api\/(void|entity|marderchen|sectors?|wuselcode|zone|plugins)(\/|$))/;
+const CVOID_PATHS = /^\/(index\.html|src\/|vendor\/|plugins\/|api\/(void|entity|sectors?|plugins)(\/|$))/;
 const cvoidOwns = (req, pathname) => (pathname === "/" ? req.headers["sec-fetch-dest"] !== "iframe" : CVOID_PATHS.test(pathname));
 
 // ---- plugins: optional local additions, in plugins/<name>/ (kept out of the repository) ----
@@ -711,6 +601,26 @@ const cvoidOwns = (req, pathname) => (pathname === "/" ? req.headers["sec-fetch-
 // and upgrade(req, socket, head) for websockets, true when it took one. Its public/ folder is served at
 // /plugins/<name>/, and its public/client.js, if there, is loaded into the page (see main.js).
 const PLUGINS = path.join(here, "plugins");
+// Claude, for a plugin that has someone speak: ask(params, who) with the model and its settings filled
+// in, on the same budget of turns as the entity (ready() first: false when Claude cannot be asked)
+const claude = {
+  ready: () => !!client && !unavailable && beats < MAX_BEATS,
+  async ask(params, who = "plugin:") {
+    beats++;
+    const full = { model: MODEL, max_tokens: 2000, ...params, output_config: { ...params.output_config } };
+    if (TAKES_EFFORT) full.output_config.effort = EFFORT;
+    if (TAKES_FALLBACKS) {
+      full.betas = ["server-side-fallback-2026-07-01"];
+      full.fallbacks = "default";
+    }
+    try {
+      return await client.beta.messages.create(full);
+    } catch (err) {
+      noteFailure(err, who);
+      throw err;
+    }
+  },
+};
 const HUB_EXTRAS = []; // what plugins have added to the hub, as Claude is told when it dreams beside it
 const serverPlugins = [], clientPlugins = [];
 for (const entry of (await fs.readdir(PLUGINS, { withFileTypes: true }).catch(() => [])).sort((a, b) => a.name.localeCompare(b.name))) {
@@ -718,7 +628,7 @@ for (const entry of (await fs.readdir(PLUGINS, { withFileTypes: true }).catch(()
   const dir = path.join(PLUGINS, entry.name);
   try {
     if (existsSync(path.join(dir, "server.js"))) {
-      const given = { send, readBody, owns: cvoidOwns, port: PORT, host: HOST, hub: (text) => HUB_EXTRAS.push(text) };
+      const given = { send, readBody, serveFile, clip, claude, here, owns: cvoidOwns, port: PORT, host: HOST, hub: (text) => HUB_EXTRAS.push(text) };
       const made = await (await import(pathToFileURL(path.join(dir, "server.js")).href)).default(given);
       if (made) serverPlugins.push(made);
     }
@@ -768,24 +678,6 @@ const server = http.createServer(async (req, res) => {
         return send(res, 503, "the entity is silent");
       }
     }
-    if (url.pathname === "/api/marderchen" && req.method === "POST") {
-      if (unavailable || !client || !MARDERCHEN_SYSTEM || beats >= MAX_BEATS) return send(res, 503, "his own words will do");
-      let visit;
-      try {
-        visit = await readBody(req);
-      } catch {
-        return send(res, 400, "bad request");
-      }
-      beats++;
-      try {
-        return send(res, 200, await marderchenLines(visit));
-      } catch (err) {
-        noteFailure(err, "marderchen:");
-        return send(res, 503, "his own words will do");
-      }
-    }
-    if (url.pathname === "/api/wuselcode") return send(res, 200, await wuselcode());
-    if (url.pathname === "/api/zone") return send(res, 200, await zoneStages());
     if (url.pathname === "/api/sectors") {
       // everything Claude has dreamt so far, for the map (and for anyone who wants to export it)
       const files = await fs.readdir(CACHE).catch(() => []);
@@ -829,13 +721,8 @@ const server = http.createServer(async (req, res) => {
       line(sector ?? { error: unavailable ?? "generation failed", offline: !!unavailable });
       return res.end();
     }
-    for (const [prefix, dir] of [["/vendor/ruffle/", RUFFLE_DIR], ["/museum/src/", ARCHIVE_DIR], ["/museum/", MUSEUM_DIR], ["/zone/", ZONE_DIR]]) {
-      if (!url.pathname.startsWith(prefix)) continue;
-      const rel = decodeURIComponent(url.pathname.slice(prefix.length));
-      // Of the mirror, only what the game shows is served: his Flash, GIFs, photos, code, and the one
-      // loop his homepage played. Not the rest of it (the music collection, the crawler's cookies and cache).
-      if (dir === ARCHIVE_DIR && !ARCHIVE_PUBLIC.test(rel)) return send(res, 404, "not found");
-      return serveFile(res, dir, rel);
+    if (url.pathname.startsWith("/vendor/ruffle/")) {
+      return serveFile(res, RUFFLE_DIR, decodeURIComponent(url.pathname.slice("/vendor/ruffle/".length)));
     }
     if (url.pathname.startsWith("/vendor/three/")) {
       return serveFile(res, THREE_DIR, decodeURIComponent(url.pathname.slice("/vendor/three/".length)));

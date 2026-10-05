@@ -1,6 +1,6 @@
 // Synthesized ambience: a drone per sector, bell shimmer, wind from speed. No samples.
 
-const MODES = {
+export const MODES = {
   minor: [0, 3, 7, 10, 12, 15],
   dorian: [0, 2, 3, 7, 9, 12],
   lydian: [0, 4, 6, 7, 11, 12],
@@ -8,7 +8,7 @@ const MODES = {
   whole: [0, 2, 4, 6, 8, 10],
   pentatonic: [0, 2, 4, 7, 9, 12],
 };
-const semis = (n) => 2 ** (n / 12);
+export const semis = (n) => 2 ** (n / 12);
 
 export class VoidAudio {
   constructor() {
@@ -21,6 +21,7 @@ export class VoidAudio {
     this.averages = { bass: 0, mid: 0, high: 0 };
     this.hits = []; // heartbeat hits scheduled but not yet heard
     this.mic = null;
+    this.listening = []; // music a plugin plays, while it is heard: the beat is listened for in it (see features)
   }
 
   // how loud each kind of sound is, under the volume (the Tab panel's mix: see the buses in start)
@@ -254,7 +255,7 @@ export class VoidAudio {
     // the game knows exactly when its own heartbeat lands; the room has to be listened for
     const now = this.ctx.currentTime;
     while (this.hits.length && this.hits[0].at <= now) out.beat = Math.max(out.beat, this.hits.shift().strength);
-    if ((this.mic || this.trackOn || this.zone?.heard || this.mediaOn) && raw.bass > this.averages.bass + 0.035 && out.beat < 0.4) out.beat = 1;
+    if ((this.mic || this.mediaOn || this.listening.some((heard) => heard())) && raw.bass > this.averages.bass + 0.035 && out.beat < 0.4) out.beat = 1;
     out.beat *= Math.exp(-dt * 5);
     return out;
   }
@@ -275,17 +276,6 @@ export class VoidAudio {
     source.connect(this.analyser); // analysed only, never played back
     this.mic = { stream, source };
     return true;
-  }
-
-  // marderchen's dimension has its own music: a small bright chiptune, square waves over a kick.
-  // (An original pattern, in the spirit of the chiptunes he collected.) The kick drives the beat,
-  // so everything in there flashes in time, like the beat-timed light organs he built.
-  setChip(on) {
-    if (!this.ctx) return;
-    this.chip = on;
-    const now = this.ctx.currentTime;
-    this.droneLevel.gain.setTargetAtTime(on ? 0.25 : 1, now, 1.5);
-    if (on && !this.chipRunning) this.stepChip(0);
   }
 
   // the hall's echo: noise in both ears, dying away over seconds and darkening as it does
@@ -360,118 +350,11 @@ export class VoidAudio {
     this.droneLevel.gain.setTargetAtTime(on ? 0.3 : 1, this.ctx.currentTime, 1.5);
   }
 
-  // The music of his homepage. Half a minute after the page opened, a loop began: "Break The Time
-  // Out" by JW86, which he had cut to loop and kept on his webspace. It is played from the mirror
-  // of his site; if that is not there, the chiptune simply carries on.
-  setTrack(on) {
-    if (!this.ctx || this.trackFailed) return;
-    if (!this.track) {
-      const el = new Audio("/museum/src/www.marderchen.lima-city.de/xyz/JW86_Break%20The%20Time%20Out_loop.txt");
-      el.loop = true;
-      el.addEventListener("error", () => { this.trackFailed = true; this.trackOn = false; });
-      const gain = this.ctx.createGain();
-      gain.gain.value = 0;
-      this.ctx.createMediaElementSource(el).connect(gain).connect(this.buses.music.dry);
-      this.track = { el, gain };
-    }
-    const { el, gain } = this.track, now = this.ctx.currentTime;
-    clearTimeout(this.trackPause);
-    if (on) {
-      el.play().then(() => {
-        this.trackOn = true; // from here the chiptune is silent and the beat is heard from the track
-        gain.gain.setTargetAtTime(0.75, this.ctx.currentTime, 2.4); // a slow rise, in step with the dark lifting
-      }, () => { this.trackFailed = true; });
-    } else {
-      this.trackOn = false;
-      gain.gain.setTargetAtTime(0, now, 0.9);
-      this.trackPause = setTimeout(() => el.pause(), 4000);
-    }
-  }
-
-  // 143 bpm: "timing matching to goa/psy/prograssivetrance/psychedelic ~143to145 bpm"
-  stepChip(step) {
-    if (!this.chip) return void (this.chipRunning = false);
-    const sixteenth = 60 / 143 / 4, now = this.ctx.currentTime;
-    if (!this.chipRunning || this.chipNext < now - 0.5) this.chipNext = now + 0.06, this.chipZero = this.chipNext - step * sixteenth;
-    this.chipRunning = true;
-    if (this.ctx.state === "running" && !this.trackOn) { // while his own music plays the chiptune only keeps time
-      const at = this.chipNext, bar = Math.floor(step / 16) % 4;
-      const root = 220 * semis([0, -4, 3, -2][bar]), arp = [0, 4, 7, 12, 7, 4, 16, 12][step % 8];
-      const blip = (frequency, type, level, length) => {
-        const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
-        osc.type = type;
-        osc.frequency.value = frequency;
-        gain.gain.setValueAtTime(level, at);
-        gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
-        osc.connect(gain);
-        gain.connect(this.buses.music.dry);
-        gain.connect(this.buses.music.wet);
-        osc.start(at);
-        osc.stop(at + length + 0.02);
-      };
-      blip(root * semis(arp), "square", 0.035, sixteenth * 1.6);
-      if (step % 4 === 2) blip(root / 2, "triangle", 0.12, sixteenth * 2);
-      if (step % 4 === 0) {
-        const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
-        osc.frequency.setValueAtTime(110, at);
-        osc.frequency.exponentialRampToValueAtTime(42, at + 0.16);
-        gain.gain.setValueAtTime(0.32, at);
-        gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.24);
-        osc.connect(gain).connect(this.buses.music.dry);
-        osc.start(at);
-        osc.stop(at + 0.3);
-        this.hits.push({ at, strength: step % 16 === 0 ? 1 : 0.7 });
-      }
-    }
-    this.chipNext += sixteenth;
-    setTimeout(() => this.stepChip(step + 1), Math.max(0, (this.chipNext - this.ctx.currentTime - 0.05) * 1000));
-  }
-
-  // which sixteenth the chiptune is on right now (fractional), or -1 when it is not playing
-  chipClock() {
-    return this.chip && this.chipRunning ? (this.ctx.currentTime - this.chipZero) / (60 / 143 / 4) : -1;
-  }
-
   // step back while something else has the stage (a Flash piece with its own sound)
   duck(on) {
     if (!this.ctx) return;
     this.ducked = on;
     this.master.gain.setTargetAtTime(on ? 0 : this.level, this.ctx.currentTime, 0.3);
-  }
-
-  // MEOW. His own samples: the arrays "meow2".."meow5" from MEOWing_stm_TEST.txt, which he played
-  // through a transistor and a piezo ("get sound without soundmodule in (strange cracking) quality").
-  meow(level = 0.5, pan = 0, rate = 0) {
-    if (!this.ctx || this.ctx.state !== "running" || this.silentMeow) return;
-    this.meows ??= [1, 2, 3, 4].map((n) => fetch(`/marderchen/meow${n}.wav`).then((res) => res.arrayBuffer()).then((data) => this.ctx.decodeAudioData(data)).catch(() => null));
-    this.meows[Math.floor(Math.random() * this.meows.length)].then((buffer) => {
-      if (!buffer) return;
-      const source = this.ctx.createBufferSource(), gain = this.ctx.createGain(), panner = this.ctx.createStereoPanner();
-      source.buffer = buffer;
-      source.playbackRate.value = rate || 0.85 + Math.random() * 0.5;
-      gain.gain.value = level;
-      panner.pan.value = Math.max(-1, Math.min(1, pan));
-      source.connect(gain).connect(panner);
-      panner.connect(this.buses.sounds.dry);
-      panner.connect(this.buses.sounds.wet);
-      source.start();
-    });
-  }
-
-  // a relay switching: he loved that sound and built clocks and a "knattertron" around it
-  relay(level = 0.25) {
-    if (!this.ctx) return;
-    const now = this.ctx.currentTime, source = this.ctx.createBufferSource(), band = this.ctx.createBiquadFilter(), gain = this.ctx.createGain();
-    source.buffer = this.noise;
-    band.type = "bandpass";
-    band.frequency.value = 2600;
-    band.Q.value = 1.2;
-    gain.gain.setValueAtTime(level, now);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.035);
-    source.connect(band).connect(gain).connect(this.buses.sounds.dry);
-    source.start(now, Math.random());
-    source.stop(now + 0.05);
-    this.ping(180, level * 0.5, 0.05, now);
   }
 
   entityVoice(level, pan) {
@@ -535,272 +418,6 @@ export class VoidAudio {
       }
       this.scheduleShimmer();
     }, 1200 + Math.random() * 3500);
-  }
-
-  // ---- the zone ----
-  // Its music is the stage's own files when it has any: each file one layer, all started together,
-  // brought in one by one as lines are cleared. Without files a small score of ours plays at the
-  // stage's tempo, its parts arriving the same way. The pieces' own sounds are in the stage's key and
-  // land on its beat.
-
-  zoneBus() {
-    if (this.zone) return this.zone;
-    const ctx = this.ctx, gain = ctx.createGain(), build = ctx.createBiquadFilter(), swell = ctx.createGain(), sfx = ctx.createGain();
-    // the build: a stage begins with its music held back, darker and quieter, and opens up as you play through it
-    build.type = "lowpass";
-    build.frequency.value = 4000;
-    build.Q.value = 0.7;
-    swell.gain.value = 0.8;
-    gain.gain.value = 0;
-    gain.connect(build).connect(swell).connect(this.buses.music.dry);
-    sfx.gain.value = 1;
-    sfx.connect(this.buses.sounds.dry);
-    sfx.connect(this.buses.sounds.wet);
-    return (this.zone = { gain, build, swell, sfx, stems: [], layer: 0, intensity: 0.35, on: false, stage: null, synth: false, heard: false });
-  }
-
-  // in the zone or not: the drone steps back and the music fades in as the dark lifts
-  setZone(on) {
-    if (!this.ctx) return;
-    const zone = this.zoneBus(), now = this.ctx.currentTime;
-    zone.on = on;
-    this.droneLevel.gain.setTargetAtTime(on ? 0.12 : 1, now, 1.5);
-    zone.gain.gain.setTargetAtTime(on ? 0.7 : 0, now, on ? 2.4 : 0.9);
-    clearTimeout(zone.pause);
-    if (on) {
-      if (zone.stems.length) Promise.all(zone.stems.map((stem) => stem.el.play())).then(() => { zone.heard = true; }, () => {});
-      if (zone.synth && !zone.synthRunning) this.stepZone(0);
-    } else {
-      zone.heard = false;
-      zone.pause = setTimeout(() => { for (const stem of zone.stems) stem.el.pause(); }, 4000);
-    }
-  }
-
-  // The stage's song, from its beginning. Whatever was playing fades out under it, even when it is the
-  // same song (restart: a new run starts it over).
-  setZoneStage(stage, restart = false) {
-    if (!this.ctx) return;
-    const zone = this.zoneBus(), now = this.ctx.currentTime;
-    if (zone.stage === stage && !restart) return;
-    zone.stage = stage;
-    for (const stem of zone.stems) {
-      // the old song fades out under the new one
-      stem.gain.gain.setTargetAtTime(0, now, 1.3);
-      setTimeout(() => { stem.el.pause(); stem.el.removeAttribute("src"); stem.gain.disconnect(); }, 7000);
-    }
-    zone.stems = [];
-    zone.heard = false;
-    const files = stage.music ?? [];
-    zone.synth = !files.length;
-    if (zone.synth) {
-      if (zone.on && !zone.synthRunning) this.stepZone(0);
-      return;
-    }
-    let failed = 0;
-    zone.stems = files.map((url, i) => {
-      const el = new Audio(url), gain = this.ctx.createGain();
-      el.loop = true;
-      el.preload = "auto";
-      gain.gain.value = 0;
-      this.ctx.createMediaElementSource(el).connect(gain).connect(zone.gain);
-      el.addEventListener("error", () => {
-        // none of the stage's files would play: our own score takes over
-        if (++failed === files.length && zone.stage === stage) {
-          zone.stems = [];
-          zone.synth = true;
-          zone.heard = false;
-          if (zone.on && !zone.synthRunning) this.stepZone(0);
-        }
-      });
-      return { el, gain, index: i };
-    });
-    if (zone.on) Promise.all(zone.stems.map((s) => s.el.play())).then(() => { zone.heard = true; }, () => {});
-    this.setZoneIntensity(zone.intensity, zone.layer > 0);
-    // the files drift apart a little as they play; every few seconds the others are put back on the first
-    clearInterval(zone.sync);
-    zone.sync = setInterval(() => {
-      const [lead, ...rest] = zone.stems;
-      if (!lead || lead.el.paused) return;
-      for (const stem of rest) if (Math.abs(stem.el.currentTime - lead.el.currentTime) > 0.05) stem.el.currentTime = lead.el.currentTime;
-    }, 4000);
-  }
-
-  // How far into its stage the music is, 0..1. It opens up as this grows: the filter lifts, it gets
-  // louder, and a stage made of several files brings them in one by one (the first always plays).
-  setZoneIntensity(intensity, playing) {
-    if (!this.ctx) return;
-    const zone = this.zoneBus(), now = this.ctx.currentTime;
-    zone.intensity = intensity;
-    zone.build.frequency.setTargetAtTime(1800 * (19000 / 1800) ** (intensity ** 0.7), now, 1.6); // clearly held back at first, open well before the end
-    zone.swell.gain.setTargetAtTime(0.7 + 0.3 * intensity, now, 1.6);
-    zone.layer = playing ? 1 + Math.min(3, Math.floor(intensity * 4)) : 0; // our own score's parts
-    const stems = zone.stems.length, layer = Math.floor(intensity * stems);
-    for (const stem of zone.stems) stem.gain.gain.setTargetAtTime(stem.index <= layer ? 1 : 0, now, 1.3);
-  }
-
-  zoneTempo() {
-    return this.zone?.stage?.bpm || 0;
-  }
-
-  // where the zone's music is, in beats, or -1 when its beat is not known
-  zoneBeat() {
-    const zone = this.zone, bpm = this.zoneTempo();
-    if (!zone?.on || !bpm) return -1;
-    if (zone.synth) return zone.synthRunning ? (this.ctx.currentTime - zone.zero) * (bpm / 60) : -1;
-    const lead = zone.stems[0]?.el;
-    return lead && !lead.paused ? (lead.currentTime - (zone.stage.offset ?? 0)) * (bpm / 60) : -1;
-  }
-
-  // the next sixteenth of the music, so a sound played now falls in time with it
-  onBeat(grid = 4) {
-    const now = this.ctx.currentTime, beat = this.zoneBeat();
-    if (beat < 0) return now;
-    const wait = ((Math.ceil(beat * grid) - beat * grid) / grid) * (60 / this.zoneTempo());
-    return now + (wait < 0.012 ? 0 : wait);
-  }
-
-  // a note of the stage's scale: degree 0 is the root, counting up through the scale and its octaves
-  zoneNote(degree, octave = 2) {
-    const stage = this.zone?.stage, root = stage?.root || 55;
-    const steps = [...new Set((MODES[stage?.mode] ?? MODES.pentatonic).map((s) => s % 12))].sort((a, b) => a - b), n = steps.length;
-    return root * 2 ** octave * semis(steps[((degree % n) + n) % n] + 12 * Math.floor(degree / n));
-  }
-
-  tone(frequency, level, decay, at, type = "sine", out = this.zoneBus().sfx) {
-    const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
-    osc.type = type;
-    osc.frequency.value = frequency;
-    gain.gain.setValueAtTime(0, at);
-    gain.gain.linearRampToValueAtTime(level, at + 0.008);
-    gain.gain.exponentialRampToValueAtTime(0.0001, at + decay);
-    osc.connect(gain).connect(out);
-    osc.start(at);
-    osc.stop(at + decay + 0.05);
-  }
-
-  thump(level, at, from = 120, to = 40) {
-    const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
-    osc.frequency.setValueAtTime(from, at);
-    osc.frequency.exponentialRampToValueAtTime(to, at + 0.18);
-    gain.gain.setValueAtTime(level, at);
-    gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.3);
-    osc.connect(gain).connect(this.zoneBus().sfx);
-    osc.start(at);
-    osc.stop(at + 0.35);
-  }
-
-  swell(level, at, seconds, from, to) {
-    const source = this.ctx.createBufferSource(), band = this.ctx.createBiquadFilter(), gain = this.ctx.createGain();
-    source.buffer = this.noise;
-    band.type = "bandpass";
-    band.Q.value = 1.4;
-    band.frequency.setValueAtTime(from, at);
-    band.frequency.exponentialRampToValueAtTime(to, at + seconds);
-    gain.gain.setValueAtTime(0.0001, at);
-    gain.gain.exponentialRampToValueAtTime(level, at + seconds * 0.7);
-    gain.gain.exponentialRampToValueAtTime(0.0001, at + seconds);
-    source.connect(band).connect(gain).connect(this.zoneBus().sfx);
-    source.start(at, Math.random());
-    source.stop(at + seconds + 0.05);
-  }
-
-  // Each stage has its own instrument for what the pieces do. All are made here, from oscillators.
-  voice(name, frequency, level, decay, at) {
-    const out = this.zoneBus().sfx, ctx = this.ctx;
-    const partial = (ratio, amount, length, type = "sine") => this.tone(frequency * ratio, level * amount, decay * length, at, type, out);
-    switch (name) {
-      case "drop": { // a water drop: a short sine that falls in pitch
-        const osc = ctx.createOscillator(), gain = ctx.createGain();
-        osc.frequency.setValueAtTime(frequency * 1.6, at);
-        osc.frequency.exponentialRampToValueAtTime(frequency, at + 0.06);
-        gain.gain.setValueAtTime(0, at);
-        gain.gain.linearRampToValueAtTime(level, at + 0.005);
-        gain.gain.exponentialRampToValueAtTime(0.0001, at + decay);
-        osc.connect(gain).connect(out);
-        osc.start(at);
-        osc.stop(at + decay + 0.05);
-        return partial(2.01, 0.25, 0.4);
-      }
-      case "marimba": partial(1, 1, 0.6); return partial(3.99, 0.3, 0.15);
-      case "chime": partial(1, 1, 1.4); partial(3.01, 0.25, 0.8); return partial(5.4, 0.08, 0.5);
-      case "pluck": partial(1, 1, 0.7, "triangle"); return partial(2, 0.3, 0.35, "sawtooth");
-      case "harp": partial(1, 0.8, 1.2, "triangle"); partial(2, 0.35, 0.8); return partial(3, 0.12, 0.5);
-      default: partial(1, 1, 1); return partial(2.76, 0.35, 0.5); // a bell
-    }
-  }
-
-  // what the pieces sound like, in the stage's key and on its beat: moving plays the column you are
-  // in, low on the left, high on the right; turning goes up clockwise and down the other way
-  zoneSound(kind, value = 0) {
-    if (!this.ctx || this.ctx.state !== "running" || this.muted) return;
-    const now = this.ctx.currentTime, note = (d, o) => this.zoneNote(d, o), voice = this.zone?.stage?.voice ?? "bell";
-    const play = (degree, octave, level, decay, at = this.onBeat(4)) => this.voice(voice, note(degree, octave), level, decay, at);
-    switch (kind) {
-      case "move": return play(value, 3, 0.16, 0.22);
-      case "rotate": return play(value > 0 ? 7 : 5, 4, 0.15, 0.5);
-      case "hold": play(4, 3, 0.13, 0.4); return play(7, 3, 0.1, 0.4, this.onBeat(4) + 0.07);
-      case "lock": return play(value, 2, 0.17, 0.45);
-      case "drop": this.thump(0.5, now); return this.tone(note(0, 1), 0.2, 0.5, now);
-      case "clear": {
-        // a chord, spread out on the beat: one note more for every line
-        const at = this.onBeat(4), step = 60 / (this.zoneTempo() || 120) / 4;
-        for (let i = 0; i <= value; i++) play(i * 2, 3, 0.14, 1.8, at + i * step);
-        if (value >= 4) {
-          this.swell(0.3, now, 1.2, 300, 6000);
-          this.thump(0.6, at, 90, 30);
-          for (let i = 0; i < 4; i++) play(i * 2, 5, 0.07, 2.5, at + (i + 5) * step);
-        }
-        return;
-      }
-      case "spin": this.swell(0.22, now, 0.5, 900, 4000); return play(5, 4, 0.14, 0.9);
-      case "level": [0, 2, 4, 7].forEach((d, i) => play(d, 4, 0.09, 1.4, this.onBeat(2) + i * 0.09)); return;
-      case "stage": [0, 4, 7, 11, 14].forEach((d, i) => play(d, 3, 0.1, 2.8, now + i * 0.16)); return;
-      case "journey": [0, 2, 4, 7, 9, 11, 14].forEach((d, i) => play(d, 3 + (i > 3), 0.12, 4, now + i * 0.2)); return;
-      case "over": [7, 4, 2, 0].forEach((d, i) => play(d, 2, 0.14, 2.2, now + i * 0.35)); return;
-    }
-  }
-
-  // our own score for a stage without music: a pad from the start, then a kick and a bass, an
-  // arpeggio, hats and a high line, each arriving with the next layer
-  stepZone(step) {
-    const zone = this.zone;
-    if (!zone?.on || !zone.synth) return void (zone && (zone.synthRunning = false));
-    const bpm = this.zoneTempo() || 112, sixteenth = 60 / bpm / 4, now = this.ctx.currentTime;
-    if (!zone.synthRunning || zone.next < now - 0.5) zone.next = now + 0.06;
-    if (!zone.synthRunning || zone.next < now - 0.5 || zone.bpm !== bpm) zone.zero = zone.next - step * sixteenth, zone.bpm = bpm; // a new stage may have a new tempo
-    zone.synthRunning = true;
-    if (this.ctx.state === "running") {
-      const at = zone.next, bar = Math.floor(step / 16), chord = [0, 5, 3, 4][bar % 4], layer = zone.layer;
-      const out = zone.gain, note = (d, o) => this.zoneNote(d, o);
-      if (step % 16 === 0) for (const [d, type] of [[0, "sine"], [2, "triangle"], [4, "sine"]]) this.tone(note(chord + d, 2), 0.05, sixteenth * 30, at, type, out);
-      if (layer >= 1 && step % 4 === 0) {
-        const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
-        osc.frequency.setValueAtTime(100, at);
-        osc.frequency.exponentialRampToValueAtTime(38, at + 0.16);
-        gain.gain.setValueAtTime(0.3, at);
-        gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.26);
-        osc.connect(gain).connect(out);
-        osc.start(at);
-        osc.stop(at + 0.3);
-        this.hits.push({ at, strength: step % 16 === 0 ? 1 : 0.7 });
-      }
-      if (layer >= 1 && step % 8 === 6) this.tone(note(chord, 0), 0.16, sixteenth * 3, at, "triangle", out);
-      if (layer >= 2) this.tone(note(chord + [0, 2, 4, 7, 4, 2, 9, 7][step % 8], 3), 0.025, sixteenth * 1.8, at, "triangle", out);
-      if (layer >= 3 && step % 4 === 2) {
-        const source = this.ctx.createBufferSource(), band = this.ctx.createBiquadFilter(), gain = this.ctx.createGain();
-        source.buffer = this.noise;
-        band.type = "highpass";
-        band.frequency.value = 7000;
-        gain.gain.setValueAtTime(0.06, at);
-        gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.05);
-        source.connect(band).connect(gain).connect(out);
-        source.start(at, Math.random());
-        source.stop(at + 0.06);
-      }
-      if (layer >= 4 && step % 32 < 24 && [0, 3, 6, 10, 12, 14].includes(step % 16)) this.tone(note(chord + [7, 9, 8, 7, 4, 5][step % 6], 4), 0.03, sixteenth * 5, at, "sine", out);
-    }
-    zone.next += sixteenth;
-    setTimeout(() => this.stepZone(step + 1), Math.max(0, (zone.next - this.ctx.currentTime - 0.05) * 1000));
   }
 
   // how loud everything is: the player's volume, unless muted

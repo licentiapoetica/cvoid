@@ -140,8 +140,8 @@ void main(){
 
 export const BOX_FRAG = /* glsl */ `
 uniform vec3 uFogColor, uDeep, uGlow, uAccent;
-uniform float uFogDensity, uBands, uLight, uMid, uBeat, uUnit, uRainbow, uTime, uMad;
-uniform float uChan[18]; // marderchen's sequencer: one brightness per channel, as on his 18-channel flashers
+uniform float uFogDensity, uBands, uLight, uMid, uBeat, uUnit, uRainbow, uTime, uRainbowAll;
+uniform float uChan[18]; // a sequencer for rainbow pieces: one brightness per channel, eighteen of them
 varying float vChan;
 #ifdef FRACTAL
 uniform float uNear;
@@ -169,11 +169,10 @@ void main(){
 #endif
   float fres = pow(1. - abs(dot(normalize(vNormal), normalize(vView))), 2.5);
   vec3 tint = mix(uGlow, uAccent, vTint);
-  // in marderchen's dimension every piece is an LED on a running rainbow
+  // a rainbow place (or the whole void, taken over): every piece an LED on a running rainbow
   vec3 where = cameraPosition - vView;
-  // (and, when he turns up in the void, everything there too)
-  float his = max(uRainbow, uMad);
-  tint = mix(tint, hue(dot(where, vec3(0.0011, 0.0017, 0.0013)) + uTime * 0.12 + vTint * 0.33), his);
+  float rainbow = max(uRainbow, uRainbowAll);
+  tint = mix(tint, hue(dot(where, vec3(0.0011, 0.0017, 0.0013)) + uTime * 0.12 + vTint * 0.33), rainbow);
   // faces stay close to black: the void is lit by edges, not surfaces
   vec3 col = mix(uDeep, uGlow, 0.02 + 0.08 * fres) * (0.5 + 0.5 * vNormal.y);
   // mid frequencies brighten every edge; the beat lights the accent pieces
@@ -184,7 +183,7 @@ void main(){
   // and what is right against the eye is dim, or the inside of the thing would be all glare
   lit *= 0.25 + 0.75 * smoothstep(0.3 * uNear, 2.5 * uNear, vDist);
 #endif
-  lit *= mix(1., 0.3 + 1.4 * uChan[int(vChan)], his);
+  lit *= mix(1., 0.3 + 1.4 * uChan[int(vChan)], rainbow);
   col += (tint * edge * 1.1 + tint * fres * 0.1) * lit;
   col = col * uLight + tint * vFlash * (0.08 + edge);
   col = mix(col, uFogColor, fogAmount(vDist, uFogDensity));
@@ -215,13 +214,13 @@ void main(){
 
 export const MOTE_FRAG = /* glsl */ `
 uniform vec3 uColor;
-uniform float uRainbow, uMad;
+uniform float uRainbow, uRainbowAll;
 varying float vAlpha, vHue;
 vec3 hue(float h){ return clamp(abs(fract(h + vec3(0., 2. / 3., 1. / 3.)) * 6. - 3.) - 1., 0., 1.); }
 void main(){
   float d = length(gl_PointCoord - 0.5) * 2.;
   float a = pow(max(1. - d, 0.), 2.);
-  gl_FragColor = vec4(mix(uColor, hue(vHue), max(uRainbow, uMad)) * a * vAlpha, 1.);
+  gl_FragColor = vec4(mix(uColor, hue(vHue), max(uRainbow, uRainbowAll)) * a * vAlpha, 1.);
 }`;
 
 export const ORB_VERT = /* glsl */ `

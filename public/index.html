@@ -130,7 +130,7 @@
     position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; transform: translate(-50%, -50%);
     background: #8fd3ff; box-shadow: 0 0 0 1px rgba(2, 3, 14, .55), 0 0 6px rgba(143, 211, 255, .55);
   }
-  /* seated at the well, nothing is aimed at: the crosshair would only sit over the game */
+  /* held in a plugin's seat (a game), nothing is aimed at: the crosshair would only sit over it */
   .seated #crosshair { opacity: 0; transition: opacity .25s ease; }
   #sector { position: absolute; left: 6vw; bottom: 14vh; max-width: 80vw; text-shadow: 0 0 18px rgba(0,0,0,.8); }
   #name { font-weight: 200; font-size: clamp(26px, 4.6vw, 60px); letter-spacing: .32em; line-height: 1.15; }
@@ -155,27 +155,14 @@
   #voidVoice.show { opacity: .85; }
   #voidVoice span { display: inline-block; white-space: pre; animation: form 1.8s ease both; }
   @keyframes form { from { opacity: 0; filter: blur(7px); transform: translateY(5px); } }
-  /* marderchen speaks in running rainbow colours, like the text on his homepage */
-  #marder {
-    position: absolute; left: 8vw; right: 8vw; top: 66%; text-align: center; font-family: monospace;
-    font-size: clamp(15px, 1.7vw, 22px); letter-spacing: .08em; opacity: 0; transition: opacity .5s ease;
-    animation: rainbow 2.6s linear infinite; text-shadow: 0 0 14px currentColor;
-  }
-  #marder.show { opacity: 1; }
-  @keyframes rainbow {
-    0% { color: #ff0000; } 14% { color: #ffff00; } 28% { color: #00ff00; } 42% { color: #00ffff; }
-    57% { color: #00aaff; } 71% { color: #aa00ff; } 85% { color: #ff00ff; } 100% { color: #ff0000; }
-  }
   #waits { font-size: 12px; color: #eef2ff; margin-bottom: .5em; letter-spacing: .16em; min-height: 1.5em; }
-  /* a Flash piece playing where it hangs: stretched onto its wall by a transform set every frame */
-  #wall { position: fixed; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; display: none; background: #000; }
-  /* the dark of his portal: gathers as you go in, lifts as you come out */
+  /* the dark at a door: gathers as you go in, lifts as you come out */
   #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; }
   #hint {
     position: fixed; left: 0; right: 0; top: 14vh; text-align: center; pointer-events: none; font-family: monospace;
     font-size: 14px; letter-spacing: .06em; color: #00ffff; text-shadow: 0 0 10px #00ffff;
   }
-  /* a museum piece opened full screen */
+  /* a piece opened full screen (a plugin's) */
   #stage {
     position: fixed; inset: 0; display: none; place-content: center; justify-items: center; gap: 14px;
     background: rgba(0, 0, 0, .93); z-index: 5;
@@ -211,7 +198,7 @@
   #mapPanel button.on { background: rgba(95, 140, 255, .32); border-color: #9fb8ff; box-shadow: 0 0 8px rgba(95, 140, 255, .35); }
   #mNote { min-height: 1.2em; opacity: .7; max-width: 44ch; }
   .mapping #sector, .mapping #help { opacity: 0; transition: opacity .25s ease; }
-  .seated #sector { opacity: 0; } /* at the well in the zone: the place's name would sit over the game */
+  .seated #sector { opacity: 0; } /* (and the place's name would sit over the game) */
   /* the keys, in the Tab panel: cvoid's own, then each plugin's (the gamepad's when one is in use) */
   /* graphics and the mouse: what to give up for a smoother picture */
   #gfxPanel {
@@ -310,7 +297,7 @@
   #creditsPanel .credits .what { grid-column: 1 / -1; opacity: .65; margin-bottom: 6px; }
   #meta .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: .7em; background: currentColor; vertical-align: 1px; }
   #meta.waiting .dot { animation: breathe 1s ease-in-out infinite; }
-  /* only the well's game keys, while seated at it (the rest are in the Tab panel) */
+  /* only a seat's game keys, while held in it (the rest are in the Tab panel) */
   #help { position: absolute; right: 6vw; bottom: 7vh; max-width: 46vw; font-size: 11px; opacity: .4; text-align: right; text-transform: lowercase; }
   @media (max-width: 700px) { #help { display: none; } }
 </style>
@@ -320,7 +307,6 @@
 </head>
 <body>
 <canvas id="view"></canvas>
-<div id="wall"></div>
 <div id="fade"></div>
 <canvas id="map"></canvas>
 <div id="mapPanel">
@@ -350,22 +336,20 @@
 <div id="padPanel"></div>
 <div id="creditsPanel">
   <div class="title">credits</div>
-  <div class="credits">
+  <div class="credits" id="creditsMade">
     <b>Kibi Kelburton</b><span class="licence"></span><span class="what">made cvoid</span>
     <a href="https://claude.com/claude-code" target="_blank" rel="noopener">Claude</a><span class="licence">Opus 5.5, by Anthropic</span><span class="what">wrote its code with Kibi, in Claude Code; in the void, dreams the sectors and speaks for the entity</span>
-    <b>marderchen</b><span class="licence"></span><span class="what">his avatar, his cats, his code and his comments, in his dimension</span>
   </div>
-  <div class="lead">cvoid is free software, under the <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener">GNU AGPL-3.0</a> or later; its <a href="https://github.com/licentiapoetica/cvoid" target="_blank" rel="noopener">source</a>. marderchen's work in it stays his</div>
+  <div class="lead">cvoid is free software, under the <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener">GNU AGPL-3.0</a> or later; its <a href="https://github.com/licentiapoetica/cvoid" target="_blank" rel="noopener">source</a>. what the plugins bring keeps its own</div>
   <div class="of">open source</div>
   <div class="lead">made with these, and with thanks to the people who made them</div>
-  <div class="credits">
-    <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a><span class="licence">MIT</span><span class="what">the whole picture: the void, its structures, the glow, the zone's models</span>
-    <a href="https://ruffle.rs" target="_blank" rel="noopener">Ruffle</a><span class="licence">MIT / Apache-2.0</span><span class="what">flash, played again: the pieces in marderchen's museum</span>
+  <div class="credits" id="creditsOpen">
+    <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a><span class="licence">MIT</span><span class="what">the whole picture: the void, its structures, the glow</span>
+    <a href="https://ruffle.rs" target="_blank" rel="noopener">Ruffle</a><span class="licence">MIT / Apache-2.0</span><span class="what">flash, played again, in the plugins' dimensions</span>
     <a href="https://github.com/anthropics/anthropic-sdk-typescript" target="_blank" rel="noopener">Anthropic TypeScript SDK</a><span class="licence">MIT</span><span class="what">how the server asks Claude, who dreams the sectors and speaks for the entity</span>
     <a href="https://zod.dev" target="_blank" rel="noopener">Zod</a><span class="licence">MIT</span><span class="what">the shape a dreamt sector has to have</span>
     <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a><span class="licence">MIT</span><span class="what">the server</span>
-    <a href="https://pptr.dev" target="_blank" rel="noopener">Puppeteer</a><span class="licence">Apache-2.0</span><span class="what">pictures of the flash pieces, for the museum (npm run museum:thumbs)</span>
-    <a href="https://ffmpeg.org" target="_blank" rel="noopener">FFmpeg</a><span class="licence">LGPL-2.1+</span><span class="what">the museum's thumbnails and web video (npm run museum)</span>
+    <a href="https://pptr.dev" target="_blank" rel="noopener">Puppeteer</a><span class="licence">Apache-2.0</span><span class="what">cvoid driven headless: its tests, and stills of it</span>
   </div>
   <div class="of">code it borrows</div>
   <div class="credits">
@@ -383,7 +367,6 @@
   <div id="sector"><div id="name"></div><div id="inscription"></div></div>
   <div id="entity"></div>
   <div id="voidVoice"></div>
-  <div id="marder"></div>
   <div id="meta"><div id="waits"></div><div id="coords"></div><span class="dot"></span><span id="status"></span></div>
   <div id="help"></div>
 </div>

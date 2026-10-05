@@ -7,9 +7,7 @@
   "license": "AGPL-3.0-or-later",
   "author": "Kibi Kelburton",
   "scripts": {
-    "start": "node --env-file-if-exists=.env server.js",
-    "museum": "node scripts/museum.mjs",
-    "museum:thumbs": "node scripts/museum-thumbs.mjs"
+    "start": "node --env-file-if-exists=.env server.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

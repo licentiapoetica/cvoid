@@ -4,8 +4,6 @@ import * as THREE from "three";
 import { hashCoords, mulberry32 } from "./noise.js";
 import { ORIGIN, localSpec, voidSpec, normalizeSpec } from "./spec.js";
 import { population } from "./population.js";
-import { REALM, marderSpec } from "./marderchen.js";
-import { ZONE, zoneSpec } from "./zone.js";
 import { PRIMITIVES, buildLayers, buildBlueprint } from "./structures.js";
 import { CELL, UNIT, SIGHT } from "./constants.js";
 import {
@@ -88,7 +86,7 @@ class Cell {
     geometry.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
     const material = new THREE.ShaderMaterial({
       vertexShader: MOTE_VERT, fragmentShader: MOTE_FRAG,
-      uniforms: { uTime: G.uTime, uPx: G.uPx, uFogDensity: G.uFogDensity, uLight: G.uLight, uHigh: G.uHigh, uCell: { value: CELL }, uRainbow: { value: 0 }, uMad: G.uMad, ...uniforms },
+      uniforms: { uTime: G.uTime, uPx: G.uPx, uFogDensity: G.uFogDensity, uLight: G.uLight, uHigh: G.uHigh, uCell: { value: CELL }, uRainbow: { value: 0 }, uRainbowAll: G.uRainbowAll, ...uniforms },
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
     const points = new THREE.Points(geometry, material);
@@ -127,7 +125,7 @@ class Cell {
       const speed = spec.motes.speed * 28;
       const drift = new THREE.Vector3(...DRIFT[spec.motes.drift]).multiplyScalar(speed);
       this.group.add(this.points(moteCount, r, {
-        uColor: spec.source === "zone" ? G.uMote : { value: glow.clone().lerp(accent, 0.3) }, uSize: { value: spec.motes.size }, uDrift: { value: drift },
+        uColor: spec.air ? G.uMote : { value: glow.clone().lerp(accent, 0.3) }, uSize: { value: spec.motes.size }, uDrift: { value: drift },
         uOrbit: { value: spec.motes.drift === "orbit" ? spec.motes.speed * 0.25 : 0 }, uMat: this.mat,
         uRainbow: { value: spec.rainbow },
       }));
@@ -171,9 +169,9 @@ class Cell {
       defines: { ...(primitive === "cube" ? {} : { BARY: 1 }), ...(fractal ? { FRACTAL: 1 } : {}) },
       uniforms: {
         uFogColor: G.uFogColor, uFogDensity: G.uFogDensity, uLight: G.uLight, uTime: G.uTime, uMat: mat, uWarp: { value: warp },
-        uMid: G.uMid, uBeat: G.uBeat, uNear: { value: 1e5 }, uUnit: { value: UNIT }, uRainbow: { value: spec.rainbow }, uChan: G.uChan, uMad: G.uMad,
-        // the zone's pieces wear the air's colours, so they ease over with it when the stage changes
-        ...(spec.source === "zone" ? { uDeep: G.uDeep, uGlow: G.uGlow, uAccent: G.uAccent } : {
+        uMid: G.uMid, uBeat: G.uBeat, uNear: { value: 1e5 }, uUnit: { value: UNIT }, uRainbow: { value: spec.rainbow }, uChan: G.uChan, uRainbowAll: G.uRainbowAll,
+        // a place that wears the air's colours (spec.air): its pieces ease over with the air when it changes
+        ...(spec.air ? { uDeep: G.uDeep, uGlow: G.uGlow, uAccent: G.uAccent } : {
           uDeep: { value: new THREE.Color(spec.palette.deep) }, uGlow: { value: new THREE.Color(spec.palette.glow) },
           uAccent: { value: new THREE.Color(spec.palette.accent) },
         }),
@@ -433,13 +431,10 @@ class Sky {
   }
 }
 
-// The other dimensions, each a grid of its own whose sectors are made here (nothing in them is asked of
-// the server): how their places are told apart from the void's, and what stands in each. A plugin
-// may add its own (see addRealm).
-const REALMS = {
-  [REALM]: { prefix: "m:", spec: marderSpec },
-  [ZONE]: { prefix: "z:", spec: zoneSpec },
-};
+// The other dimensions, each a grid of its own whose sectors are made in the page (nothing in them is
+// asked of the server): how their places are told apart from the void's, and what stands in each.
+// The plugins add them (see addRealm).
+const REALMS = {};
 export function addRealm(name, prefix, spec) {
   REALMS[name] = { prefix, spec };
 }
@@ -461,8 +456,8 @@ export class World {
       // what the sound is doing right now; each drives a different part of the picture
       uBass: { value: 0 }, uMid: { value: 0 }, uHigh: { value: 0 }, uBeat: { value: 0 },
       uChan: { value: new Float32Array(18).fill(0.5) },
-      uMad: { value: 0 }, // 0..1: marderchen has turned up in the void and it has taken his colours
-      uMote: { value: new THREE.Color() }, // the zone's motes, in the air's colours
+      uRainbowAll: { value: 0 }, // 0..1: the whole void taken over by the running rainbow (a plugin's doing)
+      uMote: { value: new THREE.Color() }, // motes in the air's colours (see spec.air)
       uFogColor: { value: new THREE.Color(ORIGIN.palette.fog) }, uFogDensity: { value: 0.0022 / SIGHT },
       uDeep: { value: new THREE.Color(ORIGIN.palette.deep) }, uGlow: { value: new THREE.Color(ORIGIN.palette.glow) },
       uAccent: { value: new THREE.Color(ORIGIN.palette.accent) },
@@ -472,7 +467,7 @@ export class World {
       glow: this.G.uGlow.value.clone(), accent: this.G.uAccent.value.clone(), density: 0.0022 / SIGHT,
     };
     this.cells = new Map();
-    this.realm = "void"; // or marderchen's dimension through the ring above the hub, or the zone through its ring round the clock
+    this.realm = "void"; // or a dimension of a plugin's (see addRealm)
     this.specs = new Map([["0,0,0", normalizeSpec(ORIGIN)]]);
     this.probed = new Set();
     this.probing = new Set();
@@ -531,13 +526,16 @@ export class World {
     this.fogBoost = 1;
   }
 
-  // The zone moves on to another stage: its sectors take the new look where they stand. Nothing is
-  // built again; the colours ease over and the sky fades across (see enter and Sky).
-  restyle() {
+  // A dimension takes another look (moving on to another stage, say): its sectors are asked
+  // again what they are, where they stand. Nothing is built again; the colours ease over and the sky
+  // fades across (see enter and Sky).
+  restyle(realm) {
+    const of = REALMS[realm];
+    if (!of) return;
     for (const k of this.specs.keys()) {
-      if (!k.startsWith("z:")) continue;
-      const [x, y, z] = k.slice(2).split(",").map(Number);
-      this.specs.set(k, normalizeSpec(zoneSpec(x, y, z)));
+      if (!k.startsWith(of.prefix)) continue;
+      const [x, y, z] = k.slice(of.prefix.length).split(",").map(Number);
+      this.specs.set(k, normalizeSpec(of.spec(x, y, z)));
       this.onSpec(k, this.specs.get(k));
     }
   }
@@ -611,10 +609,10 @@ export class World {
     }
   }
 
-  // You against everything built in the sectors near you. In marderchen's dark rooms nothing is
-  // solid: his chaostyper's maze lets go only of someone who surges, and walls would trap them.
+  // You against everything built in the sectors near you. Nothing is solid in a place that says so
+  // (spec.passable): a maze that lets go only of someone who surges, where walls would trap them.
   collide(position, velocity, radius) {
-    if (this.realm === REALM && this.currentSpec?.source === "chaostyper") return 0;
+    if (this.currentSpec?.passable) return 0;
     let impact = 0;
     for (const cell of this.cells.values()) {
       if (!cell.solids.length) continue;

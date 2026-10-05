@@ -9,8 +9,6 @@ import { World, CELL, addRealm } from "./world.js";
 import { VoidAudio } from "./audio.js";
 import { VoidMap } from "./map.js";
 import { Entity } from "./entity.js";
-import { Marderchen, REALM, placeMarderchenGate } from "./marderchen.js";
-import { Zone, ZONE, placeZoneGate } from "./zone.js";
 import { Back, BACK_HOLE, NAME as COMPANION } from "./back.js";
 import { Meteors } from "./meteors.js";
 import { Lasers } from "./laser.js";
@@ -77,9 +75,6 @@ function onSector(spec, shown, key) {
     : spec.source === "claude" ? `dreamt by ${spec.model ?? "claude"}`
     : spec.source === "origin" ? "origin"
     : spec.source === "void" ? "nothing was ever here"
-    : spec.source === "chaostyper" ? "don't know the future seens to be an error"
-    : spec.source === "marderchen" ? "[MEOW] by marderchen · its free · have fun :3 =^.^="
-    : spec.source === "zone" ? zoneStatus()
     : hook("status", spec) || "local noise · claude unreachable";
   const name = spec ? spec.name : "· · ·";
   hud.spec = spec;
@@ -199,13 +194,11 @@ function face(toYaw, toPitch) {
   yaw = viewYaw + Math.atan2(Math.sin(toYaw - viewYaw), Math.cos(toYaw - viewYaw));
   pitch = viewPitch + Math.atan2(Math.sin(toPitch - viewPitch), Math.cos(toPitch - viewPitch));
 }
-// coming out of a portal (or sitting down at the well): face this way and lose most of your speed
+// coming out of a portal (or sitting down somewhere): face this way and lose most of your speed
 function arrive(toYaw, toPitch) {
   face(toYaw, toPitch);
   velocity.multiplyScalar(0.1);
 }
-const marderchen = new Marderchen({ scene, world, audio, textEl: $("marder"), stored, store, arrive });
-const zone = new Zone({ scene, world, audio, hintEl: $("hint"), stored, store, arrive, face, levelOut: () => levelOut() });
 const meteors = new Meteors({ scene, world }); // now and then a shooting star, far out in the void
 const lasers = new Lasers({ scene, world });   // yours (a portal clicked, V) and, with the together plugin, the others'
 // V (or the laser button on a touch screen): a shot straight ahead, into the dark
@@ -230,7 +223,12 @@ const back = new Back({ scene, world, textEl: $("irrlicht"), toOrigin: stored("i
 // leaveRealm / enterRealm(realm, camera): going there by the map · help: its keys, for the help line ·
 // interact(): the controller's interact button, true when it opened or entered something of its own ·
 // pad(pad): the controller each frame of flight, before cvoid's own buttons (its own actions: pad.addActions) ·
-// hold(): a reason, while it keeps you where you are (no portal, no way back, no jump by the map)
+// hold(): a reason, while it keeps you where you are (no portal, no way back, no jump by the map) ·
+// seat(): { at, title, keys, pad } while it holds you in a seat (at: where; the view still turns; its keys
+// stay on the screen) · level(): true when R turned you its own way · quiet(): true while the entity
+// keeps away · and, asked of every plugin: keyUp(e), pointer(locked) (the pointer taken or let go),
+// jump() (you are put somewhere at once, by the map or the way back), gamepad(gp, pad) (the controller
+// each frame, seated or not)
 const plugins = [];
 const hook = (name, ...args) => {
   for (const p of plugins) {
@@ -239,7 +237,7 @@ const hook = (name, ...args) => {
   }
   return null;
 };
-const realmNames = { [REALM]: "marderchen's dimension", [ZONE]: "the zone" }; // for the HUD (a plugin's are added)
+const realmNames = {}; // for the HUD (the plugins add their dimensions)
 const voice = new VoidVoice({ world, notice: () => hook("notice"), textEl: $("voidVoice"), stored, store }); // the void itself, now and then
 
 // the screen: chosen in the Tab panel, remembered
@@ -300,21 +298,18 @@ function showRaw() {
 showSensitivity();
 showRaw();
 const fadeEl = $("fade");
+let veil = 0; // the dark a jump happens in, lifting (see teleport)
 
 // Going somewhere at once, from the map: in the dark, into whichever dimension the place is in.
 // (Its ways in and out are not refused while it goes: see cvoid.held.)
 let moving = false;
 function teleport(realm, x, y, z) {
-  zone.stand();
+  for (const p of plugins) p.jump?.();
   if (world.realm !== realm) {
     moving = true;
     try {
-      if (world.realm === ZONE) zone.travel(camera); // back out to the void first
-      else if (world.realm === REALM) marderchen.travel(camera);
-      else hook("leaveRealm", world.realm, camera);
-      if (realm === ZONE) zone.travel(camera);
-      else if (realm === REALM) marderchen.travel(camera);
-      else hook("enterRealm", realm, camera);
+      hook("leaveRealm", world.realm, camera); // back out to the void first
+      hook("enterRealm", realm, camera);
     } finally {
       moving = false;
     }
@@ -322,7 +317,7 @@ function teleport(realm, x, y, z) {
   camera.position.set(x, y, z);
   velocity.set(0, 0, 0);
   autofly = false;
-  zone.veil = Math.max(zone.veil, 1.1); // the jump happens in the dark, which lifts
+  veil = Math.max(veil, 1.1); // the jump happens in the dark, which lifts
 }
 // Somewhere at once, in the dark that lifts: out of the room you are in if it is left behind, into the
 // place's dimension, its room ({ key, label } of the viewer that dimension is: see the f0ck plugin), and
@@ -374,14 +369,11 @@ map.bind({
 const HELP = {
   keys: "mouse look · w a s d fly · q e roll · enter autofly · space / c rise, sink · shift surge (twice: faster) · r level out · v laser · - = volume · f fullscreen · tab map · b listen to the room · [ ] sensitivity · h keep hud · m mute · hold right zoom",
   get pad() { return padMap.help("flight"); }, // (as the buttons are mapped: see pad.js)
-  // sitting at the well in the zone
-  "play-keys": "← → move · ↓ soft drop · space hard drop · ↑ x rotate · z ctrl rotate back · a turn round · c shift hold · q e roll · ← → before a run: another well · r look at the well · p stand up",
-  get ["play-pad"]() { return padMap.help("well"); },
 };
 let helpMode = "keys", noteTimer = 0, wakeTimer = 0;
 // The keys, in the Tab panel: cvoid's own (the keyboard's or the gamepad's, whichever was used last),
-// then each plugin's ("in f0ck: e open · ..."), every one a key and what it does. Seated at the well,
-// its game keys stay on the screen as well, under the game.
+// then each plugin's ("in f0ck: e open · ..."), every one a key and what it does. Held in a plugin's
+// seat (a game: see the seat hook), its keys come first, and stay on the screen as well.
 function showHelp(mode = helpMode) {
   helpMode = mode;
   const theirs = mode === "keys" ? plugins.map((p) => p.help).filter(Boolean) : [];
@@ -389,7 +381,8 @@ function showHelp(mode = helpMode) {
     const [, of, keys] = help.match(/^in ([^:]+):\s*(.*)$/) ?? [null, "", help];
     return [of, keys];
   })];
-  if (zone.seated) groups.unshift([`the well${mode === "pad" ? ", gamepad" : ""}`, HELP[`play-${mode}`]]);
+  const seat = hook("seat"), play = seat && (mode === "pad" ? seat.pad : seat.keys);
+  if (seat) groups.unshift([`${seat.title}${mode === "pad" ? ", gamepad" : ""}`, play]);
   const blocks = groups.map(([of, keys]) => {
     const title = Object.assign(document.createElement("div"), { className: "of", textContent: of });
     const list = Object.assign(document.createElement("div"), { className: "keys" });
@@ -398,13 +391,14 @@ function showHelp(mode = helpMode) {
     }
     return [title, list];
   });
-  // the first group (cvoid's own, or the well's) a column of its own; the rest beside it
+  // the first group (cvoid's own, or the seat's) a column of its own; the rest beside it
   const column = () => Object.assign(document.createElement("div"), { className: "column" }), left = column(), right = column();
   left.append(...blocks[0]);
   right.append(...blocks.slice(1).flat());
   $("keysList").replaceChildren(left, ...(blocks.length > 1 ? [right] : []));
-  $("help").textContent = zone.seated ? entries(HELP[`play-${mode}`]).map((entry) => entry.join(" ")).join(" · ") : "";
-  if (hud.spec?.source === "zone") $("status").textContent = zoneStatus();
+  $("help").textContent = seat ? entries(play).map((entry) => entry.join(" ")).join(" · ") : "";
+  const status = hud.spec && hook("status", hud.spec); // (a plugin's line may name the keys or the buttons)
+  if (status) $("status").textContent = status;
 }
 // A help line as its entries, [keys, what they do]: the controller's come so already (see PadMap.help);
 // "w a s d fly" is split at the first word that is not a key on its own
@@ -414,12 +408,6 @@ function entries(keys) {
     const words = entry.split(" "), at = Math.max(1, words.findIndex((w, i) => i > 0 && w.length > 2 && !/^(shift|ctrl|enter|space|tab|right|left|click|wheel|esc|backspace|arrows|stick|sticks|left-stick|right-stick|d-pad|triggers|bumpers|select|start)$/.test(w)));
     return [words.slice(0, at).join(" "), words.slice(at).join(" ")];
   });
-}
-// the zone's line under its name, with the keys or the controller's buttons, whichever was used last
-function zoneStatus() {
-  if (helpMode !== "pad") return "the zone · R looks at the well · P plays at it";
-  const [sit] = padMap.buttons("sit");
-  return `the zone${sit === undefined ? "" : ` · ${padMap.name(sit)} plays at it`}`;
 }
 // a word on what just happened, under the crosshair for a moment
 function note(text) {
@@ -474,14 +462,14 @@ function toggleInvert() {
   note(`vertical look ${invertY ? "inverted" : "normal"}`);
 }
 // R: level out. Upright again, the horizon level and no tilt left from a portal, still heading the
-// way you were going (upside down over the top, that is the other way round). In the zone, facing the well.
+// way you were going (upside down over the top, that is the other way round), or as a plugin turns you.
 let levelling = 0;
 function levelOut() {
   levelling = 0.8;
   const turns = Math.round(roll / (Math.PI * 2)) * Math.PI * 2; // whole turns are unwound at once: the short way back to level
   viewRoll -= turns;
   roll = 0;
-  if (world.realm === ZONE) return zone.lookAtWell();
+  if (hook("level")) return;
   // to whatever a plugin says you are with
   const target = hook("target");
   if (target) {
@@ -622,10 +610,9 @@ $("start").addEventListener("click", () => {
 canvas.addEventListener("click", lockPointer);
 document.addEventListener("pointerlockchange", () => {
   skipMoves = 2;
-  // Esc (the browser takes it to let go of the pointer, and the page never hears it): at the well the
-  // game pauses, and taking the pointer again (a click) goes on
-  if (document.pointerLockElement === canvas) zone.resume();
-  else zone.pause();
+  // Esc (the browser takes it to let go of the pointer, and the page never hears it): a plugin's game
+  // pauses, and taking the pointer again (a click) goes on
+  for (const p of plugins) p.pointer?.(document.pointerLockElement === canvas);
 });
 let skipMoves = 0;
 document.addEventListener("mousemove", (e) => {
@@ -646,24 +633,9 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (map.open && !e.repeat && e.code === "KeyO") map.origin();
-  // at the well in the zone the game has the keys it plays with; the rest still work
-  const sitting = zone.seated;
-  if (zone.key(e, true)) {
-    e.preventDefault();
-    if (!sitting) keys.clear(); // just sat down: stop flying
-    return;
-  }
-  // a museum piece is open: E and Esc belong to it, everything else waits
-  if (marderchen.museum.open) {
-    if (e.code === "KeyE" && !e.repeat) marderchen.museum.toggle();
-    if (e.code === "Escape") marderchen.museum.close();
-    return;
-  }
   // a plugin's own keys (or all of them, while something of its own is open)
   if (hook("key", e)) return;
   if (!e.repeat) {
-    // in his museum E opens the piece you are looking at; everywhere else it rolls the view
-    if (e.code === "KeyE" && marderchen.museum.canOpen()) { keys.clear(); marderchen.museum.toggle(); }
     if (helpMode !== "keys") showHelp("keys");
     if (e.code === "KeyM") toggleMute();
     if (e.code === "Minus" || e.code === "NumpadSubtract") setVolume(audio.volume - 0.1, true);
@@ -692,7 +664,7 @@ window.addEventListener("keydown", (e) => {
 window.addEventListener("keyup", (e) => {
   keys.delete(e.code);
   if (!keys.has("ShiftLeft") && !keys.has("ShiftRight")) hyper = false;
-  zone.key(e, false);
+  for (const p of plugins) p.keyUp?.(e);
 });
 
 // Ctrl+W closes the tab, Ctrl+Shift+W the whole window, Ctrl+Q the browser: easy to hit while
@@ -720,7 +692,6 @@ document.addEventListener("mousedown", (e) => {
     // a portal in the hub under the crosshair: flown into; else the click is the plugins'
     const portal = portalAimedAt();
     if (portal) return flyIntoPortal(portal);
-    if (marderchen.click(camera)) return; // (his vape mouse, on the desk in his workshop)
     hook("mouse", e);
   }
 });
@@ -781,12 +752,12 @@ function pollPad(dt) {
     }
     return;
   }
-  zone.pad(gp, padMap);
+  for (const p of plugins) p.gamepad?.(gp, padMap);
   // squared response: fine aim near the centre, full speed at the rim
   const rx = stick(aim[0]), ry = stick(aim[1]);
   look(rx * Math.abs(rx) * dt, ry * Math.abs(ry) * dt * 0.75, PAD_LOOK * sensitivity * (camera.fov / 70)); // (zoomed in, turning less, as the mouse does)
-  if (zone.seated) {
-    // at the well the pad plays; the look stick still looks round
+  if (hook("seat")) {
+    // in a plugin's seat the pad plays; the look stick still looks round
     if (helpMode !== "pad" && (rx || ry || padMap.now.size)) showHelp("pad");
     return;
   }
@@ -806,18 +777,15 @@ function pollPad(dt) {
   if (hit("levelOut")) levelOut();
   if (pad.y > 0.5) toggleAutofly(false); // pulling back stops it
   if (hit("map")) map.toggle();
-  if (hit("open")) marderchen.museum.toggle();
   if (hit("layerUp")) map.shift(1);
   if (hit("layerDown")) map.shift(-1);
   if (!map.open) pad.roll = (down("rollLeft") ? 1 : 0) - (down("rollRight") ? 1 : 0);
   if (helpMode !== "pad" && (pad.x || pad.y || rx || ry || pad.rise)) showHelp("pad");
 }
 
-// The controller's interact button: what you are with is opened or entered (a museum piece, the well
-// beside you, a plugin's post or thread: its interact hook); with nothing there, the view is recentred.
+// The controller's interact button: what you are with is opened or entered (a plugin's post, thread or
+// piece: its interact hook); with nothing there, the view is recentred.
 function interact() {
-  if (marderchen.museum.open || marderchen.museum.canOpen()) return marderchen.museum.toggle();
-  if (zone.nearWell && !zone.seated) return zone.sit();
   if (hook("interact")) return;
   levelOut();
 }
@@ -856,12 +824,13 @@ function stopFlying() {
 }
 // the portal the crosshair is on, in the hub (round the clock), if any
 // (what each is called, under the crosshair while it is on one: see showPortalName)
+const PORTAL_HOLES = { zone: 112 }; // (how wide a ring's dark sphere is, where it is not the usual)
 const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen" };
 function portalAimedAt() {
   // (each with the size of its dark sphere: the crosshair on that, and nowhere round it; the way back
   // floating beside you, wherever you are)
   const spots = back.ready ? [{ name: "back", label: back.label, at: back.position, hole: BACK_HOLE }] : [];
-  if (world.realm === "void") spots.push(...portalNames().map((name) => ({ name, at: new THREE.Vector3(...hubSlot(name).at), hole: name === "zone" ? 112 : 104 })));
+  if (world.realm === "void") spots.push(...portalNames().map((name) => ({ name, at: new THREE.Vector3(...hubSlot(name).at), hole: PORTAL_HOLES[name] ?? 104 })));
   const ahead = camera.getWorldDirection(new THREE.Vector3());
   let best = null, bestOff = 0;
   for (const spot of spots) {
@@ -923,7 +892,6 @@ function tap() {
   }
   const portal = portalAimedAt();
   if (portal) return flyIntoPortal(portal);
-  if (marderchen.click(camera)) return;
   hook("mouse", { button: 0, touch: true });
 }
 // a long press (a finger held still): as a right click is, letting go of what you picked or calling off a
@@ -1006,15 +974,14 @@ function fly(dt) {
   viewRoll += (roll - viewRoll) * (1 - Math.exp(-8 * dt));
   if (levelling > 0) {
     levelling -= dt;
-    marderchen.roll *= Math.exp(-8 * dt);
-    zone.roll *= Math.exp(-8 * dt);
     for (const p of plugins) if (p.roll) p.roll *= Math.exp(-8 * dt);
   }
-  camera.rotation.set(viewPitch, viewYaw, viewRoll + marderchen.roll + zone.roll + plugins.reduce((sum, p) => sum + (p.roll ?? 0), 0));
-  if (zone.seated) {
-    // sitting at the well: the seat holds you, and only the view moves
+  camera.rotation.set(viewPitch, viewYaw, viewRoll + plugins.reduce((sum, p) => sum + (p.roll ?? 0), 0));
+  const seat = hook("seat");
+  if (seat) {
+    // in a plugin's seat: it holds you, and only the view moves
     autofly = false;
-    camera.position.lerp(zone.seat, 1 - Math.exp(-4 * dt));
+    camera.position.lerp(seat.at, 1 - Math.exp(-4 * dt));
     velocity.multiplyScalar(Math.exp(-6 * dt));
     return;
   }
@@ -1038,10 +1005,7 @@ function fly(dt) {
   // up and down faster than sideways (see RISE), and picking up the longer rise or sink is held, by 0.6 more (a tap stays gentle)
   riseHold = lift ? Math.min(riseHold + dt, RISE_RAMP) : 0;
   velocity.y += THRUST * surge * dt * lift * (RISE - 1 + 0.6 * (riseHold / RISE_RAMP));
-  velocity.addScaledVector(marderchen.museum.current, dt); // the museum's vortex pulls gently onward
-  velocity.addScaledVector(marderchen.pull, dt);           // and the portal at his door pulls hard
-  velocity.addScaledVector(zone.pull, dt);                 // as does the ring down to the zone
-  for (const p of plugins) if (p.pull) velocity.addScaledVector(p.pull, dt); // and whatever a plugin pulls you with
+  for (const p of plugins) if (p.pull) velocity.addScaledVector(p.pull, dt); // whatever a plugin pulls you with (a portal's draw)
   velocity.multiplyScalar(Math.exp(-DRAG * dt));
   // a plugin flying you somewhere: steered there, and turned to it
   // Shift on the way hurries the flight (twice tapped: more)
@@ -1056,7 +1020,7 @@ function fly(dt) {
   camera.position.addScaledVector(velocity, dt * world.slow);
   // things are solid: you bounce off them (twice over, for corners)
   let impact = 0;
-  for (let pass = 0; pass < 2; pass++) impact = Math.max(impact, world.collide(camera.position, velocity, BODY), zone.collide(camera.position, velocity, BODY), ...plugins.map((p) => p.collide?.(camera.position, velocity, BODY) ?? 0));
+  for (let pass = 0; pass < 2; pass++) impact = Math.max(impact, world.collide(camera.position, velocity, BODY), ...plugins.map((p) => p.collide?.(camera.position, velocity, BODY) ?? 0));
   bumpIn -= dt;
   if (impact > 40 && bumpIn <= 0) {
     audio.bump(Math.min(1, impact / 700));
@@ -1127,33 +1091,31 @@ function frame(now) {
   if (keys.size || rightHeld) stir(); // (a key held, flying, is not being still)
   $("crosshair").classList.toggle("still", started && performance.now() - stirred > STILL * 1000);
   back.touring = false; // (fly says so again, while a plugin flies you)
-  if (!started) { idle(elapsed); marderchen.idle(dt, camera); for (const p of plugins) p.idle?.(dt); } // (what they have in the hub moves behind the start screen too)
-  else if (!marderchen.museum.open && !hook("busy")) fly(dt); // a piece is open: stay where you are
+  if (!started) { idle(elapsed); for (const p of plugins) p.idle?.(dt); } // (what they have in the hub moves behind the start screen too)
+  else if (!hook("busy")) fly(dt); // something of a plugin's is open (a piece, a game): stay where you are
   const heard = audio.features(dt);
   world.G.uBass.value = heard.bass; world.G.uMid.value = heard.mid; world.G.uHigh.value = heard.high; world.G.uBeat.value = heard.beat;
-  // in the zone the pieces stand steady: the music does not brighten or flash their edges
-  if (world.realm === ZONE) world.G.uMid.value = world.G.uBeat.value = 0;
   world.update(dt, camera);
   meteors.update(dt, camera); // (behind the start screen too)
   lasers.update(dt);
   if (started) {
-    marderchen.update(dt, camera, keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge);
-    zone.update(dt, camera, velocity);
     for (const p of plugins) p.update?.(dt, camera);
     back.held = !!portalFlight && portalFlight.at === back.position; // (clicked: it waits to be flown into)
     if (back.update(dt, camera, started && !hook("hold"))) goBack(); // (held where you are, it keeps away; the Tab panel open, it stays)
     voice.update(dt, velocity.length(), $("entity").classList.contains("show"));
-    if (zone.seated !== seatedBefore) {
-      seatedBefore = zone.seated;
-      document.body.classList.toggle("seated", zone.seated);
+    const seated = !!hook("seat");
+    if (seated !== seatedBefore) {
+      seatedBefore = seated;
+      document.body.classList.toggle("seated", seated);
       showHelp();
     }
-    // the entity does not follow into marderchen's dimension
-    if (world.realm === "void" && !marderchen.mad) entity.update(dt, camera, velocity.length()); // nor does it show itself while he is out
+    // the entity keeps to the void, and away while a plugin says so
+    if (world.realm === "void" && !hook("quiet")) entity.update(dt, camera, velocity.length());
     else audio.entityVoice(0, 0); // and its hum does not follow you out (left humming, it buzzed on in every other dimension)
     entity.meddle(dt); // (its ways with the sound reach everywhere)
   }
-  fadeEl.style.opacity = Math.max(marderchen.fade, zone.fade, back.fade, ...plugins.map((p) => p.fade ?? 0)).toFixed(3); // the dark at any door
+  veil = Math.max(0, veil - dt / 1.9);
+  fadeEl.style.opacity = Math.max(Math.min(1, veil), back.fade, ...plugins.map((p) => p.fade ?? 0)).toFixed(3); // the dark at any door
   world.sky.render(renderer, camera);
   if (document.visibilityState === "visible") adaptResolution(dt);
   audio.setSpeed(velocity.length());
@@ -1181,7 +1143,7 @@ runFrames();
 
 // (viewers: the f0ck plugin's viewers, each registering itself as it is made: see back.js)
 window.cvoid = {
-  world, camera, renderer, entity, marderchen, zone, back, voice, map, plugins, padMap, CELL, graphics: gfx, viewers: [], meteors, lasers, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; },
+  world, camera, renderer, entity, back, voice, map, plugins, padMap, CELL, graphics: gfx, viewers: [], meteors, lasers, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; },
   // Held where you are (see held: a group's member, say), asked by every way into a dimension or a room (its
   // ring, a tag's portal, a search): they neither draw you nor take you, and with say, the reason is said.
   // Never while you are being put somewhere (the group taking you along, the way back, the map).
@@ -1191,6 +1153,8 @@ window.cvoid = {
 // The plugins (see the top), installed once the game around them is ready: what they are given.
 const game = {
   scene, world, audio, map, camera, canvas, velocity, keys, stored, store,
+  surging: () => keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge, // Shift (or the controller's surge) held
+  helpMode: () => helpMode,                 // "keys" or "pad": whichever was used last
   pad: padMap, // the controller's buttons, as mapped (see pad.js): a plugin may add actions of its own
   arrive, face, note, lockPointer, levelOut, showHelp: () => showHelp(),
   goTo,                                     // somewhere at once: { realm, room?, position, yaw, pitch } (see goTo)
@@ -1217,8 +1181,6 @@ const game = {
 // the plugins this cvoid has: first, where their portals stand round the clock (evenly, see hubSlot), then each
 const pluginUrls = await fetch("/api/plugins").then((r) => (r.ok ? r.json() : [])).catch(() => []);
 setPortals(pluginUrls.map((url) => url.match(/\/plugins\/([^/]+)\//)?.[1]).filter(Boolean));
-placeZoneGate();
-placeMarderchenGate();
 for (const url of pluginUrls) {
   try {
     plugins.push((await import(url)).default(game) ?? {});

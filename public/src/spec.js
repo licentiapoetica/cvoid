@@ -87,7 +87,9 @@ export function normalizeSpec(raw) {
     blueprint: typeof s.blueprint === "string" ? s.blueprint.slice(0, 6000) : "",
     dream: clamp(s.dream, 0, 1, 0.3),
     rainbow: clamp(s.rainbow, 0, 1, 0),
-    file: typeof s.file === "string" ? s.file : null, // in marderchen's dimension: the source file this sector is made from // marderchen's dimension: every piece an LED on a running rainbow // how far the built thing sways out of true
+    file: typeof s.file === "string" ? s.file : null, // a file this sector is made from (a plugin's dimension)
+    air: !!s.air,           // its pieces and motes wear the air's colours, easing over with them
+    passable: !!s.passable, // nothing in it is solid (see World.collide)
     noise: {
       frequency: clamp(n.frequency, 0.3, 6, 1.5),
       octaves: Math.round(clamp(n.octaves, 1, 6, 3)),
