@@ -1,4 +1,5 @@
-// The way back: a companion. Once you have gone somewhere (through a portal, into a tag's room, out of
+// The way back: a companion, called Irrlicht (a will-o'-the-wisp: a cold flame that keeps by travellers
+// in the dark). Once you have gone somewhere (through a portal, into a tag's room, out of
 // one, or across the map in one jump), it floats along at your side, off to the left and a little low,
 // bobbing as it goes, the way a small machine keeps by someone it looks after. It is not a portal like
 // the others: a mouth of dark burnt into the air, its edge burning in a cold blue fire (icefire), giving
@@ -18,6 +19,7 @@
 import * as THREE from "three";
 import { NOISE_LIB } from "./shaders.js";
 
+export const NAME = "Irrlicht";       // what it is called: said under the crosshair when it is aimed at
 export const BACK_HOLE = 26;          // its mouth's dark (the crosshair on this is on it)
 const MOUTH = 92;                     // the burning disc drawn round it, edge to edge
 const KEEP = 20;                      // how many places back it remembers
@@ -160,7 +162,7 @@ export class Back {
 
   // the place it goes to, if any
   get next() { return this.places.at(-1) ?? null; }
-  get label() { return this.next ? `back to ${this.next.name}` : ""; }
+  get label() { return this.next ? `${NAME} · back to ${this.next.name}` : ""; }
   get ready() { return this.shown > 0.5; }
 
   // taken: the place it goes to, no longer kept (and the jump there is not itself a place to go back to)

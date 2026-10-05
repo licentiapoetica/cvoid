@@ -11,7 +11,7 @@ import { VoidMap } from "./map.js";
 import { Entity } from "./entity.js";
 import { Marderchen, REALM, placeMarderchenGate } from "./marderchen.js";
 import { Zone, ZONE, placeZoneGate } from "./zone.js";
-import { Back, BACK_HOLE } from "./back.js";
+import { Back, BACK_HOLE, NAME as COMPANION } from "./back.js";
 import { Meteors } from "./meteors.js";
 import { Lasers } from "./laser.js";
 import { PadMap } from "./pad.js";
@@ -326,7 +326,7 @@ function goBack() {
   place.viewer?.backTo(place.room);
   face(place.yaw, place.pitch);
   audio.sting();
-  note(`back to ${place.name}`);
+  note(`${COMPANION} takes you back to ${place.name}`);
 }
 map.bind({
   spawn: spawnAt,

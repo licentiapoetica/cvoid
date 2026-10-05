@@ -24,7 +24,8 @@ Controls:
   under the crosshair; click and you are turned to it and flown in (`S` stops it; it stops itself
   once you are through, or past it).
   Once you have gone somewhere (through a portal, into a tag's room, out of one, or across the map),
-  a companion floats along at your side, off to the left, bobbing: the way back, a mouth of dark burnt
+  a companion floats along at your side, off to the left, bobbing: Irrlicht, the way back (its name and
+  where it goes are said under the crosshair when it is aimed at), a mouth of dark burnt
   into the air, its edge burning in a cold blue fire, giving off a thin mist, two eyes in its dark that
   blink, glance about and show how it is (wide when it has just come, pleased when you look at it,
   happy as you fly in, narrowed at speed, anxious left behind, drowsy when you keep still). It never
