@@ -268,6 +268,9 @@ export class Entity {
       this.scene.add(eye);
       return eye;
     });
+    // they creep a little closer as time goes on, but each only so far: they watch from a distance and
+    // never come at you (come through you, a big eye was a white flicker over everything)
+    const hold = eyes.map((eye) => Math.max(eye.position.distanceTo(camera.position) * 0.6, (far ? 1300 : 95)));
     const centre = new THREE.Vector3(), lastCam = camera.position.clone();
     let age = 0, seen = 0, gone = 0;
     return (dt, cam) => {
@@ -276,16 +279,20 @@ export class Entity {
       tmp.copy(cam.position).sub(lastCam);
       lastCam.copy(cam.position);
       centre.set(0, 0, 0);
-      for (const eye of eyes) {
+      let nearest = Infinity;
+      eyes.forEach((eye, i) => {
         eye.position.add(tmp);
-        if (age > 12) eye.position.addScaledVector(to.copy(cam.position).sub(eye.position).normalize(), 9 * k * dt);
+        to.copy(cam.position).sub(eye.position);
+        const distance = to.length();
+        if (age > 12 && distance > hold[i]) eye.position.addScaledVector(to.normalize(), Math.min(9 * k * dt, distance - hold[i]));
+        nearest = Math.min(nearest, distance);
         centre.add(eye.position);
-      }
+      });
       centre.divideScalar(eyes.length);
       cam.getWorldDirection(forward);
       const looking = forward.dot(to.copy(centre).sub(cam.position).normalize()) > 0.7;
       seen = looking ? seen + dt : 0;
-      if (!gone && (seen > 0.3 || age > 40 || centre.distanceTo(cam.position) < 45 * k)) {
+      if (!gone && (seen > 0.3 || age > 40 || nearest < (far ? 900 : 60))) { // (something brought one near: they go)
         gone = 0.001;
         if (seen > 0.3) this.audio.sting();
       }
