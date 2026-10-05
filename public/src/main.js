@@ -11,6 +11,7 @@ import { VoidMap } from "./map.js";
 import { Entity } from "./entity.js";
 import { Marderchen, REALM, placeMarderchenGate } from "./marderchen.js";
 import { Zone, ZONE, placeZoneGate } from "./zone.js";
+import { Back, BACK_HOLE } from "./back.js";
 import { PadMap } from "./pad.js";
 import { SPAWN, setPortals, hubSlot, portalNames } from "./constants.js";
 import { draggablePanels } from "./panels.js";
@@ -201,6 +202,11 @@ function arrive(toYaw, toPitch) {
 }
 const marderchen = new Marderchen({ scene, world, audio, textEl: $("marder"), stored, store, arrive });
 const zone = new Zone({ scene, world, audio, hintEl: $("hint"), stored, store, arrive, face, levelOut: () => levelOut() });
+// the way back (see back.js): each place called by its dimension's name, and the room's in it
+const back = new Back({ scene, world, name: (realm, room) => {
+  const where = realm === "void" ? "the void" : realmNames[realm] ?? realm;
+  return room ? `${where} · ${room.label ?? room.key}` : where;
+} });
 // ---- plugins: optional local additions, in plugins/<name>/ beside cvoid (kept out of its repository) ----
 // The server says which there are (see server.js); each one's client.js default-exports install(cvoid),
 // given the pieces of the game it may use (see the end of this file), and returns its hooks, all
@@ -298,6 +304,20 @@ function teleport(realm, x, y, z) {
   velocity.set(0, 0, 0);
   autofly = false;
   zone.veil = Math.max(zone.veil, 1.1); // the jump happens in the dark, which lifts
+}
+// Through the way back (see back.js): out of the room you are in if it is left behind, into the place's
+// dimension, its room, and where you were, facing as you faced, in the dark that lifts
+function goBack() {
+  const place = back.take();
+  if (!place) return;
+  stopFlying();
+  const leaving = back.where().viewer;
+  if (leaving && leaving.realm !== place.realm && leaving.room) leaving.exitRoom(false);
+  teleport(place.realm, place.position.x, place.position.y, place.position.z);
+  place.viewer?.backTo(place.room);
+  face(place.yaw, place.pitch);
+  audio.sting();
+  note(`back to ${place.name}`);
 }
 map.bind({
   spawn: spawnAt,
@@ -744,9 +764,10 @@ function stopFlying() {
 // (what each is called, under the crosshair while it is on one: see showPortalName)
 const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen" };
 function portalAimedAt() {
-  if (world.realm !== "void") return null;
-  // (each with the size of its dark sphere: the crosshair on that, and nowhere round it)
-  const spots = portalNames().map((name) => ({ name, at: new THREE.Vector3(...hubSlot(name).at), hole: name === "zone" ? 112 : 104 }));
+  // (each with the size of its dark sphere: the crosshair on that, and nowhere round it; the way back
+  // floating beside you, wherever you are)
+  const spots = back.open ? [{ name: "back", label: back.label, at: back.position, hole: BACK_HOLE }] : [];
+  if (world.realm === "void") spots.push(...portalNames().map((name) => ({ name, at: new THREE.Vector3(...hubSlot(name).at), hole: name === "zone" ? 112 : 104 })));
   const ahead = camera.getWorldDirection(new THREE.Vector3());
   let best = null, bestOff = 0;
   for (const spot of spots) {
@@ -762,13 +783,13 @@ function flyIntoPortal(portal) {
   // clicked again at once (a double click) on the way into the same one: faster
   if (portalFlight && portalFlight.at.distanceTo(portal.at) < 1 && performance.now() - portalFlight.since < 450) {
     portalFlight.fast = true;
-    return note(`into ${PORTAL_NAMES[portal.name] ?? portal.name} · faster`);
+    return note(`into ${portal.label ?? PORTAL_NAMES[portal.name] ?? portal.name} · faster`);
   }
   const to = portal.at.clone().sub(camera.position), length = to.length() || 1;
   face(Math.atan2(-to.x, -to.z), Math.asin(Math.max(-1, Math.min(1, to.y / length))));
   autofly = true;
   portalFlight = { at: portal.at, realm: world.realm, nearest: length, since: performance.now() };
-  note(`into ${PORTAL_NAMES[portal.name] ?? portal.name} · ${matchMedia("(pointer: coarse)").matches ? "tap to stop" : "s to stop"}`);
+  note(`${portal.label ?? `into ${PORTAL_NAMES[portal.name] ?? portal.name}`} · ${matchMedia("(pointer: coarse)").matches ? "tap to stop" : "s to stop"}`);
 }
 // the portal the crosshair is on, named under it (as a post's portals are in f0ck's dimensions)
 // The Tab panel inside a dimension: its own window and the general ones (the map's, the keys, graphics,
@@ -790,7 +811,7 @@ function showPortalName() {
     portalNameEl = Object.assign(document.body.appendChild(document.createElement("div")), { id: "hubPortalName" });
     Object.assign(portalNameEl.style, { position: "fixed", left: "50%", top: "calc(50% + 22px)", transform: "translateX(-50%)", zIndex: 3, pointerEvents: "none", padding: "3px 10px", background: "rgba(2, 3, 14, .62)", color: "#bfe6ff", font: '400 14px "Helvetica Neue", Helvetica, Arial, sans-serif', letterSpacing: ".1em", whiteSpace: "nowrap", transition: "opacity .15s ease", opacity: "0" });
   }
-  if (portal) portalNameEl.textContent = PORTAL_NAMES[portal.name] ?? portal.name;
+  if (portal) portalNameEl.textContent = portal.label ?? PORTAL_NAMES[portal.name] ?? portal.name;
   portalNameEl.style.opacity = portal ? "1" : "0";
 }
 function tap() {
@@ -1006,6 +1027,7 @@ function frame(now) {
     marderchen.update(dt, camera, keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge);
     zone.update(dt, camera, velocity);
     for (const p of plugins) p.update?.(dt, camera);
+    if (back.update(dt, camera, started && !map.open)) goBack();
     voice.update(dt, velocity.length(), $("entity").classList.contains("show"));
     if (zone.seated !== seatedBefore) {
       seatedBefore = zone.seated;
@@ -1043,7 +1065,8 @@ function frame(now) {
 }
 runFrames();
 
-window.cvoid = { world, camera, renderer, entity, marderchen, zone, voice, map, plugins, padMap, CELL, graphics: gfx, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; } };
+// (viewers: the f0ck plugin's viewers, each registering itself as it is made: see back.js)
+window.cvoid = { world, camera, renderer, entity, marderchen, zone, back, voice, map, plugins, padMap, CELL, graphics: gfx, viewers: [], aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; } };
 
 // The plugins (see the top), installed once the game around them is ready: what they are given.
 const game = {
