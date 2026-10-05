@@ -13,6 +13,7 @@ import { Marderchen, REALM, placeMarderchenGate } from "./marderchen.js";
 import { Zone, ZONE, placeZoneGate } from "./zone.js";
 import { Back, BACK_HOLE } from "./back.js";
 import { Meteors } from "./meteors.js";
+import { Lasers } from "./laser.js";
 import { PadMap } from "./pad.js";
 import { SPAWN, setPortals, hubSlot, portalNames } from "./constants.js";
 import { draggablePanels } from "./panels.js";
@@ -204,6 +205,12 @@ function arrive(toYaw, toPitch) {
 const marderchen = new Marderchen({ scene, world, audio, textEl: $("marder"), stored, store, arrive });
 const zone = new Zone({ scene, world, audio, hintEl: $("hint"), stored, store, arrive, face, levelOut: () => levelOut() });
 const meteors = new Meteors({ scene, world }); // now and then a shooting star, far out in the void
+const lasers = new Lasers({ scene, world });   // yours (a portal clicked, V) and, with the together plugin, the others'
+// V (or the laser button on a touch screen): a shot straight ahead, into the dark
+function fireLaser() {
+  const from = lasers.muzzle(camera);
+  lasers.shoot({ from, to: from.clone().addScaledVector(camera.getWorldDirection(new THREE.Vector3()), 2600) });
+}
 // the way back (see back.js): each place called by its dimension's name, and the room's in it
 const back = new Back({ scene, world, name: (realm, room) => {
   const where = realm === "void" ? "the void" : realmNames[realm] ?? realm;
@@ -333,7 +340,7 @@ map.bind({
 });
 
 const HELP = {
-  keys: "mouse look · w a s d fly · q e roll · enter autofly · space / c rise, sink · shift surge (twice: faster) · r level out · - = volume · f fullscreen · tab map · b listen to the room · [ ] sensitivity · i invert · h keep hud · m mute · hold right zoom",
+  keys: "mouse look · w a s d fly · q e roll · enter autofly · space / c rise, sink · shift surge (twice: faster) · r level out · v laser · - = volume · f fullscreen · tab map · b listen to the room · [ ] sensitivity · i invert · h keep hud · m mute · hold right zoom",
   get pad() { return padMap.help("flight"); }, // (as the buttons are mapped: see pad.js)
   // sitting at the well in the zone
   "play-keys": "← → move · ↓ soft drop · space hard drop · ↑ x rotate · z ctrl rotate back · a turn round · c shift hold · q e roll · ← → before a run: another well · r look at the well · p stand up",
@@ -516,6 +523,7 @@ function start() {
   wakeHud(9); // where you begin, named a while (with the HUD's slow first reveal)
 }
 // the Tab panel, on a touch screen: its button opens it and closes it again
+$("laserButton").addEventListener("click", () => { if (started) fireLaser(); });
 $("menuButton").addEventListener("click", () => {
   map.toggle();
   $("menuButton").textContent = map.open ? "close" : "menu";
@@ -593,6 +601,7 @@ window.addEventListener("keydown", (e) => {
     if (e.code === "KeyI") toggleInvert();
     if (e.code === "KeyH") note(document.body.classList.toggle("hud-shown") ? "hud kept" : "hud comes and goes"); // the place's name kept on the screen, and let go again
     if (e.code === "KeyR") levelOut();
+    if (e.code === "KeyV" && !e.repeat && started) fireLaser();
     if (e.code === "Tab") map.toggle();
     if (e.code === "KeyF") toggleFullscreen();
     if (e.code === "KeyB") audio.toggleMic().then((on) => note(on ? "listening to the room" : "listening to the void"), () => note("microphone unavailable"));
@@ -791,6 +800,9 @@ function flyIntoPortal(portal) {
   face(Math.atan2(-to.x, -to.z), Math.asin(Math.max(-1, Math.min(1, to.y / length))));
   autofly = true;
   portalFlight = { at: portal.at, realm: world.realm, nearest: length, since: performance.now() };
+  // a beam to it, as at a post, held while you fly it
+  const flight = portalFlight;
+  lasers.shoot({ from: lasers.muzzle(camera), to: portal.at, hold: () => portalFlight === flight });
   note(`${portal.label ?? `into ${PORTAL_NAMES[portal.name] ?? portal.name}`} · ${matchMedia("(pointer: coarse)").matches ? "tap to stop" : "s to stop"}`);
 }
 // the portal the crosshair is on, named under it (as a post's portals are in f0ck's dimensions)
@@ -1026,6 +1038,7 @@ function frame(now) {
   if (world.realm === ZONE) world.G.uMid.value = world.G.uBeat.value = 0;
   world.update(dt, camera);
   meteors.update(dt, camera); // (behind the start screen too)
+  lasers.update(dt);
   if (started) {
     marderchen.update(dt, camera, keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge);
     zone.update(dt, camera, velocity);
@@ -1069,13 +1082,14 @@ function frame(now) {
 runFrames();
 
 // (viewers: the f0ck plugin's viewers, each registering itself as it is made: see back.js)
-window.cvoid = { world, camera, renderer, entity, marderchen, zone, back, voice, map, plugins, padMap, CELL, graphics: gfx, viewers: [], meteors, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; } };
+window.cvoid = { world, camera, renderer, entity, marderchen, zone, back, voice, map, plugins, padMap, CELL, graphics: gfx, viewers: [], meteors, lasers, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; } };
 
 // The plugins (see the top), installed once the game around them is ready: what they are given.
 const game = {
   scene, world, audio, map, camera, canvas, velocity, keys, stored, store,
   pad: padMap, // the controller's buttons, as mapped (see pad.js): a plugin may add actions of its own
   arrive, face, note, lockPointer, levelOut, showHelp: () => showHelp(),
+  lasers, fireLaser,                        // beams (see laser.js): a plugin may shoot, draw another's, or listen
   started: () => started,
   aiming,                                   // flying, the pointer held, no map open
   mapOpen: () => map.open,

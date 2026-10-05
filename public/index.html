@@ -88,6 +88,10 @@
     font: 300 12px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .14em; text-transform: lowercase; cursor: pointer;
   }
   @media (pointer: coarse) { body.started #menuButton { display: block; } }
+  /* a touch screen's own buttons for what keys do (the laser; the together plugin adds its own here) */
+  #actButtons { position: fixed; right: max(12px, env(safe-area-inset-right)); top: calc(max(12px, env(safe-area-inset-top)) + 44px); z-index: 6; display: none; flex-direction: column; gap: 6px; }
+  #actButtons button { padding: 7px 10px; background: rgba(2, 3, 14, .6); border: 1px solid rgba(143, 211, 255, .4); color: #cfeaff; font: 300 11px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .14em; text-transform: lowercase; cursor: pointer; }
+  @media (pointer: coarse) { body.started:not(.mapping) #actButtons { display: flex; } }
   /* inside a dimension, the Tab panel shows its own window and the general ones only (see main.js) */
   body.mapping > .elsewhere { display: none !important; }
   /* a narrow screen: the Tab panel's windows one under another, scrolled through, not laid over each
@@ -303,6 +307,7 @@
 <div id="padPanel"></div>
 <div id="crosshair"></div>
 <button id="menuButton" type="button" aria-label="menu">menu</button>
+<div id="actButtons"><button id="laserButton" type="button">laser</button></div>
 <div id="note"></div>
 <div id="hud">
   <div id="sector"><div id="name"></div><div id="inscription"></div></div>
