@@ -195,6 +195,7 @@
   .mapping #gfxPanel { display: flex; }
   .mapping.padding #gfxPanel { display: none; }
   #gfxPanel .title { letter-spacing: .3em; opacity: .8; }
+  #gfxPanel #gFpsNow { letter-spacing: .1em; color: #8fd3ff; font-variant-numeric: tabular-nums; }
   #gfxPanel .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   #gfxPanel .row > span { width: 8.5em; opacity: .6; }
   #gfxPanel .choices { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
@@ -285,7 +286,7 @@
 </div>
 <div id="keysPanel"><div class="title">keys</div><div id="keysList"></div></div>
 <div id="gfxPanel">
-  <div class="title">graphics</div>
+  <div class="title">graphics <span id="gFpsNow"></span></div>
   <div class="row"><span>resolution</span><div class="choices" id="gRes"></div></div>
   <div class="row"><span>frame rate</span><div class="choices" id="gFps"></div></div>
   <div class="row"><span>glow</span><div class="choices" id="gBloom"></div></div>

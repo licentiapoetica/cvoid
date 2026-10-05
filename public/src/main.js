@@ -260,6 +260,7 @@ choices("gEase", Object.keys(LOOK_EASES), "ease");
 function showNow() {
   const w = Math.round(innerWidth * ratio), h = Math.round(innerHeight * ratio);
   $("gNow").textContent = `now ${Math.round(meter.fps)} frames a second · drawn at ${w} × ${h}${RESOLUTIONS[gfx.resolution] ? "" : " (auto)"}`;
+  $("gFpsNow").textContent = `·  ${Math.round(meter.fps)} fps`; // (and in its title, plainly)
 }
 function showSensitivity() {
   $("gSens").value = Math.log(sensitivity).toFixed(2);
