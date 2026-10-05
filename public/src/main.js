@@ -579,8 +579,7 @@ function start() {
   $("start").classList.add("gone");
   document.querySelector("#start .player input").blur(); // (started some other way, a key must fly, not type)
   $("hud").classList.add("on");
-  $("crosshair").classList.add("on");
-  setTimeout(() => $("crosshair").classList.add("woken"), 4500); // (in slowly the first time, and quickly back from then on)
+  $("crosshair").classList.add("on", "woken"); // (there at once: the moment you are in, you can aim)
   document.body.classList.add("started"); // (the touch screen's menu button shows from now: see index.html)
   wakeHud(9); // where you begin, named a while (with the HUD's slow first reveal)
 }
@@ -829,7 +828,7 @@ function stopFlying() {
 // way out (a plugin's exit hook: { at, label, hole? }, or several, while you are in its dimension)
 // (what each is called, under the crosshair while it is on one: see showPortalName)
 const PORTAL_HOLES = { zone: 112 }; // (how wide a ring's dark sphere is, where it is not the usual)
-const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen" };
+const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen", discord: "discord" };
 function portalAimedAt() {
   // (each with the size of its dark sphere: the crosshair on that, and nowhere round it; the way back
   // floating beside you, wherever you are)

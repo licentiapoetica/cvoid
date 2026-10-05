@@ -108,10 +108,10 @@
   #gooStore .notch { position: absolute; top: -1px; bottom: -1px; width: 1px; background: rgba(2, 3, 14, .85); }
   .mapping #gooStore, .seated #gooStore { opacity: 0; }
   /* the middle of the view: a small hollow square, there if you look for it */
-  /* not part of the HUD: it stays when H hides that (and comes with it at the start) */
-  #crosshair { opacity: 0; transition: opacity 3s ease 1.5s; pointer-events: none; z-index: 1; }
+  /* not part of the HUD: it stays when H hides that, and is there the moment you start (the HUD comes slowly) */
+  #crosshair { opacity: 0; transition: opacity .2s ease; pointer-events: none; z-index: 1; }
   #crosshair.on { opacity: 1; }
-  #crosshair.woken { transition: opacity .2s ease; }                  /* back at once, after its first slow coming */
+  #crosshair.woken { transition: opacity .2s ease; }                  /* (and back at once, after being still) */
   #crosshair.still { opacity: 0; transition: opacity 1.2s ease; }     /* you still a while: gone (see STILL in main.js) */
   .mapping #crosshair { opacity: 0; transition: opacity .25s ease; }
   /* on a touch screen, the Tab panel's way in (there is no Tab key): a small button, top right, once
