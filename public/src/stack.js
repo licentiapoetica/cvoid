@@ -1,7 +1,7 @@
 // The falling-block game itself, with no drawing and no sound: a 10 x 20 well, the seven
 // tetrominoes dealt from shuffled bags, SRS rotation with its wall kicks, hold, ghost, lock delay,
-// guideline gravity and scoring, T-spins, and the Zone: stop time, and every line cleared
-// meanwhile piles up at the bottom until it all goes at once.
+// guideline gravity and scoring, T-spins. The pace is set from outside (pace): a run's later stages
+// start faster, and the level climbs with the lines from there to the endgame speed (TOP_LEVEL).
 //
 // Rows count up from the floor (y = 0 is the bottom row), so wall kicks read as they are published.
 // The game reports what happens through `events`, which whoever draws and plays it drains each frame.
@@ -45,15 +45,15 @@ const KICKS_I = {
 };
 
 const LOCK_DELAY = 0.5, MOVE_RESETS = 15;
+const KILL_LOCK = 0.3; // the kill screen's lock delay: little time to slide a piece that is already down
 const DAS = 0.167, ARR = 0.033, SOFT = 20; // auto-shift delay and rate (seconds), soft drop speed-up
 const LINE_POINTS = [0, 100, 300, 500, 800];
 const TSPIN_POINTS = [400, 800, 1200, 1600], MINI_POINTS = [100, 200, 400];
 const CLEAR_POINTS = [0, 800, 1200, 1800, 2000]; // a perfect clear: nothing left in the well
-export const ZONE_LINES = 24;   // lines that fill the Zone meter
-export const ZONE_SECONDS = 20; // how long a full meter stops time for
-
 // seconds per row at a level (the guideline curve), never faster than one row a frame
 export const gravity = (level) => Math.max(1 / 60, (0.8 - (level - 1) * 0.007) ** (level - 1));
+// the endgame: the level climbs no higher (the curve has reached a row a frame by level 14)
+export const TOP_LEVEL = 15;
 
 export class Stack {
   constructor(random = Math.random) {
@@ -64,7 +64,7 @@ export class Stack {
   }
 
   reset() {
-    this.rows = Array.from({ length: TOP }, () => Array(W).fill(null)); // a cell holds its piece's type, or "zone"
+    this.rows = Array.from({ length: TOP }, () => Array(W).fill(null)); // a cell holds its piece's type, or "G" (garbage, pushed up from below)
     this.bag = [];
     this.queue = [];
     this.hold = null;
@@ -73,6 +73,8 @@ export class Stack {
     this.score = 0;
     this.lines = 0;
     this.level = 1;
+    this.base = 1;      // the level the pace was last set to (see pace)
+    this.baseLines = 0; // and the lines there were then
     this.combo = -1;
     this.b2b = false;
     this.time = 0;
@@ -80,9 +82,7 @@ export class Stack {
     this.lockTimer = 0;
     this.resets = 0;
     this.lowest = Infinity;
-    this.meter = 0;     // 0..1, the Zone meter
-    this.zone = 0;      // seconds of Zone left; 0 when it is not on
-    this.zoneLines = 0; // lines piled at the bottom during this Zone
+    this.kill = false;  // the kill screen: every piece falls to the floor at once (20G) and locks soon (see killScreen)
     this.input = { left: false, right: false, soft: false, dir: 0, das: 0, arr: 0 };
   }
 
@@ -142,21 +142,42 @@ export class Stack {
     this.lowest = this.piece.y;
     if (!this.fits(this.piece)) return this.over("block out");
     if (this.fits(this.piece, 0, -1)) this.piece.y--; // and drops into view at once
+    if (this.kill) while (this.fits(this.piece, 0, -1)) this.piece.y--; // (the kill screen: on the floor already)
     this.emit("spawn", { piece: type });
   }
 
   over(reason) {
     this.state = "over";
-    if (this.zone) this.endZone();
     this.emit("over", { reason, score: this.score });
   }
 
-  // the last stage of a journey is done: the run ends, won
-  finish() {
+  // the run ends, won: the journey done (or whatever else says so: reason)
+  finish(reason = "journey") {
     if (this.state !== "playing") return;
-    if (this.zone) this.endZone();
     this.state = "over";
-    this.emit("over", { reason: "journey", score: this.score });
+    this.emit("over", { reason, score: this.score });
+  }
+
+  // the kill screen: from now on every piece is on the floor the moment it appears, and locks soon
+  killScreen(on = true) {
+    this.kill = on;
+  }
+
+  // Rows pushed up from below, full but for one hole (the same in each): the well's floor rises under
+  // everything in it. Pushed past the top, the run is over.
+  garbage(n, hole = Math.floor(this.random() * W)) {
+    if (this.state !== "playing" || n < 1) return;
+    for (let y = TOP - n; y < TOP; y++) if (this.rows[y].some((c) => c !== null)) return this.over("overrun");
+    for (let i = 0; i < n; i++) {
+      this.rows.pop();
+      this.rows.unshift(Array.from({ length: W }, (_, x) => (x === hole ? null : "G")));
+    }
+    // the falling piece is lifted with it, if it is now in the way
+    if (this.piece) {
+      while (!this.fits(this.piece) && this.piece.y < TOP + 4) this.piece.y++;
+      this.lowest = this.piece.y;
+    }
+    this.emit("garbage", { rows: n, hole });
   }
 
   // ---- what the player does ----
@@ -181,7 +202,6 @@ export class Stack {
       case "ccw": this.rotate(3); break;
       case "flip": this.rotate(2); break;
       case "hold": this.swap(); break;
-      case "zone": this.startZone(); break;
     }
   }
 
@@ -276,14 +296,11 @@ export class Stack {
         }
       }
     }
-    if (this.zone) {
-      // time has stopped: nothing falls by itself, though a piece pushed to the floor still locks
-      this.zone = Math.max(0, this.zone - dt);
-      if (!this.zone) return this.endZone();
-    }
+    // the kill screen: straight to the floor, whatever the level
+    if (this.kill) while (this.fits(this.piece, 0, -1)) { this.piece.y--; this.piece.spun = false; }
     const grounded = !this.fits(this.piece, 0, -1);
     if (!grounded) {
-      const step = this.zone ? (input.soft ? gravity(1) / SOFT : Infinity) : input.soft ? Math.min(gravity(this.level), gravity(1) / SOFT) : gravity(this.level);
+      const step = input.soft ? Math.min(gravity(this.level), gravity(1) / SOFT) : gravity(this.level);
       this.fall += dt;
       while (this.fall >= step && this.fits(this.piece, 0, -1)) {
         this.fall -= step;
@@ -297,7 +314,7 @@ export class Stack {
       }
       if (!this.fits(this.piece, 0, -1)) this.fall = 0;
       this.lockTimer = 0;
-    } else if ((this.lockTimer += dt) >= LOCK_DELAY) {
+    } else if ((this.lockTimer += dt) >= (this.kill ? KILL_LOCK : LOCK_DELAY)) {
       this.lock();
     }
   }
@@ -325,23 +342,10 @@ export class Stack {
     this.emit("lock", { piece: piece.type, cells });
     this.piece = null;
 
-    // full rows, not counting the Zone's own pile at the bottom
     const full = [];
-    for (let y = this.zoneLines; y < TOP; y++) if (this.rows[y].every((c) => c !== null)) full.push(y);
+    for (let y = 0; y < TOP; y++) if (this.rows[y].every((c) => c !== null)) full.push(y);
     const n = full.length;
     const cleared = full.map((y) => ({ y, cells: [...this.rows[y]] }));
-
-    if (this.zone) {
-      // in the Zone cleared rows are not gone: they sink to the bottom and wait there
-      if (n) {
-        for (const y of [...full].reverse()) this.rows.splice(y, 1);
-        for (let i = 0; i < n; i++) this.rows.splice(this.zoneLines, 0, Array(W).fill("zone"));
-        this.zoneLines += n;
-        this.emit("zoneLines", { rows: cleared, total: this.zoneLines });
-      }
-      this.combo = n ? this.combo + 1 : -1;
-      return this.spawn();
-    }
 
     let points = 0, label = "";
     if (spin === "full") {
@@ -375,7 +379,6 @@ export class Stack {
     }
     this.score += Math.round(points * this.level);
     if (n) {
-      this.meter = Math.min(1, this.meter + n / ZONE_LINES);
       this.addLines(n);
       this.emit("clear", { rows: cleared, lines: n, spin, label, combo: this.combo, b2b: hard && label.startsWith("back"), perfect });
     } else if (spin) {
@@ -385,33 +388,23 @@ export class Stack {
   }
 
   addLines(n) {
-    const before = this.level;
     this.lines += n;
-    this.level = 1 + Math.floor(this.lines / 10);
-    if (this.level !== before) this.emit("level", { level: this.level });
+    this.climb(true);
   }
 
-  // ---- the Zone ----
+  // ---- the pace ----
 
-  startZone() {
-    if (this.zone || this.meter < 0.25) return;
-    this.zone = this.meter * ZONE_SECONDS;
-    this.meter = 0;
-    this.zoneLines = 0;
-    this.emit("zone", { seconds: this.zone });
+  // Start the level at least here from now on (a stage's own level: see the zone), and climb from it
+  // one level every ten lines, to TOP_LEVEL. It never goes down.
+  pace(level) {
+    this.base = level;
+    this.baseLines = this.lines;
+    this.climb(false);
   }
 
-  endZone() {
-    const n = this.zoneLines;
-    const rows = this.rows.slice(0, n).map((cells, y) => ({ y, cells }));
-    this.rows.splice(0, n);
-    while (this.rows.length < TOP) this.rows.push(Array(W).fill(null));
-    this.zone = 0;
-    this.zoneLines = 0;
-    // scored as one clear: n lines at once is worth n squared times fifty (four of them, a quad)
-    const points = 50 * n * n * this.level;
-    this.score += points;
-    if (n) this.addLines(n);
-    this.emit("zoneEnd", { lines: n, rows, points });
+  climb(say) {
+    const before = this.level;
+    this.level = Math.min(TOP_LEVEL, Math.max(this.level, this.base + Math.floor((this.lines - this.baseLines) / 10)));
+    if (say && this.level !== before) this.emit("level", { level: this.level });
   }
 }

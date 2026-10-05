@@ -528,7 +528,7 @@ async function neighbourNotes(x, y, z) {
   for (const [dx, dy, dz, label] of dirs) {
     const nx = x + dx, ny = y + dy, nz = z + dz;
     if (nx === 0 && ny === 0 && nz === 0) {
-      notes.push(`${label}: the origin hub (deep blue fog, a glass crystal ringed by twelve cubes, seven coloured orbs${HUB_EXTRAS.map((extra) => `, ${extra}`).join("")})`);
+      notes.push(`${label}: the origin hub (deep blue fog, a glass crystal ringed by twelve cubes, seven coloured orbs; round it all, level with the clock, a wide circle of portals: a ring of tumbling falling-block pieces round a black hole${HUB_EXTRAS.map((extra) => `, ${extra}`).join("")})`);
       continue;
     }
     const n = await readCached(nx, ny, nz);
@@ -664,6 +664,7 @@ const TYPES = {
   ".ogg": "audio/ogg",
   ".opus": "audio/ogg",
   ".mp3": "audio/mpeg",
+  ".aac": "audio/aac",
   ".wav": "audio/wav",
   ".flac": "audio/flac",
   ".m4a": "audio/mp4",

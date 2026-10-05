@@ -26,15 +26,33 @@ Controls:
   browser ask before leaving. In fullscreen on Chromium those keys go to the game, and
   left `Ctrl` can be used to sink.
 - Controller: left stick fly, right stick look, right / left trigger rise and sink,
-  bumpers roll, `A` (cross) or left-stick click surge, d-pad up level out, d-pad left / right sensitivity, `X` (square) invert,
-  `Y` (triangle) mute. Any button starts the game.
+  bumpers roll, `A` (cross) or left-stick click surge, `X` (square) interact: opens or enters what you
+  look at (a post, a museum piece, a 4chan thread, the well you are beside), and with nothing there
+  recentres the view; right-stick click autofly, d-pad left / right sensitivity, `Y` (triangle) mute.
+  Any button starts the game. Invert look and recentring alone have no button until you give them one.
 - Map: `Tab` (controller: select) opens the map of every sector you have been in (only those;
   remembered across visits), one horizontal layer at a time; `Page Up` / `Page Down` (bumpers) step
   through layers. Scroll zooms, out over thousands of sectors; drag moves the view; a click picks a
   spot and a double click goes there. Its panel takes an exact sector and offset (`go`), sets where
   you start (`start here`), goes somewhere at random in what the map shows, and finds you again.
   `O` or `origin` always takes you back to the hub, from any dimension, and starts you there again.
+  Under the volume in the Tab panel, the mix: a slider each (0 to 150%) for the void's own sound (its
+  drone, wind, heartbeat), music (the zone's, marderchen's, the garden's), sounds (knocks, stings, the
+  game's), voices (the entity's) and radio and posts (what plugins play); remembered, and a double
+  click puts one back to 100.
+  The Tab panel's windows (the map's, the keys, the controller page, and the plugins') can be put
+  where you like: drag one by any part that is not a button or a field, and resize it by its corner;
+  what is in it flows to fit. Each is remembered where you left it; pressed twice quickly (not on a
+  control), it goes back where it began.
 - Touch: drag to look, hold a second finger to fly forward.
+- With more than one controller connected, the one you use is the one listened to: it is kept until
+  another has a button pressed or a stick pushed, so an idle one left plugged in does not get in the way.
+- The controller's buttons can be put where you want them: Tab, then `controller`. Every action, flying
+  and at the well, is listed with the buttons it is on (named as on your controller: ✕ ○ □ △ L1 R2 ...
+  or A B X Y LB RT ...); click one and press the button to put it there, `+` to add another, right
+  click to clear it. `swap sticks` flies with the right stick and looks with the left; `reset all`
+  puts everything back. Remembered in the browser, and the controller's help line follows it. Plugins
+  add groups of their own (the f0ck and 4chan tour: `pad.addActions`, see their READMEs).
 
 What is built is solid: flying into a structure (or the zone's well) bounces you back off it with
 a knock, louder the harder you hit. Two exceptions: a recursion, which is made to be flown into
@@ -205,44 +223,67 @@ not strobe hard, but it is bright and pulses with the beat.
 
 ## The zone
 
-Fly straight down from the hub. In sector `0, -1, 0` a ring of blocks turns round a black hole,
-the seven pieces tumbling about it. It pulls you through like his door does, into the zone: a
-dimension with a well hanging in it, and a falling-block game in the well that is part of the place.
+In the hub, on the circle of portals round the clock, behind you and to the left as you arrive
+(beside 4chan's green ring, when the chan plugin is there), a ring of blocks turns round a black hole, the seven
+pieces tumbling about it. It pulls you through like his door does, into the zone: a dimension with
+a well for each stage hanging in it, one after another along a winding way, and a falling-block
+game in them that is part of the place. The ring behind where you arrive takes you back out into
+the hub.
 
-At the well, `P` (controller: start) sits you down; `P` again stands you up and pauses. In the
-zone `R` (seated, also right-stick click) levels you out facing the well, from wherever you are.
-`Space` starts a run, and before that `←` `→` choose the stage it starts on.
+Each well wears its stage's colours and has its name over it. Fly among them and the dimension
+takes the stage of the one you are nearest: its colours, sky, current and music. At a well, `P`
+(controller: start) sits you down; `P` again stands you up and pauses. `Esc` pauses where you sit
+(the browser lets go of the mouse with it); `Esc` again or a click goes on (controller: start or
+cross). In the zone `R` (seated,
+also right-stick click) levels you out facing the well, from wherever you are. `Space` starts a run
+at that well's stage; before that `←` `→` take you over to the well before or after.
 
 - Keyboard: `←` `→` move, `↓` soft drop, `Space` hard drop, `↑` or `X` rotate, `Z` or `Ctrl`
-  rotate back, `A` turn round, `C` or `Shift` hold, `V` the Zone. Mouse look and `Q` `E` roll still work.
+  rotate back, `A` turn round, `C` or `Shift` hold. Mouse look and `Q` `E` roll still work.
 - Controller: d-pad (or left stick) move, d-pad down soft drop, d-pad up hard drop, `A` rotate,
-  `B` / `X` rotate back, `Y` turn round, bumpers hold, triggers the Zone.
+  `B` / `X` rotate back, `Y` turn round, bumpers hold.
 
 The game (`public/src/stack.js`) follows the published guideline rules: seven-piece bags, SRS
 rotation and wall kicks, hold, five next pieces, ghost, lock delay with move resets, guideline
-gravity and scoring, T-spins, back-to-back, combos, perfect clears. And the Zone: clearing lines
-fills a meter; from a quarter full it can be set off, and then time stops for as long as the
-meter held (20 seconds full). Nothing falls; every line cleared sinks to the bottom of the well
-and waits there, and when time starts again they all go at once (n lines score 50 × n² × level).
+gravity and scoring, T-spins, back-to-back, combos, perfect clears.
+
+A run is a journey through the stages, from the well it starts at to the last; each stage lasts 24
+lines. When a stage is done the game goes over to the next well, with you seated at it (the game
+waits on the way): its blocks burn away from the top of the well down, each eaten from a white-hot
+edge and leaving as a streak of light in its own colour; the streaks arc up and over to the next
+well while you are flown after them and the dimension eases into the next look, the next song
+crossfading in from its beginning; and there the blocks come together again from the bottom up,
+each as its streak lands.
+
+Finishing the last stage does not end the journey: it is flown on to one more well, further down and
+further out, the deep void, where the void plays against you. It is only reached that way (sitting at
+its well, `Space` sends you back to the first one). There it is the kill screen: every piece is on
+the floor the moment it appears and locks soon, at the top level. The void has a strength (its bar
+under the numbers on the left); every line you clear hurts it, quads and T-spins most, back-to-backs
+and combos more, a perfect clear a lot. It fights back: every few seconds it pushes rows of garbage up
+from the floor, each with one hole, sooner and more of them the weaker it gets, and now and then it
+says something. Empty its strength and the void is quiet: the journey is done. Pushed out of the top,
+the void keeps you. Either way, `Space` begins a new journey at the first well.
+
+It gets harder as it goes, as classic falling-block games do: the level climbs one every ten lines,
+and the pieces fall faster with it (the guideline curve), up to the endgame speed, a row every
+frame, from level 14 (the level stops at 15). Each stage also starts at its own level, the first at
+1 and each next one two higher (with seven stages: 1, 3, 5, ... 13), so a run started at a later
+well is fast from its first piece, and the last stage is played at the endgame speed.
 
 What it does to the place (`public/src/zone.js`):
 
 - Cleared lines burst out of the well as blocks that stay in the dimension for a minute or two,
   carried by the stage's current (schooling, rising, orbiting, spiralling, raining, pulsing).
 - Every piece that lands sends a shock through all of them; a quad (four lines at once) or a T-spin a big one.
-- Flying through them knocks them out of the way and drags them along. The well itself rocks when
-  things land in it, and gives a little when you fly into it.
-- In the Zone time stops for the whole dimension: the blocks, the current, the sky. The music goes
-  under water. When it ends, everything piled up is thrown out in one blast.
-- A run is a journey through the stages, from the one you chose to the last; each lasts 24 lines.
-  Through a stage its song builds: it starts held back, darker and quieter, and opens up as the
-  lines add up. When the stage is done the next song crossfades in from its beginning and the
-  dimension eases into the next look (colours, sky, current) without a cut. Finishing the last
-  stage completes the journey.
+- Flying through them knocks them out of the way and drags them along. The wells are solid; the
+  one being played rocks when things land in it, and gives a little when you fly into it.
+- Through a stage its song builds: it starts held back, darker and quieter, and opens up as the
+  lines add up.
 - Every action has its sound, played by the stage's own instrument, in its key and on its beat:
   moving plays the column you are in, turning goes up clockwise and down the other way, and holds,
-  landings, drops, clears and the Zone each have theirs. In the zone the pieces stand steady; the
-  music does not make them flash.
+  landings, drops and clears each have theirs. In the zone the pieces stand steady; the music does
+  not make them flash. The words over the well and the numbers beside it are plain, not glowing.
 
 ### Your own stages
 
@@ -294,7 +335,8 @@ of its own (`game.addRealm`). Without plugins, none of this does anything.
 
 Nothing is random per visit. Sectors sit on an integer grid, 5200 units apart (`public/src/constants.js`): `x` east,
 `y` up, `z` south, with the origin hub at `0, 0, 0`. The HUD shows the sector you are in and
-your offset from its centre. A sector Claude has dreamt is stored as
+your offset from its centre, for a few seconds whenever you arrive somewhere new (`H` keeps it on
+the screen); the keys are listed in the Tab panel. A sector Claude has dreamt is stored as
 `.cache/sectors/<x>_<y>_<z>.json` and is the same place for everyone using that server, forever.
 `GET /api/sectors` returns the whole list as JSON.
 

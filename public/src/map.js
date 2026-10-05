@@ -1,6 +1,6 @@
 // The map: every sector that has been seen, drawn one horizontal layer at a time.
 // Sectors sit on an integer grid (x east, y up, z south); the same coordinates are always the same place.
-import { CELL } from "./constants.js";
+import { CELL, SPAWN } from "./constants.js";
 
 export class VoidMap {
   constructor(canvas) {
@@ -210,7 +210,7 @@ export class VoidMap {
   origin() {
     this.spawn = null;
     this.onSpawn(null);
-    this.choose("void", 0, 100, 600);
+    this.choose("void", ...SPAWN);
     this.go();
     this.note("back at the origin · you start here again");
   }

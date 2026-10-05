@@ -46,6 +46,11 @@
   .volume input:hover::-webkit-slider-thumb, .volume input:focus-visible::-webkit-slider-thumb { background: #9fb8ff; box-shadow: 0 0 12px #5f8cff; }
   .volume input:hover::-moz-range-thumb, .volume input:focus-visible::-moz-range-thumb { background: #9fb8ff; box-shadow: 0 0 12px #5f8cff; }
   .volume output { width: 3ch; opacity: .7; font-variant-numeric: tabular-nums; }
+  /* the mix under it, in the map's panel: each kind of sound's own slider, their names in a column */
+  #mapPanel .mix { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
+  #mapPanel .mix .of { opacity: .5; letter-spacing: .2em; font-size: 11px; text-transform: lowercase; }
+  #mapPanel .mixer span { width: 7em; opacity: .75; }
+  #mapPanel .mixer output { width: 4ch; }
   #start .volume { justify-content: center; gap: 16px; margin-top: 2.6em; opacity: .7; text-shadow: 0 0 12px rgba(95, 140, 255, .5); }
   /* label and number as wide as each other, so the line sits under the middle of the screen */
   #start .volume span, #start .volume output { width: 5em; }
@@ -55,10 +60,21 @@
 
   #hud { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity 3s ease 1.5s; }
   #hud.on { opacity: 1; }
-  /* h: nothing but the void (and back) */
-  .bare #hud.on, .bare #hint { opacity: 0; transition: opacity .3s ease; }
-  .unbared #hud.on { transition: opacity .3s ease; } /* back as quickly, not with the slow first reveal */
+  /* the place's name and the line under it come when you arrive somewhere, and go again: nothing
+     stays over the void. h keeps them (and h again lets them go) */
+  #sector, #meta { opacity: 0; transition: opacity 2.5s ease; }
+  #sector.awake, .hud-shown #sector { opacity: 1; transition: opacity .6s ease; }
+  #meta.awake, .hud-shown #meta { opacity: .7; transition: opacity .6s ease; }
   #hint { transition: opacity .3s ease; }
+  /* a word on what just happened (a volume, a post saved): for a moment at the bottom right; like the
+     crosshair, not part of the HUD, so it comes whether the HUD is there or not */
+  #note {
+    position: fixed; right: 6vw; bottom: 7vh; max-width: 46vw; z-index: 1;
+    pointer-events: none; text-align: right; font-size: 11px; letter-spacing: .14em; text-transform: lowercase;
+    color: rgba(207, 220, 255, .75); text-shadow: 0 0 6px rgba(0, 0, 0, .9); opacity: 0; transition: opacity .8s ease;
+  }
+  #note.show { opacity: 1; transition: opacity .2s ease; }
+  .mapping #note { opacity: 0; }
   /* the middle of the view: a small hollow square, there if you look for it */
   /* not part of the HUD: it stays when H hides that (and comes with it at the start) */
   #crosshair { opacity: 0; transition: opacity 3s ease 1.5s; pointer-events: none; z-index: 1; }
@@ -74,7 +90,7 @@
   #sector.enter #name { animation: reveal 2.6s cubic-bezier(.2,.7,.2,1) both; }
   #sector.enter #inscription { animation: reveal 2.6s .5s cubic-bezier(.2,.7,.2,1) both; }
   @keyframes reveal { from { opacity: 0; letter-spacing: .7em; filter: blur(6px); } }
-  #meta { position: absolute; left: 6vw; bottom: 5.5vh; font-size: 11px; opacity: .7; text-transform: lowercase; font-variant-numeric: tabular-nums; }
+  #meta { position: absolute; left: 6vw; bottom: 5.5vh; font-size: 11px; text-transform: lowercase; font-variant-numeric: tabular-nums; }
   #entity {
     position: absolute; left: 8vw; right: 8vw; top: 60%; text-align: center; color: #eef2ff;
     font-size: clamp(15px, 1.7vw, 23px); letter-spacing: .34em; text-transform: lowercase;
@@ -131,10 +147,10 @@
     font: 300 12px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .08em; color: #cfdcff;
   }
   .mapping #mapPanel { display: flex; }
-  #mapPanel .row { display: flex; align-items: center; gap: 6px; }
+  #mapPanel .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   #mapPanel .row span { width: 5.5em; opacity: .6; }
   #mapPanel input {
-    width: 6.5em; padding: 4px 6px; background: rgba(140, 160, 220, .08); border: 1px solid rgba(140, 160, 220, .3);
+    width: 6.5em; flex: 1 1 4.5em; min-width: 3.5em; padding: 4px 6px; background: rgba(140, 160, 220, .08); border: 1px solid rgba(140, 160, 220, .3);
     color: #fff; font: inherit; letter-spacing: .04em;
   }
   #mapPanel button {
@@ -146,11 +162,65 @@
   #mapPanel .choices button { padding: 4px 8px; }
   #mapPanel button.on { background: rgba(95, 140, 255, .32); border-color: #9fb8ff; box-shadow: 0 0 8px rgba(95, 140, 255, .35); }
   #mNote { min-height: 1.2em; opacity: .7; max-width: 44ch; }
-  #sector, #help { transition: opacity .25s ease; }
-  .mapping #sector, .mapping #help { opacity: 0; }
+  .mapping #sector, .mapping #help { opacity: 0; transition: opacity .25s ease; }
   .seated #sector { opacity: 0; } /* at the well in the zone: the place's name would sit over the game */
+  /* the keys, in the Tab panel: cvoid's own, then each plugin's (the gamepad's when one is in use) */
+  #keysPanel {
+    position: fixed; right: 24px; top: 68px; z-index: 4; display: none; flex-direction: column; gap: 10px; /* (below the map's own lines) */
+    max-width: min(640px, calc(100vw - 48px)); max-height: calc(100vh - 92px); overflow-y: auto;
+    padding: 14px 16px; background: rgba(2, 3, 14, .85); border: 1px solid rgba(140, 160, 220, .3);
+    font: 300 11px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .06em; color: #cfdcff; text-transform: lowercase;
+  }
+  .mapping #keysPanel { display: flex; }
+  #keysPanel .title { letter-spacing: .3em; opacity: .8; font-size: 12px; }
+  /* cvoid's keys in one column, the plugins' beside them: wide rather than tall, clear of their panels */
+  #keysList { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 0 32px; align-items: start; }
+  #keysList .column { display: flex; flex-direction: column; gap: 4px; }
+  #keysPanel .keys { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; }
+  #keysPanel .keys b { font-weight: 400; color: #fff; }
+  #keysPanel .keys span { opacity: .65; }
+  #keysPanel .of { opacity: .5; letter-spacing: .2em; margin-top: 6px; }
+  /* scrollbars: a thin line, the panels' pale blue, on nothing (Chromium and Safari draw the line; the
+     standard properties, which would override those there, only where they are not understood: Firefox) */
+  ::-webkit-scrollbar { width: 3px; height: 3px; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(159, 184, 255, .55); }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(159, 184, 255, 1); }
+  ::-webkit-scrollbar-button { display: none; }
+  @supports not selector(::-webkit-scrollbar) {
+    * { scrollbar-width: thin; scrollbar-color: rgba(159, 184, 255, .55) transparent; }
+  }
+  /* the Tab panel's windows: moved by dragging any part that is not a control, resized by their corner,
+     their contents flowing to fit (see panels.js) */
+  .movable { resize: both; overflow: auto; min-width: 180px; min-height: 60px; cursor: move; box-sizing: border-box; }
+  .movable :is(button, input, select, a, label, output) { cursor: pointer; }
+  .movable input:not([type="range"]) { cursor: text; }
+  .movable.dragging { user-select: none; opacity: .92; }
+  /* the controller page, in the keys' place while it is open: each action, and the buttons it is on */
+  #padPanel {
+    position: fixed; right: 24px; top: 68px; z-index: 4; display: none; flex-direction: column; gap: 8px;
+    max-width: min(520px, calc(100vw - 48px)); max-height: calc(100vh - 92px); overflow-y: auto;
+    padding: 14px 16px; background: rgba(2, 3, 14, .85); border: 1px solid rgba(140, 160, 220, .3);
+    font: 300 11px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .06em; color: #cfdcff; text-transform: lowercase;
+  }
+  .mapping.padding #padPanel { display: flex; }
+  .mapping.padding #keysPanel { display: none; }
+  #padPanel .title { letter-spacing: .3em; opacity: .8; font-size: 12px; }
+  #padPanel .which { opacity: .5; text-transform: none; }
+  #padPanel .of { opacity: .5; letter-spacing: .2em; margin-top: 6px; }
+  #padPanel .binds { display: grid; grid-template-columns: 1fr minmax(9em, max-content) auto; gap: 4px 8px; align-items: center; }
+  #padPanel .binds span { opacity: .75; }
+  #padPanel .row { display: flex; gap: 6px; margin-top: 6px; }
+  #padPanel button {
+    padding: 4px 8px; background: rgba(140, 160, 220, .12); border: 1px solid rgba(140, 160, 220, .4);
+    color: #fff; font: inherit; letter-spacing: .06em; cursor: pointer; text-transform: none;
+  }
+  #padPanel button:hover { background: rgba(140, 160, 220, .28); }
+  #padPanel button.on { background: rgba(95, 140, 255, .32); border-color: #9fb8ff; box-shadow: 0 0 8px rgba(95, 140, 255, .35); }
+  #padPanel button.set { text-align: left; }
   #meta .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: .7em; background: currentColor; vertical-align: 1px; }
   #meta.waiting .dot { animation: breathe 1s ease-in-out infinite; }
+  /* only the well's game keys, while seated at it (the rest are in the Tab panel) */
   #help { position: absolute; right: 6vw; bottom: 7vh; max-width: 46vw; font-size: 11px; opacity: .4; text-align: right; text-transform: lowercase; }
   @media (max-width: 700px) { #help { display: none; } }
 </style>
@@ -167,11 +237,14 @@
   <div class="row"><span>sector</span><input id="mSX" placeholder="x"><input id="mSY" placeholder="y"><input id="mSZ" placeholder="z"></div>
   <div class="row"><span>offset</span><input id="mOX" placeholder="x"><input id="mOY" placeholder="y"><input id="mOZ" placeholder="z"></div>
   <div class="row"><span>screen</span><div class="choices" id="mScreen"></div></div>
-  <div class="row"><button id="mGo">go</button><button id="mSpawn">start here</button><button id="mRandom">random</button><button id="mOrigin">origin</button><button id="mHere">find me</button></div>
+  <div class="row"><button id="mGo">go</button><button id="mSpawn">start here</button><button id="mRandom">random</button><button id="mOrigin">origin</button><button id="mHere">find me</button><button id="mPad">controller</button></div>
   <div id="mNote">click the map to pick a spot, or type one</div>
   <label class="volume"><span>volume</span><input type="range" min="0" max="100" step="1"><output></output></label>
 </div>
+<div id="keysPanel"><div class="title">keys</div><div id="keysList"></div></div>
+<div id="padPanel"></div>
 <div id="crosshair"></div>
+<div id="note"></div>
 <div id="hud">
   <div id="sector"><div id="name"></div><div id="inscription"></div></div>
   <div id="entity"></div>

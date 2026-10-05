@@ -1,25 +1,38 @@
-// The zone: a dimension reached through a ring of falling blocks straight down from the hub.
-// In it hangs a well, and the game in it (stack.js) is part of the place: lines you clear burst out
-// of the well into the dimension and stay there, drifting with the stage's current; every piece that
-// lands sends a shock through them; flying through them knocks them about; and in the Zone time
-// stops for all of it at once, until everything piled up goes in one blast.
+// The zone: a dimension reached through a ring of falling blocks, one of the portals round the hub's clock.
+// In it hang wells, one for each stage, and the game in them (stack.js) is part of the place: a run
+// starts at a well and, stage by stage, is flown on to the next one, the dimension taking that
+// stage's look and music, each stage starting faster than the last. Lines you clear burst out of the
+// well into the dimension and stay there, drifting with the stage's current; every piece that lands
+// sends a shock through them; flying through them knocks them about.
 //
 // Its stages are looks of ours (palette, sky, current, key, tempo), or whatever the player has put in
 // zone/: music, pictures and models of their own, which git ignores (see the README).
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { CELL } from "./constants.js";
 import { hashCoords, mulberry32 } from "./noise.js";
-import { ORIGIN } from "./spec.js";
+import { CELL, hubPortal } from "./constants.js";
 import { voidHole } from "./hole.js";
-import { Stack, W, H, ZONE_SECONDS } from "./stack.js";
+import { Stack, W, H, TOP_LEVEL } from "./stack.js";
 
 export const ZONE = "zone";
-export const ZONE_GATE = [0, -1, 0]; // straight down from the hub
+// the ring in the hub: on the circle of portals round the clock (six places, a sixth of a turn apart),
+// straight behind you as you arrive; the plugins take the others: f0ck ahead, then gumo, somafm, and
+// past the zone's 4chan and tiktok
+const HUB_GATE = hubPortal(Math.PI);
+const VOID_GATE = new THREE.Vector3(...HUB_GATE.at), GATE_AXIS = new THREE.Vector3(...HUB_GATE.in);
 const GATE_R = 130, HOLE = 112;     // the ring of blocks, and the dark that fills it
 const EXIT = new THREE.Vector3(0, 0, 800);    // in the zone, the way back out: behind where you arrive
-const BOARD = new THREE.Vector3(0, 0, -1200); // the well
-const SEAT = new THREE.Vector3(0, 0, -380);   // where you sit to play it
+// The wells, one for each stage, along a winding way into the dimension: the first ahead as you
+// arrive, each next one further on and off to a side, all facing the way in
+const BOARD = new THREE.Vector3(0, 0, -1200); // the first well
+const WELL_STEP = 3400;                       // how much further on each next one is
+const wellAt = (i, out = new THREE.Vector3()) => out.set(Math.sin(i * 1.3) * 1900, Math.sin(i * 0.8) * 500, BOARD.z - i * WELL_STEP);
+const SEAT_AT = new THREE.Vector3(0, 0, 820); // where you sit to play, from its well
+// a passage to another well, in seconds: the blocks going (burnt away from the top down, each leaving
+// as a streak of light), the flight, and the blocks coming again (from the bottom up, each as its
+// streak lands); see setStage
+const GO = 0.8, FLY = 2.4, COME = 0.9;
+const STREAK = 4; // lights to each block's streak: its head, and those trailing it
 const S = 36;                                 // one block, in world units
 const STAGE_LINES = 24;                       // lines a stage lasts in a run, unless it says otherwise
 
@@ -67,21 +80,28 @@ export const STAGES = [
     flow: "rain", drift: "fall", root: 61.7, mode: "whole", bpm: 136,
   },
 ];
+// After the last stage, one more well: the deep void, where the void itself plays against you. It is
+// only reached by finishing a journey. The kill screen there (every piece on the floor at once, locking
+// soon, at the top level), and the void fights back: rows of garbage pushed up from the floor, more and
+// sooner as it weakens; every line you clear hurts it (quads and spins more). Clear it out to win.
+const DEEP = {
+  name: "the deep void", voice: "bell", palette: { fog: "#05000a", deep: "#000000", glow: "#7b3cff", accent: "#e6d9ff" },
+  sky: "float n = fbm(p * 0.8 + vec3(0.0, 0.0, t * 0.04)); float v = abs(snoise(p * 2.2 + n * 3.0 - t * 0.05)); return pow(1.0 - v, 8.0) * 0.9 + n * 0.12;",
+  flow: "pulse", drift: "fall", root: 36.7, mode: "phrygian", bpm: 150, lines: Infinity, deep: true,
+};
+const VOID_HP = 100;                            // how much the void can take
+const HURT = [0, 4, 10, 18, 30];                // what a clear of 0..4 lines does to it (spins, back-to-backs and combos more)
+const TAUNTS = [
+  "every line you clear, i keep", "you came all this way to be kept", "i have held everything ever made. i can hold you",
+  "faster", "this is where journeys stop", "let go", "you are almost part of me", "fall", "nothing leaves", "again",
+];
+const DEEP_AWAY = new THREE.Vector3(0, -1400, -5200); // its well: on from the last, further down and further out
 const FLOWS = ["school", "rise", "drift", "spiral", "orbit", "pulse", "rain"];
 const MODES = ["minor", "dorian", "lydian", "phrygian", "whole", "pentatonic"];
 const VOICES = ["bell", "drop", "marimba", "chime", "pluck", "harp"];
 
 let look = STAGES[0]; // the stage the dimension is wearing; its sectors are built from it
 const layer = (o) => ({ kind: "none", primitive: "cube", density: 0.5, scale: 1, order: 1, twist: 0, spin: 0, symmetry: 1, tilt: 0, lift: 0, ...o });
-
-// The sector in the void that holds the way in.
-export const ZONE_GATE_SPEC = {
-  name: "the well below",
-  inscription: "fly down through the ring",
-  whispers: ["every line you clear goes somewhere", "stop time", "fall"],
-  palette: ORIGIN.palette, fogDensity: ORIGIN.fogDensity, layers: [layer({})], noise: {}, motes: ORIGIN.motes,
-  orbs: { count: 0 }, sound: ORIGIN.sound, fieldGlsl: ORIGIN.fieldGlsl, blueprint: "", dream: 0.1, source: "zone-gate",
-};
 
 // A giant tetromino for a sector's blueprint, turned as one piece.
 const euler = new THREE.Euler(), offset = new THREE.Vector3();
@@ -126,7 +146,9 @@ export function zoneSpec(x, y, z) {
     sound: { root: s.root, mode: s.mode, shimmer: 0.35, darkness: 0.5, pulse: 0, tempo: s.bpm || 100 },
     whispers: [], fieldGlsl: s.sky, motes: { density: 0.35, size: 1.3, speed: 0.3, drift: s.drift }, name: s.name, inscription: "",
   };
-  if (x === 0 && y === 0 && z === 0) return { ...base, inscription: "fly to the well · P to play", blueprint: "" };
+  if (x === 0 && y === 0 && z === 0) return { ...base, inscription: "fly to a well · P to play there", blueprint: "" };
+  // nothing stands in a sector a well hangs in
+  for (let i = 0; i < 16; i++) if (wellAt(i, offset).distanceTo(tmp.set(x, y, z).multiplyScalar(CELL)) < 1500) return { ...base, blueprint: "" };
   const piece = (cx, cy, cz, size, rx, ry, rz) => giantPiece(from(KINDS), cx, cy, cz, size, rx, ry, rz);
   const turn = () => r() * Math.PI * 2;
   const form = from(["drift", "drift", "ring", "spiral", "line", "stack", "stack", "empty"]);
@@ -164,8 +186,16 @@ export function zoneSpec(x, y, z) {
 
 // ---- blocks ----
 // Every block in here, in the well or adrift, is the same box: lit by its edges, filled faintly.
+// The blocks of the game itself can also go and come (DISSOLVE): each burnt away by noise from a
+// white-hot edge in its own colour, shrinking and lifting and turning a little as it goes, and put
+// together the same way back. aOrder says when, of the whole going (x) and coming (y).
 const MINO_VERT = /* glsl */ `
 varying vec3 vLocal, vColor;
+#ifdef DISSOLVE
+attribute vec2 aOrder;
+uniform float uP, uForming; // through the going (or, forming, the coming), 0..1
+varying float vGone, vSeed;
+#endif
 void main(){
   vLocal = position;
 #ifdef USE_INSTANCING_COLOR
@@ -173,28 +203,84 @@ void main(){
 #else
   vColor = vec3(1.);
 #endif
-  gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.);
+  vec3 p = position;
+#ifdef DISSOLVE
+  float k = clamp((uP - mix(aOrder.x, aOrder.y, uForming) * 0.8) / 0.2, 0., 1.);
+  vGone = uForming > 0.5 ? 1. - k : k;
+  vSeed = fract(sin(dot(instanceMatrix[3].xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+  float g = vGone * vGone, a = g * (vSeed - 0.5) * 2.4;
+  p.xz = mat2(cos(a), -sin(a), sin(a), cos(a)) * p.xz;
+  p = p * (1. - g * 0.45) + vec3(0., g * 0.9, 0.);
+#endif
+  gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(p, 1.);
 }`;
 const MINO_FRAG = /* glsl */ `
-uniform float uFill, uEdge, uFlash, uStill;
+uniform float uFill, uEdge, uFlash;
 varying vec3 vLocal, vColor;
+#ifdef DISSOLVE
+varying float vGone, vSeed;
+float h3(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+float vnoise(vec3 p){
+  vec3 i = floor(p), f = fract(p);
+  f = f * f * (3. - 2. * f);
+  return mix(mix(mix(h3(i), h3(i + vec3(1, 0, 0)), f.x), mix(h3(i + vec3(0, 1, 0)), h3(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(h3(i + vec3(0, 0, 1)), h3(i + vec3(1, 0, 1)), f.x), mix(h3(i + vec3(0, 1, 1)), h3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+#endif
 void main(){
   vec3 d = 0.5 - abs(vLocal);
   float near = d.x + d.y + d.z - max(max(d.x, d.y), d.z); // distance to the nearest edge, on the face
   float edge = 1. - smoothstep(0.035, 0.1, near);
   float face = uFill * (0.45 + 0.55 * smoothstep(0.5, 0.0, near));
   vec3 col = vColor * (face + edge * uEdge) + vColor * uFlash; // steady: they do not pulse with the music
-  // time stopped: everything goes pale, as if lit from inside
-  col = mix(col, vec3(0.75, 0.85, 1.) * (0.2 + edge * 1.4) + vColor * 0.15, uStill * 0.7);
+#ifdef DISSOLVE
+  if (vGone > 0.) {
+    float n = 0.65 * vnoise(vLocal * 4. + vSeed * 31.) + 0.35 * vnoise(vLocal * 9. + vSeed * 17.);
+    float cut = vGone * 1.08 - 0.04; // nothing eaten at 0, all of it by 1
+    if (n < cut) discard;
+    float burn = 1. - smoothstep(0., 0.09, n - cut); // the edge being eaten: white-hot, in its own colour
+    col = mix(col, vColor * 2.2 + vec3(0.9), burn) + vColor * vGone * 0.6;
+  }
+#endif
   gl_FragColor = vec4(col, 1.);
 }`;
-function minoMaterial(fill, edge, additive = false) {
+function minoMaterial(fill, edge, additive = false, dissolve = false) {
   return new THREE.ShaderMaterial({
-    vertexShader: MINO_VERT, fragmentShader: MINO_FRAG,
-    uniforms: { uFill: { value: fill }, uEdge: { value: edge }, uFlash: { value: 0 }, uStill: { value: 0 } },
+    vertexShader: MINO_VERT, fragmentShader: MINO_FRAG, defines: dissolve ? { DISSOLVE: "" } : {},
+    uniforms: { uFill: { value: fill }, uEdge: { value: edge }, uFlash: { value: 0 }, uP: { value: 0 }, uForming: { value: 0 } },
     transparent: additive, depthWrite: !additive, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending, fog: false,
   });
 }
+
+// The streaks of light the blocks become between one well and the next: each from where its block
+// was to where it will be, up and over, eased off and in, wavering as it goes (see makeStreams).
+const STREAM_VERT = /* glsl */ `
+attribute vec3 aFrom, aMid, aTo, aColor;
+attribute vec2 aTime;  // when it leaves and when it arrives, in seconds through the passage
+attribute float aTail; // 0 the head of its streak, 1, 2, ... the lights trailing it
+uniform float uT;
+varying vec3 vColor;
+varying float vAlpha;
+void main(){
+  float k = clamp((uT - aTime.x) / (aTime.y - aTime.x), 0., 1.);
+  float e = k * k * k * (k * (k * 6. - 15.) + 10.);
+  vec3 p = mix(mix(aFrom, aMid, e), mix(aMid, aTo, e), e);
+  float arc = sin(e * 3.14159);
+  p += vec3(sin(e * 9. + aTail * 0.6 + aFrom.x * 0.01), cos(e * 7. + aFrom.y * 0.01), sin(e * 8. + aFrom.z * 0.01)) * arc * 30.;
+  vColor = aColor;
+  vAlpha = step(0.0001, k) * smoothstep(0., 0.06, k) * (1. - smoothstep(0.9, 1., k)) * (1. - aTail * 0.22);
+  vec4 mv = modelViewMatrix * vec4(p, 1.);
+  gl_PointSize = clamp((14. + 30. * arc) * (1. - aTail * 0.18) * 300. / max(-mv.z, 1.), 1., 64.);
+  gl_Position = projectionMatrix * mv;
+}`;
+const STREAM_FRAG = /* glsl */ `
+varying vec3 vColor;
+varying float vAlpha;
+void main(){
+  float a = pow(max(1. - length(gl_PointCoord - 0.5) * 2., 0.), 1.8) * vAlpha;
+  if (a < 0.003) discard;
+  gl_FragColor = vec4((vColor * 1.6 + vec3(0.25)) * a, 1.);
+}`;
 
 const SWARM_VERT = /* glsl */ `
 attribute float aSeed;
@@ -210,7 +296,7 @@ void main(){
 }`;
 const SWARM_FRAG = /* glsl */ `
 uniform vec3 uA, uB;
-uniform float uStill, uUseMap, uLight;
+uniform float uUseMap, uLight;
 uniform sampler2D uMap;
 varying float vSeed, vFade;
 void main(){
@@ -219,15 +305,16 @@ void main(){
   vec3 col = mix(uA, uB, vSeed);
   vec4 tex = texture2D(uMap, gl_PointCoord);
   col = mix(col * a, col * tex.rgb * tex.a * 1.6, uUseMap);
-  col = mix(col, vec3(0.8, 0.9, 1.) * (uUseMap > 0.5 ? tex.a : a), uStill * 0.6);
   gl_FragColor = vec4(col * vFade * uLight, 1.);
 }`;
 
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3(), dummy = new THREE.Object3D(), colour = new THREE.Color();
 const POS = new THREE.Vector3(), VEL = new THREE.Vector3(), REL = new THREE.Vector3(), ACC = new THREE.Vector3();
-const AXIS_Y = new THREE.Vector3(0, 1, 0), AXIS_Z = new THREE.Vector3(0, 0, 1);
-const VOID_GATE = new THREE.Vector3().fromArray(ZONE_GATE).multiplyScalar(CELL);
+const AXIS_Z = new THREE.Vector3(0, 0, 1), NO_TURN = new THREE.Euler();
+// the words over the well and the panels beside it: kept just under the bloom's threshold (main.js),
+// so they read plainly instead of glowing
+const UNLIT = new THREE.Color(0.5, 0.5, 0.5);
 
 // how the stage's current pushes something at r (relative to the well), as an acceleration in out
 function current(flow, r, t, seed, beat, out) {
@@ -264,22 +351,23 @@ export class Zone {
     Object.assign(this, { scene, world, audio, hintEl, store, arrive, face, levelOut });
     this.best = stored("zone.best", 0);
     this.stages = STAGES.map((s) => ({ ...s, music: [], images: [], models: [] }));
-    this.stage = 0;       // the stage the dimension is in
-    this.startStage = 0;  // where the next run begins (← → at the well to choose)
+    this.deep = { ...DEEP, music: [], images: [], models: [] }; // the well after the last (see DEEP)
+    this.boss = null;     // the void, while it plays against you: { hp, attackIn }
+    this.stage = 0;       // the stage the dimension is in, and the well the game is at
+    this.watching = null; // a stage whose well shows someone else's game (a plugin's: see the together plugin)
     this.stack = new Stack();
     this.seated = false;
+    this.paused = false;  // seated, the run held (Esc): see pause
     this.pull = new THREE.Vector3(); // what the ring adds to the traveller's flight
     this.roll = 0;
     this.fade = 0;
     this.veil = 0;
     this.spent = false;
-    this.timeScale = 1; // the Zone stops time: for the blocks, the current, and the whole dimension
     this.time = 0;
     this.flash = 0;
     this.kick = new THREE.Vector3(); // the well is knocked by what lands in it, and springs back
     this.kickV = new THREE.Vector3();
     this.callout = { text: "", life: 0, sub: "" };
-    this.padHeld = new Set();
     this.padDir = 0;
     this.panelIn = 0;
 
@@ -311,27 +399,32 @@ export class Zone {
     this.group.visible = false;
     scene.add(this.group);
 
-    // the well
+    // the wells, each in its stage's colours (see buildWells), and the game: what is in the well it
+    // is at, flown from well to well as the stages go by
+    this.wells = [];
+    this.wellParts = {
+      plate: new THREE.PlaneGeometry(W * S, H * S),
+      plateMat: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.8, fog: false }),
+      grid: (() => {
+        const grid = [];
+        for (let x = 1; x < W; x++) grid.push((x - W / 2) * S, -H * S / 2, -S * 0.55, (x - W / 2) * S, H * S / 2, -S * 0.55);
+        for (let y = 1; y < H; y++) grid.push(-W * S / 2, (y - H / 2) * S, -S * 0.55, W * S / 2, (y - H / 2) * S, -S * 0.55);
+        return new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(grid, 3));
+      })(),
+      bars: [[-W / 2 - 0.15, 0, 0.3, H + 0.6], [W / 2 + 0.15, 0, 0.3, H + 0.6], [0, -H / 2 - 0.15, W + 0.6, 0.3]].map(([x, y, w, h]) => [x, y, new THREE.BoxGeometry(w * S, h * S, S * 0.3)]),
+    };
+    this.dock = BOARD.clone();     // where the game is: at its well, or on its way to the next
+    this.passage = null;           // on the way to another well: see setStage
+    this.seatAt = new THREE.Vector3();
     this.board = new THREE.Group();
     this.board.position.copy(BOARD);
     this.group.add(this.board);
-    const plate = new THREE.Mesh(new THREE.PlaneGeometry(W * S, H * S), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.8, fog: false }));
-    plate.position.z = -S * 0.6;
-    this.board.add(plate);
-    const grid = [];
-    for (let x = 1; x < W; x++) grid.push((x - W / 2) * S, -H * S / 2, -S * 0.55, (x - W / 2) * S, H * S / 2, -S * 0.55);
-    for (let y = 1; y < H; y++) grid.push(-W * S / 2, (y - H / 2) * S, -S * 0.55, W * S / 2, (y - H / 2) * S, -S * 0.55);
-    this.grid = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(grid, 3)), new THREE.LineBasicMaterial({ transparent: true, opacity: 0.08, fog: false }));
-    this.board.add(this.grid);
-    this.frameMat = new THREE.MeshBasicMaterial({ fog: false });
-    for (const [x, y, w, h] of [[-W / 2 - 0.15, 0, 0.3, H + 0.6], [W / 2 + 0.15, 0, 0.3, H + 0.6], [0, -H / 2 - 0.15, W + 0.6, 0.3]]) {
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(w * S, h * S, S * 0.3), this.frameMat);
-      bar.position.set(x * S, y * S, 0);
-      this.board.add(bar);
-    }
 
-    this.boardMat = minoMaterial(0.32, 0.6);
-    this.minos = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), this.boardMat, W * (H + 2) + 4 + 4 + 4 * 6);
+    this.boardMat = minoMaterial(0.32, 0.6, false, true);
+    const box = new THREE.BoxGeometry(1, 1, 1), capacity = W * (H + 2) + 4 + 4 + 4 * 6;
+    this.order = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 2), 2); // when each block goes and comes (see drawWell)
+    box.setAttribute("aOrder", this.order);
+    this.minos = new THREE.InstancedMesh(box, this.boardMat, capacity);
     this.minos.frustumCulled = false;
     this.minos.setColorAt(0, colour.set("#ffffff")); // makes the colour buffer before the first draw
     this.board.add(this.minos);
@@ -340,18 +433,32 @@ export class Zone {
     this.ghost.frustumCulled = false;
     this.ghost.setColorAt(0, colour.set("#ffffff"));
     this.board.add(this.ghost);
+    // the streaks the blocks become on the way to another well
+    const streams = new THREE.BufferGeometry(), lights = capacity * STREAK;
+    for (const [name, size] of [["position", 3], ["aFrom", 3], ["aMid", 3], ["aTo", 3], ["aColor", 3], ["aTime", 2], ["aTail", 1]]) {
+      streams.setAttribute(name, new THREE.BufferAttribute(new Float32Array(lights * size), size));
+    }
+    streams.setDrawRange(0, 0);
+    this.streams = new THREE.Points(streams, new THREE.ShaderMaterial({
+      vertexShader: STREAM_VERT, fragmentShader: STREAM_FRAG, uniforms: { uT: { value: 0 } },
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+    }));
+    this.streams.frustumCulled = false;
+    this.streams.visible = false;
+    this.group.add(this.streams);
 
     // the panels either side: hold and the numbers on the left, what comes next on the right
     this.left = textCanvas(512, 1024);
     this.right = textCanvas(512, 1024);
-    for (const [panel, side] of [[this.left, -1], [this.right, 1]]) {
-      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(270, 540), new THREE.MeshBasicMaterial({ map: panel.texture, transparent: true, fog: false, depthWrite: false }));
+    this.panels = [[this.left, -1], [this.right, 1]].map(([panel, side]) => {
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(270, 540), new THREE.MeshBasicMaterial({ map: panel.texture, transparent: true, fog: false, depthWrite: false, color: UNLIT }));
       mesh.position.set(side * (W * S / 2 + 175), 90, -S * 0.5);
       this.board.add(mesh);
-    }
+      return mesh;
+    });
     // the words that come up over the well
     this.word = textCanvas(1024, 256);
-    this.wordSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.word.texture, transparent: true, depthWrite: false, depthTest: false, fog: false, blending: THREE.AdditiveBlending }));
+    this.wordSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.word.texture, transparent: true, depthWrite: false, depthTest: false, fog: false, color: UNLIT }));
     this.wordSprite.scale.set(760, 190, 1);
     this.wordSprite.position.set(0, 140, 120);
     this.wordSprite.renderOrder = 10;
@@ -387,7 +494,7 @@ export class Zone {
       new THREE.ShaderMaterial({
         vertexShader: SWARM_VERT, fragmentShader: SWARM_FRAG,
         uniforms: {
-          uSize: { value: 9 }, uBeat: { value: 0 }, uA: { value: new THREE.Color() }, uB: { value: new THREE.Color() }, uStill: { value: 0 },
+          uSize: { value: 9 }, uBeat: { value: 0 }, uA: { value: new THREE.Color() }, uB: { value: new THREE.Color() },
           uUseMap: { value: 0 }, uMap: { value: null }, uLight: { value: 1 },
         },
         transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
@@ -406,7 +513,7 @@ export class Zone {
         uniforms: { uMap: { value: null }, uOpacity: { value: 0 } },
         transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending,
       }));
-      mesh.position.set(0, 0, BOARD.z - 9000);
+      mesh.position.set(BOARD.x, BOARD.y, BOARD.z - 9000); // (behind the well the game is at: see update)
       mesh.renderOrder = -1;
       mesh.visible = false;
       this.group.add(mesh);
@@ -420,8 +527,50 @@ export class Zone {
     this.textureLoader = new THREE.TextureLoader();
     this.gltf = new GLTFLoader();
 
+    this.buildWells();
     this.applyLook(true);
     this.findStages();
+  }
+
+  // A well for each stage, where it hangs (wellAt): its frame and grid in the stage's colours, and the
+  // stage's name over it. Made again when the stages change (the player's own, found on the server).
+  buildWells() {
+    for (const well of this.wells) {
+      this.group.remove(well.group);
+      well.group.traverse((o) => { if (o.material && o.material !== this.wellParts.plateMat) { o.material.map?.dispose(); o.material.dispose(); } });
+    }
+    const parts = this.wellParts, n = this.stages.length;
+    this.wells = [...this.stages, this.deep].map((s, i) => {
+      const group = new THREE.Group(), at = i < n ? wellAt(i) : wellAt(n).add(DEEP_AWAY);
+      group.position.copy(at);
+      const accent = new THREE.Color(s.palette.accent), glow = new THREE.Color(s.palette.glow);
+      const plate = new THREE.Mesh(parts.plate, parts.plateMat);
+      plate.position.z = -S * 0.6;
+      group.add(plate, new THREE.LineSegments(parts.grid, new THREE.LineBasicMaterial({ color: accent, transparent: true, opacity: 0.08, fog: false })));
+      const frame = new THREE.MeshBasicMaterial({ color: glow.clone().lerp(accent, 0.3).multiplyScalar(0.5), fog: false });
+      for (const [x, y, geometry] of parts.bars) {
+        const bar = new THREE.Mesh(geometry, frame);
+        bar.position.set(x * S, y * S, 0);
+        group.add(bar);
+      }
+      // its name over it, plainly (under the bloom, as the words over the well are)
+      const sign = textCanvas(1024, 192), ctx = sign.ctx;
+      ctx.textAlign = "center";
+      if ("letterSpacing" in ctx) ctx.letterSpacing = "10px";
+      ctx.font = '300 72px "Helvetica Neue", Helvetica, Arial, sans-serif';
+      ctx.fillStyle = s.palette.accent;
+      ctx.fillText(s.name.toUpperCase(), 512, 84, 1000);
+      if ("letterSpacing" in ctx) ctx.letterSpacing = "4px";
+      ctx.font = '300 32px "Helvetica Neue", Helvetica, Arial, sans-serif';
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(i < n ? `stage ${i + 1} of ${n}` : "the end of every journey", 512, 150, 1000);
+      sign.texture.needsUpdate = true;
+      const label = new THREE.Mesh(new THREE.PlaneGeometry(640, 120), new THREE.MeshBasicMaterial({ map: sign.texture, transparent: true, depthWrite: false, fog: false, color: UNLIT }));
+      label.position.set(0, H * S / 2 + 110, 0);
+      group.add(label);
+      this.group.add(group);
+      return { group, at };
+    });
   }
 
   // ---- stages ----
@@ -457,25 +606,35 @@ export class Zone {
     // only pictures or models, no folders: they go with our own stages
     if (!own.length) for (const s of this.stages) Object.assign(s, { images: found.images ?? [], models: found.models ?? [] });
     else this.stages = own;
-    this.stage = this.startStage = 0;
+    this.stage = 0;
+    this.buildWells();
     this.applyLook(true);
+    this.dock.copy(this.wells[0].at);
+    this.passage = null;
+  }
+
+  // a stage by its well: the stages, then the deep void
+  stageAt(index) {
+    return index === this.stages.length ? this.deep : this.stages[index];
+  }
+  get atDeep() {
+    return this.stage === this.stages.length;
   }
 
   // Put the dimension in the current stage's look, sound and music. Nothing is cut: the colours ease
   // over (here in update, and the world's in World.enter), the sky fades across, the songs crossfade.
   applyLook(instant = false) {
-    const s = this.stages[this.stage % this.stages.length];
+    const s = this.stageAt(this.stage);
     look = s;
     this.look = s;
     this.audio.setZoneStage(s);
     const accent = new THREE.Color(s.palette.accent), glow = new THREE.Color(s.palette.glow);
     // the pieces keep their colours, leaning toward the stage's light
     this.targets = {
-      frame: glow.clone().lerp(accent, 0.3).multiplyScalar(0.5), grid: accent.clone(),
       a: glow.clone().multiplyScalar(0.9), b: accent.clone().multiplyScalar(0.7),
       pieces: Object.fromEntries(KINDS.map((k) => [k, new THREE.Color(PIECE[k]).lerp(glow, 0.12)])),
     };
-    this.colours ??= { zone: new THREE.Color("#ffffff") };
+    this.colours ??= { G: new THREE.Color("#4a3d66") }; // (garbage: the void's own grey violet)
     for (const k of KINDS) this.colours[k] ??= this.targets.pieces[k].clone();
     if (instant) this.ease(1);
     this.loadAssets(s);
@@ -483,42 +642,108 @@ export class Zone {
     this.panelIn = 0;
   }
 
-  // the well, its swarm and its pieces drift toward the stage's colours
+  // the swarm and the pieces drift toward the stage's colours
   ease(amount) {
     const t = this.targets, u = this.swarm.material.uniforms;
-    this.frameMat.color.lerp(t.frame, amount);
-    this.grid.material.color.lerp(t.grid, amount);
     u.uA.value.lerp(t.a, amount);
     u.uB.value.lerp(t.b, amount);
     for (const k of KINDS) this.colours[k].lerp(t.pieces[k], amount);
   }
 
+  // Another stage, and the game goes over to its well: its blocks burn away, each leaving as a streak
+  // of light, the game is flown up and over to the next well (whoever sits at it carried along: see
+  // seat) while the dimension turns to the new stage's look and music, and the blocks come together
+  // again there as their streaks land. The game waits meanwhile (see moving).
   setStage(index) {
-    index = ((index % this.stages.length) + this.stages.length) % this.stages.length;
+    const count = this.wells.length; // (the stages and the deep void)
+    index = ((index % count) + count) % count;
     if (index === this.stage) return;
     this.stage = index;
-    this.applyLook();
+    // already between wells, its blocks gone: on from where it is, without going again
+    const under = this.passage && this.passage.t >= GO;
+    const from = this.dock.clone(), to = this.wells[index].at.clone();
+    const mid = from.clone().add(to).multiplyScalar(0.5).add(tmp.set(0, 900, 0));
+    this.passage = { t: under ? GO : 0, from, to, mid, looked: false, said: null };
+    if (under) this.streams.geometry.setDrawRange(0, 0);
+    else this.makeStreams();
+  }
+
+  get moving() {
+    return !!this.passage;
+  }
+
+  // a streak for each block as it is drawn now, from its place in this well to its place in the next
+  makeStreams() {
+    const p = this.passage, a = this.streams.geometry.attributes, m = new THREE.Matrix4(), c = new THREE.Color(), at = new THREE.Vector3();
+    let k = 0;
+    for (let i = 0; i < this.minos.count; i++) {
+      this.minos.getMatrixAt(i, m);
+      at.setFromMatrixPosition(m);
+      this.minos.getColorAt(i, c);
+      // it leaves as its block is half burnt away, and lands as its block is half put together
+      const leave = GO * (this.order.getX(i) * 0.8 + 0.1), land = GO + FLY + COME * (this.order.getY(i) * 0.8 + 0.1);
+      // each its own way: up and over, and a little to a side
+      tmp.copy(p.from).add(p.to).multiplyScalar(0.5).add(at).add(tmp2.set(rand(-500, 500), rand(700, 1300), rand(-300, 300)));
+      for (let s = 0; s < STREAK; s++, k++) {
+        a.aFrom.setXYZ(k, p.from.x + at.x, p.from.y + at.y, p.from.z + at.z);
+        a.aMid.setXYZ(k, tmp.x, tmp.y, tmp.z);
+        a.aTo.setXYZ(k, p.to.x + at.x, p.to.y + at.y, p.to.z + at.z);
+        a.aColor.setXYZ(k, c.r, c.g, c.b);
+        a.aTime.setXY(k, leave + s * 0.035, land + s * 0.035);
+        a.aTail.setX(k, s);
+      }
+    }
+    for (const name of ["aFrom", "aMid", "aTo", "aColor", "aTime", "aTail"]) a[name].needsUpdate = true;
+    this.streams.geometry.setDrawRange(0, k);
+  }
+
+  // the level a stage starts at: the first at 1, the last near the top, so that it ends at the endgame speed
+  stageLevel(index) {
+    if (index >= this.stages.length) return TOP_LEVEL; // (the deep void)
+    return 1 + Math.round((index * (TOP_LEVEL - 3)) / Math.max(1, this.stages.length - 1));
+  }
+
+  // the well nearest to a place (the one you are with, unless another is clearly nearer)
+  nearestWell(at) {
+    let best = this.stage, bestD = this.wells[this.stage] ? this.wells[this.stage].at.distanceTo(at) * 0.85 : Infinity;
+    this.wells.forEach((well, i) => {
+      const d = well.at.distanceTo(at);
+      if (d < bestD) { best = i; bestD = d; }
+    });
+    return best;
   }
 
   // how far through its stage a run is, 0..1 (the last stage of a journey with just one stage never ends)
   get progress() {
     const stack = this.stack;
     if (stack.state !== "playing") return 0;
+    if (this.boss) return 1 - this.boss.hp / VOID_HP; // (in the deep void: the music opens as the void weakens)
     return Math.min(1, (stack.lines - this.stageFrom) / (this.look.lines ?? STAGE_LINES));
   }
 
   // a run moves through the stages as the lines add up, from the one it began on to the last
   advance() {
     const stack = this.stack;
-    if (stack.state !== "playing" || this.progress < 1) return;
+    if (stack.state !== "playing" || this.progress < 1 || this.atDeep) return;
+    // the last one done: on to the deep void, where the void plays against you
     if (this.stage >= this.stages.length - 1) {
-      if (this.stages.length > 1) stack.finish(); // the last one done: the journey is complete
+      if (this.stages.length < 2) return; // (one stage alone: it goes on)
+      this.setStage(this.stages.length);
+      stack.pace(TOP_LEVEL);
+      stack.killScreen(true);
+      this.boss = { hp: VOID_HP, attackIn: 9 };
+      this.audio.zoneSound("journey");
+      this.say("", "");
+      if (this.passage) this.passage.said = ["the deep void", "you and the void · clear lines to hurt it", 4];
       return;
     }
     this.stageFrom = stack.lines;
-    this.setStage(this.stage + 1);
+    this.setStage(this.stage + 1); // flown on to its well
+    stack.pace(this.stageLevel(this.stage));
     this.audio.zoneSound("stage");
-    this.say(this.look.name, `stage ${this.stage + 1} of ${this.stages.length}`, 3.4);
+    this.say("", "");
+    // its name as the blocks come together there
+    if (this.passage) this.passage.said = [this.stages[this.stage].name, `stage ${this.stage + 1} of ${this.stages.length} · level ${stack.level}`, 3.4];
   }
 
   loadAssets(s) {
@@ -572,7 +797,7 @@ export class Zone {
 
   gateAt(realm) {
     if (realm === ZONE) return { centre: EXIT, axis: AXIS_Z };
-    if (realm === "void") return { centre: VOID_GATE, axis: AXIS_Y };
+    if (realm === "void") return { centre: VOID_GATE, axis: GATE_AXIS };
     return null; // marderchen's dimension has no way into this one
   }
 
@@ -585,9 +810,9 @@ export class Zone {
       camera.position.copy(centre).addScaledVector(axis, -HOLE * 1.5);
       this.arrive(0, -0.02);
     } else {
-      // and leaving, just above the ring under the hub, looking up the way you came
+      // and leaving, just in front of the ring in the hub, facing out of it into the hub
       camera.position.copy(centre).addScaledVector(axis, HOLE * 1.5);
-      this.arrive(camera.rotation.y, 0.35);
+      this.arrive(Math.atan2(-axis.x, -axis.z), 0);
       this.stand();
     }
     this.spent = true;
@@ -596,7 +821,6 @@ export class Zone {
     if (entering) this.audio.setZoneStage(this.look);
     this.audio.setZone(entering);
     this.group.visible = entering;
-    this.timeScale = 1;
   }
 
   updateGate(dt, camera) {
@@ -655,11 +879,12 @@ export class Zone {
   // ---- playing ----
 
   get nearWell() {
-    return this.world.realm === ZONE && this.camera && this.camera.position.distanceTo(SEAT) < 1500;
+    return this.world.realm === ZONE && this.camera && this.camera.position.distanceTo(this.seat) < 1500;
   }
 
+  // where you sit: before the well the game is at, moving with it from well to well
   get seat() {
-    return SEAT;
+    return this.seatAt.copy(this.dock).add(SEAT_AT);
   }
 
   // R (main.js): turn to look straight at the well, from the seat or from wherever you are flying
@@ -674,23 +899,46 @@ export class Zone {
     this.seated = true;
     this.arrive(0, 0); // facing the well
     if (this.stack.state === "playing") this.say("", "");
-    else this.say(this.look.name, this.stages.length > 1 ? "space to start · ← → choose a stage" : "space to start");
+    else this.say(this.look.name, this.stages.length > 1 ? "space to start · ← → another well" : "space to start");
   }
 
   stand() {
     if (!this.seated) return;
     this.seated = false;
+    this.paused = false; // (standing up is a pause of its own: P sits you down again where you were)
     for (const action of ["left", "right", "soft"]) this.stack.release(action);
     this.padDir = 0;
     if (this.stack.state === "playing") this.say("paused", "p to come back");
   }
 
+  // Esc, or the pointer let go: the run held while you stay seated; Esc again or a click goes on
+  pause() {
+    if (!this.seated || this.paused || this.stack.state !== "playing") return;
+    this.paused = true;
+    for (const action of ["left", "right", "soft"]) this.stack.release(action);
+    this.padDir = 0;
+    this.say("paused", "esc or click to go on · p to stand up", 1e9);
+  }
+
+  resume() {
+    if (!this.paused) return;
+    this.paused = false;
+    this.say("", "");
+  }
+
+  // a run, from the well you are at: its stage, at that stage's pace. Not from the deep void: only a whole
+  // journey leads there, and from it a new one begins at the first well.
   begin() {
-    this.setStage(this.startStage);
+    this.boss = null;
+    if (this.atDeep) {
+      this.setStage(0);
+      return this.say(this.stages[0].name, "a journey begins at the first well · space to start", 4);
+    }
     this.audio.setZoneStage(this.look, true); // every run starts its song from the beginning
     this.stack.start();
+    this.stack.pace(this.stageLevel(this.stage));
     this.stageFrom = 0;
-    this.say(this.look.name, "");
+    this.say(this.look.name, `stage ${this.stage + 1} of ${this.stages.length} · level ${this.stack.level}`);
   }
 
   // the keyboard while sitting at the well; returns whether the key was the game's
@@ -701,7 +949,7 @@ export class Zone {
     }
     const actions = {
       ArrowLeft: "left", ArrowRight: "right", ArrowDown: "soft", Space: "hard", ArrowUp: "cw", KeyX: "cw",
-      KeyZ: "ccw", ControlLeft: "ccw", ControlRight: "ccw", KeyA: "flip", KeyC: "hold", ShiftLeft: "hold", ShiftRight: "hold", KeyV: "zone",
+      KeyZ: "ccw", ControlLeft: "ccw", ControlRight: "ccw", KeyA: "flip", KeyC: "hold", ShiftLeft: "hold", ShiftRight: "hold",
     };
     const action = actions[e.code];
     if (!action && !["KeyP", "Escape", "Enter"].includes(e.code)) return false;
@@ -710,7 +958,9 @@ export class Zone {
       return true;
     }
     if (e.repeat) return true;
+    if (e.code === "Escape" && this.stack.state === "playing") return (this.paused ? this.resume() : this.pause()), true;
     if (e.code === "KeyP" || e.code === "Escape") return this.stand(), true;
+    if (this.paused || this.moving) return true; // held, or on the way to the next well: the game waits
     if (this.stack.state !== "playing") {
       if (e.code === "Space" || e.code === "Enter") this.begin();
       else if (action === "left" || action === "right") this.chooseStage(action === "left" ? -1 : 1);
@@ -720,32 +970,32 @@ export class Zone {
     return true;
   }
 
+  // before a run, ← →: over to the well before or after, to start there
   chooseStage(step) {
     if (this.stages.length < 2) return;
-    this.startStage = (this.startStage + step + this.stages.length) % this.stages.length;
-    this.setStage(this.startStage);
-    this.say(this.look.name, `stage ${this.startStage + 1} of ${this.stages.length} · space to start`);
+    // round the stages only: the deep void is not a place to start (from there: to the first or the last)
+    const from = this.atDeep ? (step > 0 ? -1 : 0) : this.stage;
+    this.setStage((from + step + this.stages.length) % this.stages.length);
+    this.say(this.stages[this.stage]?.name ?? "the deep void", `stage ${this.stage + 1} of ${this.stages.length} · level ${this.stageLevel(this.stage)} · space to start`);
   }
 
-  // a controller while sitting at the well (standard mapping)
-  pad(gp) {
-    const down = (i) => !!gp.buttons[i]?.pressed;
-    const pressed = (i) => {
-      const was = this.padHeld.has(i);
-      if (down(i)) this.padHeld.add(i); else this.padHeld.delete(i);
-      return down(i) && !was;
-    };
-    const released = (i) => !down(i) && this.padHeld.has(i) && (this.padHeld.delete(i), true);
+  // a controller at the well, its buttons as the player has mapped them (pad: the PadMap, see pad.js)
+  pad(gp, pad) {
+    const hit = (id) => pad.hit(id);
     if (!this.seated) {
-      for (let i = 0; i < gp.buttons.length; i++) if (!down(i)) this.padHeld.delete(i);
-      if (pressed(9) && this.nearWell) this.sit();
+      if (hit("sit") && this.nearWell) this.sit();
       return;
     }
-    if (pressed(9)) return this.stand();
-    if (pressed(11)) this.levelOut(); // right-stick click
+    if (this.paused) {
+      if (hit("sit") || hit("start")) this.resume();
+      return;
+    }
+    if (hit("sit")) return this.stand();
+    if (hit("lookAtWell")) this.levelOut();
+    if (this.moving) return; // (on the way to the next well: nothing is played)
     const playing = this.stack.state === "playing";
-    // left and right: the d-pad, or the left stick pushed well over
-    const x = gp.axes[0] ?? 0, dir = down(14) || x < -0.6 ? -1 : down(15) || x > 0.6 ? 1 : 0;
+    // left and right: their buttons, or the moving stick pushed well over
+    const x = pad.sticks(gp).move[0], dir = pad.down("left") || x < -0.6 ? -1 : pad.down("right") || x > 0.6 ? 1 : 0;
     if (dir !== this.padDir) {
       if (this.padDir) this.stack.release(this.padDir < 0 ? "left" : "right");
       if (dir && playing) this.stack.press(dir < 0 ? "left" : "right");
@@ -753,18 +1003,16 @@ export class Zone {
       this.padDir = dir;
     }
     if (!playing) {
-      if (pressed(0) || pressed(12)) this.begin();
-      for (const i of [1, 2, 3, 4, 5, 6, 7, 13]) pressed(i);
+      if (hit("start")) this.begin();
       return;
     }
-    if (pressed(13)) this.stack.press("soft");
-    if (released(13)) this.stack.release("soft");
-    if (pressed(12)) this.stack.press("hard");
-    if (pressed(0)) this.stack.press("cw");
-    if (pressed(1) || pressed(2)) this.stack.press("ccw");
-    if (pressed(3)) this.stack.press("flip");
-    if (pressed(4) || pressed(5)) this.stack.press("hold");
-    if (pressed(6) || pressed(7)) this.stack.press("zone");
+    if (hit("softDrop")) this.stack.press("soft");
+    if (pad.released("softDrop")) this.stack.release("soft");
+    if (hit("hardDrop")) this.stack.press("hard");
+    if (hit("rotate")) this.stack.press("cw");
+    if (hit("rotateBack")) this.stack.press("ccw");
+    if (hit("flip")) this.stack.press("flip");
+    if (hit("hold")) this.stack.press("hold");
   }
 
   say(text, sub = "", seconds = 2.2) {
@@ -774,8 +1022,6 @@ export class Zone {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     if ("letterSpacing" in ctx) ctx.letterSpacing = "10px";
-    ctx.shadowColor = this.look.palette.glow;
-    ctx.shadowBlur = 24;
     ctx.fillStyle = "#ffffff";
     ctx.font = '300 92px "Helvetica Neue", Helvetica, Arial, sans-serif';
     ctx.fillText(text.toUpperCase(), 512, sub ? 100 : 128, 1000);
@@ -803,7 +1049,7 @@ export class Zone {
         this.board.localToWorld(this.local(x, y, tmp));
         // mostly out to the sides and up, some toward you: they stay in view round the well
         tmp2.set(rand(-1, 1) * 200 + (x - W / 2 + 0.5) * 70, rand(-80, 260), rand(60, 360)).multiplyScalar(strength);
-        this.spawnDebris(tmp, tmp2, this.colours[type] ?? this.colours.zone, S * (copies > 1 ? rand(0.45, 0.8) : 0.9));
+        this.spawnDebris(tmp, tmp2, this.colours[type], S * (copies > 1 ? rand(0.45, 0.8) : 0.9));
       }
     });
   }
@@ -872,41 +1118,50 @@ export class Zone {
         this.shock(tmp.clone(), big ? 700 : 250 + e.lines * 80, big ? 3200 : 1800);
         this.flash = big ? 1 : 0.35 + e.lines * 0.1;
         this.kickV.z -= big ? 260 : 60 * e.lines;
+        if (this.boss) return this.hurt(e);
         if (e.label !== "single" || e.combo > 0) this.say(e.label, e.combo > 0 ? `${e.combo + 1} combo` : "", big ? 2.6 : 1.6);
         return;
       }
+      case "garbage":
+        audio.zoneSound("drop");
+        this.kickV.y += 70 + e.rows * 40; // (the floor comes up: the well is pushed up with it)
+        this.flash = Math.max(this.flash, 0.2);
+        return;
       case "spin": audio.zoneSound("spin"); return this.say(e.label, "", 1.4);
-      case "zone":
-        audio.zoneSound("zone");
-        audio.zoneStill(true);
-        return this.say("zone", "", 1.6);
-      case "zoneLines": {
-        audio.zoneSound("zoneLines", e.total);
-        this.flash = 0.25;
-        return this.say(`${e.total}`, e.total === 1 ? "line" : "lines", 1.2);
-      }
-      case "zoneEnd": {
-        audio.zoneStill(false);
-        if (!e.lines) return;
-        audio.zoneSound("zoneEnd");
-        // everything that piled up goes at once, and everything that was hanging still with it
-        this.throwOut(e.rows, 1.4 + Math.min(e.lines, 20) * 0.08);
-        this.board.localToWorld(this.local(W / 2, 2, tmp));
-        this.shock(tmp.clone(), 900 + e.lines * 60, 6000);
-        this.flash = 1.4;
-        this.kickV.z -= 420;
-        return this.say(`${e.lines} lines`, `+${e.points.toLocaleString()}`, 3.2);
-      }
       case "level":
         audio.zoneSound("level");
         return this.say(`level ${e.level}`, "", 1.6);
       case "over": {
-        const won = e.reason === "journey", best = e.score > this.best;
+        const deep = !!this.boss, won = e.reason === "journey" || e.reason === "deep", best = e.score > this.best;
+        this.boss = null;
+        stack.killScreen(false);
         audio.zoneSound(won ? "journey" : "over");
         if (best) this.store("zone.best", (this.best = e.score));
-        return this.say(won ? "journey complete" : "game over", `${e.score.toLocaleString()}${best ? " · best" : ""} · space to play again`, 1e9);
+        const said = e.reason === "deep" ? "the void is quiet" : deep ? "the void keeps you" : won ? "journey complete" : "game over";
+        return this.say(said, `${e.score.toLocaleString()}${best ? " · best" : ""} · space to ${deep ? "begin again, at the first well" : "play again"}`, 1e9);
       }
     }
+  }
+
+  // a clear in the deep void: how much it hurts the void, and the end of it
+  hurt(e) {
+    const b = this.boss;
+    const damage = HURT[e.lines] * (e.spin === "full" ? 1.6 : e.spin === "mini" ? 1.2 : 1) * (e.b2b ? 1.25 : 1) + Math.max(0, e.combo) * 1.5 + (e.perfect ? 20 : 0);
+    b.hp = Math.max(0, b.hp - damage);
+    this.panelIn = 0;
+    if (b.hp <= 0) return this.stack.finish("deep");
+    this.say(e.label, `the void · ${Math.ceil(b.hp)} left`, e.lines >= 4 || e.spin ? 2.2 : 1.4);
+  }
+
+  // the void's turn: rows from below, more and sooner the weaker it is, and now and then a word
+  attack(dt) {
+    const b = this.boss;
+    if (!b || this.stack.state !== "playing" || this.paused || this.moving || !this.seated) return;
+    if ((b.attackIn -= dt) > 0) return;
+    const weak = 1 - b.hp / VOID_HP;
+    this.stack.garbage(1 + (weak > 0.4 ? 1 : 0) + (weak > 0.75 ? 1 : 0));
+    b.attackIn = 11 - weak * 6 + rand(0, 2);
+    if (Math.random() < 0.4) this.say(TAUNTS[Math.floor(Math.random() * TAUNTS.length)], "", 1.6);
   }
 
   // ---- drawing the well ----
@@ -914,13 +1169,21 @@ export class Zone {
   drawWell() {
     const stack = this.stack, minos = this.minos;
     let n = 0;
+    // when a block goes (from the top down) and comes again (from the bottom up), with a little of
+    // its own so they do not go in rows; by where it is, so it is the same frame after frame
+    const order = (index) => {
+      const h = THREE.MathUtils.clamp(dummy.position.y / (H * S) + 0.5, 0, 1);
+      const j = Math.sin(dummy.position.x * 12.9898 + dummy.position.y * 78.233) * 43758.5453, own = j - Math.floor(j);
+      this.order.setXY(index, (1 - h) * 0.75 + own * 0.25, h * 0.75 + own * 0.25);
+    };
     const put = (x, y, type, scale = 1, into = minos, index = n++) => {
       this.local(x, y, dummy.position);
       dummy.rotation.set(0, 0, 0);
       dummy.scale.setScalar(S * 0.94 * scale);
       dummy.updateMatrix();
       into.setMatrixAt(index, dummy.matrix);
-      into.setColorAt(index, this.colours[type] ?? this.colours.zone);
+      into.setColorAt(index, this.colours[type]);
+      if (into === minos) order(index);
     };
     for (let y = 0; y < H + 2; y++) for (let x = 0; x < W; x++) if (stack.rows[y][x]) put(x, y, stack.rows[y][x]);
     const piece = stack.state === "playing" ? stack.piece : null;
@@ -938,6 +1201,7 @@ export class Zone {
         dummy.scale.setScalar(S * 0.94 * scale);
         dummy.updateMatrix();
         minos.setMatrixAt(n, dummy.matrix);
+        order(n);
         minos.setColorAt(n++, this.colours[type]);
       }
     };
@@ -946,6 +1210,7 @@ export class Zone {
     if (stack.state !== "ready") stack.next(5).forEach((type, i) => preview(type, side, i ? 150 - (i - 1) * 70 : 250, i ? 0.6 : 0.8));
     minos.count = n;
     minos.instanceMatrix.needsUpdate = true;
+    this.order.needsUpdate = true;
     if (minos.instanceColor) minos.instanceColor.needsUpdate = true;
     this.ghost.count = ghosts;
     this.ghost.instanceMatrix.needsUpdate = true;
@@ -971,8 +1236,6 @@ export class Zone {
       const { ctx, texture } = this.left;
       ctx.clearRect(0, 0, 512, 1024);
       ctx.textAlign = "center";
-      ctx.shadowColor = s.palette.glow;
-      ctx.shadowBlur = 14;
       label(ctx, "hold", 40);
       label(ctx, "score", 330);
       value(ctx, stack.score.toLocaleString(), 392);
@@ -983,47 +1246,28 @@ export class Zone {
       const t = Math.floor(stack.time);
       label(ctx, "time", 720);
       value(ctx, `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`, 782);
-      // the Zone meter: a ring in quarters, white and running down while it is on
-      const cx = 256, cy = 905, r = 72, on = stack.zone > 0;
-      const amount = on ? stack.zone / ZONE_SECONDS : stack.meter;
-      ctx.lineWidth = 14;
-      ctx.strokeStyle = "rgba(255,255,255,0.12)";
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.strokeStyle = on ? "#ffffff" : stack.meter >= 0.25 ? s.palette.accent : s.palette.glow;
-      ctx.shadowBlur = stack.meter >= 0.25 || on ? 30 : 10;
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * amount);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = "#000000";
-      ctx.lineWidth = 6;
-      for (let q = 0; q < 4; q++) {
-        const a = -Math.PI / 2 + (q * Math.PI) / 2;
-        ctx.beginPath();
-        ctx.moveTo(cx + Math.cos(a) * (r - 12), cy + Math.sin(a) * (r - 12));
-        ctx.lineTo(cx + Math.cos(a) * (r + 12), cy + Math.sin(a) * (r + 12));
-        ctx.stroke();
+      if (this.boss) {
+        // the void, and what is left of it: a bar, under the numbers (where nothing else is)
+        label(ctx, "the void", 860);
+        ctx.strokeStyle = s.palette.accent;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(96, 886, 320, 26);
+        ctx.fillStyle = s.palette.glow;
+        ctx.fillRect(100, 890, 312 * (this.boss.hp / VOID_HP), 18);
+        value(ctx, `${Math.ceil(this.boss.hp)}`, 980);
       }
-      ctx.shadowBlur = 14;
-      ctx.font = font(24);
-      ctx.fillStyle = "#ffffff";
-      ctx.fillText(on ? `${Math.ceil(stack.zone)}` : "ZONE", cx, cy + 9);
       texture.needsUpdate = true;
     }
     {
       const { ctx, texture } = this.right;
       ctx.clearRect(0, 0, 512, 1024);
       ctx.textAlign = "center";
-      ctx.shadowColor = s.palette.glow;
-      ctx.shadowBlur = 14;
       label(ctx, "next", 40);
       label(ctx, s.name, 905);
       ctx.font = font(24);
       ctx.fillStyle = "rgba(255,255,255,0.6)";
       if ("letterSpacing" in ctx) ctx.letterSpacing = "3px";
-      ctx.fillText(`stage ${this.stage + 1} / ${this.stages.length}`, 256, 948);
+      ctx.fillText(this.atDeep ? "the end of every journey" : `stage ${this.stage + 1} / ${this.stages.length}`, 256, 948);
       if (this.best) ctx.fillText(`best ${this.best.toLocaleString()}`, 256, 990);
       texture.needsUpdate = true;
     }
@@ -1031,21 +1275,55 @@ export class Zone {
 
   // ---- every frame ----
 
+  // the passage to another well, as far as it has come (see setStage)
+  passageStep(dt) {
+    const p = this.passage, u = this.boardMat.uniforms;
+    this.ghost.visible = !p;
+    if (!p) return;
+    p.t += dt;
+    // up and over, eased off and in (the game, and whoever sits at it, carried along)
+    const f = THREE.MathUtils.clamp((p.t - GO) / FLY, 0, 1), e = f * f * f * (f * (f * 6 - 15) + 10);
+    this.dock.copy(p.from).lerp(p.mid, e).lerp(tmp.copy(p.mid).lerp(p.to, e), e);
+    // the dimension turns to the new stage on the way; its name comes as the blocks do
+    if (!p.looked && p.t >= GO) { p.looked = true; this.applyLook(); }
+    if (p.said && p.t >= GO + FLY) { this.say(...p.said); p.said = null; }
+    // the blocks: going, gone, coming; the panels beside the well fade out and in with them
+    const coming = p.t >= GO + FLY;
+    u.uForming.value = coming ? 1 : 0;
+    u.uP.value = coming ? Math.min(1, (p.t - GO - FLY) / COME) : Math.min(1, p.t / GO);
+    const shown = coming ? u.uP.value : 1 - u.uP.value;
+    for (const panel of this.panels) panel.material.opacity = shown;
+    this.streams.visible = true;
+    this.streams.material.uniforms.uT.value = p.t;
+    if (p.t >= GO + FLY + COME) {
+      this.passage = null;
+      this.dock.copy(p.to);
+      u.uP.value = u.uForming.value = 0;
+      for (const panel of this.panels) panel.material.opacity = 1;
+      this.streams.visible = false;
+    }
+  }
+
   update(dt, camera, velocity) {
     this.camera = camera;
     this.time += dt;
     this.updateGate(dt, camera);
     if (this.world.realm !== ZONE) return;
 
-    const stack = this.stack, still = stack.zone > 0;
-    if (this.seated) stack.update(dt);
+    const stack = this.stack, beat = this.audio.levels.beat;
+    // between runs the dimension is the stage of the well you are nearest (or the one someone else is
+    // playing at, while you watch them), and the game's well goes with it
+    if (stack.state !== "playing" && !this.seated) {
+      const watched = Number.isInteger(this.watching) && this.watching >= 0 && this.watching < this.stages.length ? this.watching : null;
+      this.setStage(watched ?? this.nearestWell(camera.position));
+    }
+    this.passageStep(dt);
+    if (this.seated && !this.moving && !this.paused) stack.update(dt);
     for (const e of stack.events.splice(0)) this.react(e);
-    // the Zone stops time for everything in here: the current, the loose blocks, the sky
-    this.timeScale += ((still ? 0.04 : 1) - this.timeScale) * Math.min(1, dt * (still ? 6 : 2));
-    const tdt = dt * this.timeScale, beat = this.audio.levels.beat, stillness = 1 - this.timeScale;
 
     // the music fills in as the lines add up: one more part every five lines of a stage
     this.advance();
+    this.attack(dt); // (in the deep void: the void's own turn)
     // the music builds through each stage: held back at its start, open by its end; between runs it idles
     const playing = stack.state === "playing" && this.seated, intensity = playing ? Math.round(this.progress * 40) / 40 : 0.35;
     if (intensity !== this.intensity || playing !== this.playingBefore) this.audio.setZoneIntensity((this.intensity = intensity), (this.playingBefore = playing));
@@ -1054,15 +1332,18 @@ export class Zone {
     // the well rocks on a spring when things land in it, or when it is flown into (see collide)
     this.kickV.addScaledVector(this.kick, -90 * dt).multiplyScalar(Math.exp(-7 * dt));
     this.kick.addScaledVector(this.kickV, dt);
-    this.board.position.copy(BOARD).add(this.kick);
+    this.board.position.copy(this.dock).add(this.kick);
     this.board.rotation.set(this.kick.y * 0.0006, this.kick.x * 0.0006, 0);
+    // the well the game is at rocks with it (once it has arrived there); the others hang still
+    this.wells.forEach((well, i) => {
+      const rocks = i === this.stage && !this.moving;
+      well.group.position.copy(well.at);
+      if (rocks) well.group.position.add(this.kick);
+      well.group.rotation.copy(rocks ? this.board.rotation : NO_TURN);
+    });
 
     this.flash = Math.max(0, this.flash - dt * 2.2);
-    for (const material of [this.boardMat, this.debris.material, this.gateMat]) {
-      material.uniforms.uStill.value = stillness;
-    }
     this.boardMat.uniforms.uFlash.value = this.flash * 0.25; // a clear lights the well briefly, gently
-    this.ghostMat.uniforms.uStill.value = stillness;
     this.drawWell();
     if ((this.panelIn -= dt) <= 0) {
       this.panelIn = 0.1;
@@ -1075,10 +1356,11 @@ export class Zone {
     this.wordSprite.material.opacity = Math.min(1, Math.max(0, c.life) * 3, c.total < 1e8 ? (c.total - c.life) * 8 : 1);
     this.wordSprite.position.y = 140 + (c.total < 1e8 ? (c.total - c.life) * 14 : 0);
 
-    this.moveLoose(dt, tdt, camera, velocity, beat, stillness);
+    this.moveLoose(dt, camera, velocity, beat);
 
     // the player's pictures: one at a time far behind the well, changing every half minute
     const images = this.loaded.images;
+    for (const mesh of this.backdrops) mesh.position.set(this.dock.x, this.dock.y, this.dock.z - 9000);
     if (images.length) {
       if ((this.backdropIn -= dt) <= 0) {
         this.backdropIn = 30;
@@ -1094,18 +1376,24 @@ export class Zone {
         u.uOpacity.value += (target - u.uOpacity.value) * Math.min(1, dt * 0.8);
       });
     }
-    for (const holder of this.models.children) holder.rotation.y += holder.userData.spin * tdt;
+    for (const holder of this.models.children) holder.rotation.y += holder.userData.spin * dt;
 
     // at the well
     const near = this.nearWell;
     this.hintEl.textContent = this.seated ? "" : near ? (stack.state === "playing" ? "P · back to the well" : "P · play") : "";
   }
 
-  // The well is solid: you bounce off it, and it rocks back from the knock. Returns how hard.
+  // The wells are solid: you bounce off them, and the game's rocks back from the knock. Returns how hard.
   collide(position, velocity, radius) {
     if (this.world.realm !== ZONE || this.seated) return 0;
+    let hit = 0;
+    this.wells.forEach((well, i) => { hit = Math.max(hit, this.collideWell(well.group.position, i === this.stage, position, velocity, radius)); });
+    return hit;
+  }
+
+  collideWell(at, rocks, position, velocity, radius) {
     const half = tmp2.set(W * S / 2 + S * 0.3 + radius, H * S / 2 + S * 0.3 + radius, S * 0.6 + radius);
-    const q = tmp.copy(position).sub(this.board.position);
+    const q = tmp.copy(position).sub(at);
     if (Math.abs(q.x) >= half.x || Math.abs(q.y) >= half.y || Math.abs(q.z) >= half.z) return 0;
     // out through the nearest face
     const depth = [half.x - Math.abs(q.x), half.y - Math.abs(q.y), half.z - Math.abs(q.z)], axis = depth.indexOf(Math.min(...depth));
@@ -1113,12 +1401,13 @@ export class Zone {
     position.addScaledVector(n, depth[axis]);
     const into = velocity.dot(n);
     if (into >= 0) return 0;
-    this.kickV.addScaledVector(n, into * 0.4);
+    if (rocks) this.kickV.addScaledVector(n, into * 0.4);
     velocity.addScaledVector(n, -1.55 * into);
     return -into;
   }
 
-  moveLoose(dt, tdt, camera, velocity, beat, stillness) {
+  moveLoose(dt, camera, velocity, beat) {
+    const tdt = dt, home = this.dock; // everything loose goes round the well the game is at
     const flow = this.look.flow, t = this.time, cam = camera.position, speed = velocity.length();
     const push = (p, v, i, reach, strength) => {
       // flying through things knocks them out of the way, and drags them along a little
@@ -1137,12 +1426,12 @@ export class Zone {
       this.dLife[i] -= tdt;
       pos.fromArray(D, i * 3);
       vel.fromArray(V, i * 3);
-      current(flow, REL.copy(pos).sub(BOARD), t, this.dSeed[i], beat, acc);
+      current(flow, REL.copy(pos).sub(home), t, this.dSeed[i], beat, acc);
       vel.addScaledVector(acc, tdt * 0.6);
       push(pos, vel, i, 160, 1);
       vel.multiplyScalar(Math.exp(-0.5 * tdt));
       pos.addScaledVector(vel, tdt);
-      if (pos.distanceTo(BOARD) > 9000) this.dLife[i] = 0;
+      if (pos.distanceTo(home) > 9000) this.dLife[i] = 0;
       pos.toArray(D, i * 3);
       vel.toArray(V, i * 3);
       for (let k = 0; k < 3; k++) {
@@ -1163,20 +1452,19 @@ export class Zone {
     for (let i = 0; i < A.length / 3; i++) {
       pos.fromArray(A, i * 3);
       vel.fromArray(SV, i * 3);
-      current(flow, REL.copy(pos).sub(BOARD), t, seeds[i], beat, acc);
+      current(flow, REL.copy(pos).sub(home), t, seeds[i], beat, acc);
       vel.addScaledVector(acc, tdt * 0.8);
       push(pos, vel, i, 220, 0.6);
       vel.multiplyScalar(Math.exp(-0.7 * tdt));
       pos.addScaledVector(vel, tdt);
       // drifted too far: it comes back somewhere around the well
-      if (pos.distanceTo(BOARD) > 4200) pos.randomDirection().multiplyScalar(rand(400, 2600)).add(BOARD), vel.set(0, 0, 0);
+      if (pos.distanceTo(home) > 4200) pos.randomDirection().multiplyScalar(rand(400, 2600)).add(home), vel.set(0, 0, 0);
       pos.toArray(A, i * 3);
       vel.toArray(SV, i * 3);
     }
     sp.needsUpdate = true;
     const u = this.swarm.material.uniforms;
     u.uBeat.value = beat;
-    u.uStill.value = stillness;
     u.uLight.value = this.world.G.uLight.value;
   }
 }

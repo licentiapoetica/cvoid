@@ -20,16 +20,19 @@ float noise(vec3 x){
 }
 float fbm(vec3 p){ float a = .5, s = 0.; for (int i = 0; i < 4; i++){ s += a * noise(p); p *= 2.03; a *= .5; } return s; }
 void main(){
-  float t = uTime * .08, turn = t + length(vPos.xy) * 1.6;
+  float t = uTime * .22, turn = t + length(vPos.xy) * 1.6;
   vec3 p = vPos * 2.2;
   p.xy = mat2(cos(turn), -sin(turn), sin(turn), cos(turn)) * p.xy;
   float n = fbm(p + vec3(0., 0., t));
   vec3 c = mix(vec3(.004, .001, .012), vec3(.05, .016, .11), smoothstep(.35, .9, n));
-  // the glow at its edge breathes, slowly, and a brighter band of it travels round
-  float breathe = .5 + .5 * sin(uTime * 1.1 + vPhase);
+  // the glow at its edge breathes, awake, and two brighter bands of it race round it, one each way,
+  // with a quick shimmer over all of it: open, and working
+  float breathe = .5 + .5 * sin(uTime * 2.6 + vPhase);
   float rim = pow(1. - abs(dot(normalize(vNormal), normalize(vView))), mix(6., 4., breathe));
-  float sweep = pow(.5 + .5 * cos(atan(vPos.y, vPos.x) - uTime * .8 - vPhase), 6.);
-  c += vec3(.5, .26, 1.2) * rim * (.55 + .35 * breathe + .7 * sweep);
+  float a = atan(vPos.y, vPos.x);
+  float sweep = pow(.5 + .5 * cos(a - uTime * 2.4 - vPhase), 6.) + .6 * pow(.5 + .5 * cos(2. * a + uTime * 1.7 + vPhase), 10.);
+  float shimmer = .9 + .1 * sin(uTime * 9. + a * 3. + vPhase);
+  c += vec3(.5, .26, 1.2) * rim * (.55 + .35 * breathe + .7 * sweep) * shimmer;
   gl_FragColor = vec4(c, 1.);
 }`;
 // one for each ring (they share the shader): its own fixed moment to breathe from (taken from where it

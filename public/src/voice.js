@@ -8,6 +8,10 @@ const GAP = [150, 300];      // seconds between, after that
 const LINE_SECONDS = 6.5;
 const DWELL = 1.6;           // seconds of looking at something before it counts as handled
 
+const GREET = 7;             // seconds into a visit before it greets someone it knows
+const USUAL = 3;             // visits a place has had (one each) before it is the usual
+const USUAL_GAP = 240;       // seconds at least between two remarks on the usual
+
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 
@@ -35,13 +39,26 @@ const LOCAL = {
   ],
 };
 
+// It knows who comes back: a greeting at the start of a visit (by how long they were away), and now
+// and then, at a place they keep coming to, that it is the usual. Its own words, said at once.
+const GREETINGS = {
+  soon: ["back so soon", "ah. you again", "i kept your place warm"],
+  again: ["welcome back", "i was hoping you would show up", "there you are", "i wondered when you would come back"],
+  long: ["it has been a while", "you were away. i kept everything", "welcome back. nothing was moved"],
+};
+const USUALS = [() => "ah. the usual", () => "the usual, then", () => "your usual shelf", (name) => `${name.toLowerCase()} again. of course`];
+
 export class VoidVoice {
   // notice: what the traveller is with, as the plugins see it (see main.js): { looked, picked } (each
   // { id, text }, text saying what it is), the room they are in and where that is (a phrase: "in
   // ..."), and whether something of theirs is open
   constructor({ world, notice, textEl, stored, store }) {
     Object.assign(this, { world, notice, textEl, store });
-    this.state = { said: [], seconds: 0, ...stored("void", {}) };
+    this.state = { said: [], seconds: 0, visits: 0, lastSeen: 0, places: {}, ...stored("void", {}) };
+    this.greetIn = null;      // a greeting to come (see arrived)
+    this.usualIn = 0;         // until the next remark on the usual may be made
+    this.been = new Set();    // the places of this visit (each counted once a visit)
+    this.seenIn = 30;
     this.next = FIRST;
     this.crossed = 0;
     this.recent = [];
@@ -52,10 +69,40 @@ export class VoidVoice {
     this.asking = false;
   }
 
+  // the flight begins: someone it knows is greeted in a moment (by how long they were away)
+  arrived() {
+    const away = Date.now() - (this.state.lastSeen || 0);
+    if (this.state.visits > 0) this.greetIn = { at: GREET, kind: away < 2 * 3600e3 ? "soon" : away > 3 * 86400e3 ? "long" : "again" };
+    this.state.visits++;
+    this.state.lastSeen = Date.now();
+    this.store("void", this.state);
+  }
+
+  // its own words, at once (if nothing else is being said)
+  say(line) {
+    if (!line || this.speaking > 0) return false;
+    this.state.said = [...this.state.said, line].slice(-14);
+    this.store("void", this.state);
+    this.show([line]);
+    return true;
+  }
+  fresh(list, ...args) {
+    const lines = list.map((l) => (typeof l === "function" ? l(...args) : l)).filter(Boolean);
+    const unsaid = lines.filter((l) => !this.state.said.slice(-6).includes(l));
+    return pick(unsaid.length ? unsaid : lines);
+  }
+
   update(dt, speed, entitySpeaking) {
     this.state.seconds += dt;
     this.speaking = Math.max(0, this.speaking - dt);
     if (this.speaking === 0) this.textEl.classList.remove("show");
+    this.usualIn -= dt;
+    // still here: when it last saw them (for the next visit's greeting)
+    if ((this.seenIn -= dt) <= 0) { this.seenIn = 30; this.state.lastSeen = Date.now(); this.store("void", this.state); }
+    if (this.greetIn && (this.greetIn.at -= dt) <= 0 && !entitySpeaking && this.say(this.fresh(GREETINGS[this.greetIn.kind]))) {
+      this.greetIn = null;
+      this.next = Math.max(this.next, 60); // (its other words a while after)
+    }
     // the rooms it is shown through
     const key = this.world.currentKey;
     if (key && key !== this.lastKey) {
@@ -63,6 +110,8 @@ export class VoidVoice {
       this.crossed++;
       const name = this.world.currentSpec?.name;
       if (name && this.recent.at(-1) !== name) this.recent = [...this.recent, name].slice(-8);
+      // (places with names of their own: not "Unnamed", nor a way between, named after how far off something is)
+      if (name && name !== "Unnamed" && !/ sectors? off$/.test(name) && !this.been.has(name)) this.visit(name, entitySpeaking);
     }
     // what is looked at a while, or picked out, it keeps
     const seen = (this.seen = this.notice?.() ?? {}), looked = seen.looked;
@@ -76,6 +125,18 @@ export class VoidVoice {
     if ((this.next -= dt) > 0 || this.asking || entitySpeaking || seen.busy) return;
     this.next = rand(...GAP);
     this.speak(speed);
+  }
+
+  // a place come to (once a visit): counted, and if it has become the usual, now and then remarked on
+  visit(name, entitySpeaking) {
+    this.been.add(name);
+    const places = this.state.places, count = (places[name] = (places[name] ?? 0) + 1);
+    const names = Object.keys(places);
+    if (names.length > 400) for (const n of names.sort((a, b) => places[a] - places[b]).slice(0, 100)) delete places[n]; // (the least kept go)
+    this.store("void", this.state);
+    if (count > USUAL && this.usualIn <= 0 && !entitySpeaking && !this.greetIn && Math.random() < 0.6) {
+      setTimeout(() => { if (this.world.currentSpec?.name === name && this.say(this.fresh(USUALS, name))) this.usualIn = USUAL_GAP; }, 2500);
+    }
   }
 
   keep(thing, how) {

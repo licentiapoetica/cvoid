@@ -15,11 +15,24 @@ export class VoidAudio {
     this.ctx = null;
     this.muted = false;
     this.volume = 1; // the player's volume, 0..1 (the slider)
+    this.mix = { void: 1, music: 1, sounds: 1, voice: 1, media: 1 }; // each kind of sound under it (see setMix)
     this.sound = { root: 55, mode: "lydian", shimmer: 0.5, darkness: 0.45, pulse: 0, tempo: 60 };
     this.levels = { bass: 0, mid: 0, high: 0, beat: 0 };
     this.averages = { bass: 0, mid: 0, high: 0 };
     this.hits = []; // heartbeat hits scheduled but not yet heard
     this.mic = null;
+  }
+
+  // how loud each kind of sound is, under the volume (the Tab panel's mix: see the buses in start)
+  setMix(name, level) {
+    if (!(name in this.mix)) return;
+    this.mix[name] = level = Math.max(0, Math.min(1.5, level));
+    const bus = this.buses?.[name];
+    if (bus) for (const gain of [bus.dry, bus.wet]) gain.gain.setTargetAtTime(level, this.ctx.currentTime, 0.05);
+  }
+  // where a plugin's sound of a kind goes (dry: as heard; wet: into the echo), within the mix
+  out(name = "media") {
+    return this.buses?.[name]?.dry ?? this.master;
   }
 
   start() {
@@ -70,13 +83,25 @@ export class VoidAudio {
     b.connect(wet);
     wet.connect(this.master);
 
+    // each kind of sound on its own level on the way out (the Tab panel's mix, under the volume), to the
+    // master and to the echo alike: the void's own (drone, wind, heartbeat, shimmer), music, sounds, the
+    // entity's voice, and media (what plugins play: posts, radio)
+    this.buses = Object.fromEntries(Object.keys(this.mix).map((name) => {
+      const dry = ctx.createGain(), wet = ctx.createGain();
+      dry.gain.value = wet.gain.value = this.mix[name];
+      dry.connect(this.master);
+      wet.connect(this.reverb);
+      return [name, { dry, wet }];
+    }));
+
     this.filter = ctx.createBiquadFilter();
     this.filter.type = "lowpass";
     this.filter.Q.value = 0.8;
     this.droneLevel = ctx.createGain(); // lets the drone step back when other music plays
-    this.filter.connect(this.droneLevel);
-    this.droneLevel.connect(this.master);
-    this.droneLevel.connect(this.reverb);
+    this.placeLevel = ctx.createGain(); // and how loud the place you are in has it (its sound.level)
+    this.filter.connect(this.placeLevel).connect(this.droneLevel);
+    this.droneLevel.connect(this.buses.void.dry);
+    this.droneLevel.connect(this.buses.void.wet);
 
     const lfo = ctx.createOscillator(), lfoDepth = ctx.createGain();
     lfo.frequency.value = 0.05;
@@ -110,7 +135,7 @@ export class VoidAudio {
     soft.frequency.value = 2200;
     this.windGain = ctx.createGain();
     this.windGain.gain.value = 0;
-    wind.connect(this.windBand).connect(soft).connect(this.windGain).connect(this.master);
+    wind.connect(this.windBand).connect(soft).connect(this.windGain).connect(this.buses.void.dry);
     wind.start();
 
     // the entity's voice: two close tones beating against each other, placed left or right of you
@@ -125,8 +150,8 @@ export class VoidAudio {
       osc.start();
     });
     this.voiceGain.connect(this.voicePan);
-    this.voicePan.connect(this.master);
-    this.voicePan.connect(this.reverb);
+    this.voicePan.connect(this.buses.voice.dry);
+    this.voicePan.connect(this.buses.voice.wet);
 
     this.setSector(this.sound, 0.01);
     this.boot();
@@ -145,6 +170,7 @@ export class VoidAudio {
     const now = this.ctx.currentTime;
     this.ratios().forEach((ratio, i) => this.voices[i].frequency.setTargetAtTime(sound.root * ratio, now, glide));
     this.filter.frequency.setTargetAtTime(220 + (1 - sound.darkness) * 1500, now, glide);
+    this.placeLevel.gain.setTargetAtTime(sound.level ?? 1, now, glide);
   }
 
   setSpeed(speed) {
@@ -163,8 +189,8 @@ export class VoidAudio {
     gain.gain.linearRampToValueAtTime(level, when + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.0001, when + decay);
     osc.connect(gain);
-    gain.connect(this.reverb);
-    gain.connect(this.master);
+    gain.connect(this.buses.void.wet);
+    gain.connect(this.buses.void.dry);
     osc.start(when);
     osc.stop(when + decay + 0.1);
   }
@@ -196,7 +222,7 @@ export class VoidAudio {
         gain.gain.setValueAtTime(0.0001, at);
         gain.gain.exponentialRampToValueAtTime(this.sound.pulse * level * 0.9, at + 0.012);
         gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.38);
-        osc.connect(gain).connect(this.master);
+        osc.connect(gain).connect(this.buses.void.dry);
         osc.start(at);
         osc.stop(at + 0.45);
         this.hits.push({ at, strength: level * Math.min(1, 0.35 + this.sound.pulse) });
@@ -307,7 +333,7 @@ export class VoidAudio {
     const gain = this.ctx.createGain();
     gain.gain.value = 0;
     const source = this.ctx.createMediaElementSource(el);
-    source.connect(gain).connect(this.master);
+    source.connect(gain).connect(this.buses.media.dry);
     this.played.add(new WeakRef(el));
     if (this.warpCents) { el.preservesPitch = false; el.playbackRate = 2 ** (this.warpCents / 1200); }
     return { gain, source };
@@ -331,7 +357,7 @@ export class VoidAudio {
       el.addEventListener("error", () => { this.trackFailed = true; this.trackOn = false; });
       const gain = this.ctx.createGain();
       gain.gain.value = 0;
-      this.ctx.createMediaElementSource(el).connect(gain).connect(this.master);
+      this.ctx.createMediaElementSource(el).connect(gain).connect(this.buses.music.dry);
       this.track = { el, gain };
     }
     const { el, gain } = this.track, now = this.ctx.currentTime;
@@ -364,8 +390,8 @@ export class VoidAudio {
         gain.gain.setValueAtTime(level, at);
         gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
         osc.connect(gain);
-        gain.connect(this.master);
-        gain.connect(this.reverb);
+        gain.connect(this.buses.music.dry);
+        gain.connect(this.buses.music.wet);
         osc.start(at);
         osc.stop(at + length + 0.02);
       };
@@ -377,7 +403,7 @@ export class VoidAudio {
         osc.frequency.exponentialRampToValueAtTime(42, at + 0.16);
         gain.gain.setValueAtTime(0.32, at);
         gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.24);
-        osc.connect(gain).connect(this.master);
+        osc.connect(gain).connect(this.buses.music.dry);
         osc.start(at);
         osc.stop(at + 0.3);
         this.hits.push({ at, strength: step % 16 === 0 ? 1 : 0.7 });
@@ -412,8 +438,8 @@ export class VoidAudio {
       gain.gain.value = level;
       panner.pan.value = Math.max(-1, Math.min(1, pan));
       source.connect(gain).connect(panner);
-      panner.connect(this.master);
-      panner.connect(this.reverb);
+      panner.connect(this.buses.sounds.dry);
+      panner.connect(this.buses.sounds.wet);
       source.start();
     });
   }
@@ -428,7 +454,7 @@ export class VoidAudio {
     band.Q.value = 1.2;
     gain.gain.setValueAtTime(level, now);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.035);
-    source.connect(band).connect(gain).connect(this.master);
+    source.connect(band).connect(gain).connect(this.buses.sounds.dry);
     source.start(now, Math.random());
     source.stop(now + 0.05);
     this.ping(180, level * 0.5, 0.05, now);
@@ -455,8 +481,8 @@ export class VoidAudio {
     gain.gain.exponentialRampToValueAtTime(0.5, now + 0.05);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.1);
     source.connect(band).connect(gain);
-    gain.connect(this.master);
-    gain.connect(this.reverb);
+    gain.connect(this.buses.sounds.dry);
+    gain.connect(this.buses.sounds.wet);
     source.start(now);
     source.stop(now + 1.2);
     this.ping(48, 0.5, 1.6, now);
@@ -471,8 +497,8 @@ export class VoidAudio {
     gain.gain.setValueAtTime(0.0001, now);
     gain.gain.exponentialRampToValueAtTime(0.25 + strength * 0.45, now + 0.008);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
-    osc.connect(gain).connect(this.master);
-    gain.connect(this.reverb);
+    osc.connect(gain).connect(this.buses.sounds.dry);
+    gain.connect(this.buses.sounds.wet);
     osc.start(now);
     osc.stop(now + 0.35);
   }
@@ -500,26 +526,23 @@ export class VoidAudio {
   // ---- the zone ----
   // Its music is the stage's own files when it has any: each file one layer, all started together,
   // brought in one by one as lines are cleared. Without files a small score of ours plays at the
-  // stage's tempo, its parts arriving the same way. All of it runs through one low-pass that closes
-  // while time is stopped. The pieces' own sounds are in the stage's key and land on its beat.
+  // stage's tempo, its parts arriving the same way. The pieces' own sounds are in the stage's key and
+  // land on its beat.
 
   zoneBus() {
     if (this.zone) return this.zone;
-    const ctx = this.ctx, gain = ctx.createGain(), build = ctx.createBiquadFilter(), swell = ctx.createGain(), lowpass = ctx.createBiquadFilter(), sfx = ctx.createGain();
+    const ctx = this.ctx, gain = ctx.createGain(), build = ctx.createBiquadFilter(), swell = ctx.createGain(), sfx = ctx.createGain();
     // the build: a stage begins with its music held back, darker and quieter, and opens up as you play through it
     build.type = "lowpass";
     build.frequency.value = 4000;
     build.Q.value = 0.7;
     swell.gain.value = 0.8;
-    lowpass.type = "lowpass";
-    lowpass.frequency.value = 20000;
-    lowpass.Q.value = 0.9;
     gain.gain.value = 0;
-    gain.connect(build).connect(swell).connect(lowpass).connect(this.master);
+    gain.connect(build).connect(swell).connect(this.buses.music.dry);
     sfx.gain.value = 1;
-    sfx.connect(this.master);
-    sfx.connect(this.reverb);
-    return (this.zone = { gain, build, swell, lowpass, sfx, stems: [], layer: 0, intensity: 0.35, on: false, stage: null, synth: false, heard: false });
+    sfx.connect(this.buses.sounds.dry);
+    sfx.connect(this.buses.sounds.wet);
+    return (this.zone = { gain, build, swell, sfx, stems: [], layer: 0, intensity: 0.35, on: false, stage: null, synth: false, heard: false });
   }
 
   // in the zone or not: the drone steps back and the music fades in as the dark lifts
@@ -599,13 +622,6 @@ export class VoidAudio {
     zone.layer = playing ? 1 + Math.min(3, Math.floor(intensity * 4)) : 0; // our own score's parts
     const stems = zone.stems.length, layer = Math.floor(intensity * stems);
     for (const stem of zone.stems) stem.gain.gain.setTargetAtTime(stem.index <= layer ? 1 : 0, now, 1.3);
-  }
-
-  // time stopped: the music goes under water
-  zoneStill(on) {
-    if (!this.ctx) return;
-    const { lowpass } = this.zoneBus();
-    lowpass.frequency.setTargetAtTime(on ? 420 : 20000, this.ctx.currentTime, on ? 0.25 : 0.6);
   }
 
   zoneTempo() {
@@ -723,14 +739,6 @@ export class VoidAudio {
         return;
       }
       case "spin": this.swell(0.22, now, 0.5, 900, 4000); return play(5, 4, 0.14, 0.9);
-      case "zone": this.swell(0.35, now, 1.4, 5000, 200); return this.thump(0.6, now, 70, 25);
-      case "zoneLines": return play(value + 7, 4, 0.13, 1.2);
-      case "zoneEnd": {
-        this.thump(0.8, now, 80, 22);
-        this.swell(0.4, now, 2.2, 200, 8000);
-        for (let i = 0; i < 6; i++) play(i * 2, 2 + (i >> 1), 0.14, 3.5, now + i * 0.07);
-        return;
-      }
       case "level": [0, 2, 4, 7].forEach((d, i) => play(d, 4, 0.09, 1.4, this.onBeat(2) + i * 0.09)); return;
       case "stage": [0, 4, 7, 11, 14].forEach((d, i) => play(d, 3, 0.1, 2.8, now + i * 0.16)); return;
       case "journey": [0, 2, 4, 7, 9, 11, 14].forEach((d, i) => play(d, 3 + (i > 3), 0.12, 4, now + i * 0.2)); return;

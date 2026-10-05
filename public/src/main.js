@@ -11,6 +11,9 @@ import { VoidMap } from "./map.js";
 import { Entity } from "./entity.js";
 import { Marderchen, REALM } from "./marderchen.js";
 import { Zone, ZONE } from "./zone.js";
+import { PadMap } from "./pad.js";
+import { SPAWN } from "./constants.js";
+import { draggablePanels } from "./panels.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -53,7 +56,6 @@ function onSector(spec, shown, key) {
     : spec.source === "chaostyper" ? "don't know the future seens to be an error"
     : spec.source === "marderchen" ? "[MEOW] by marderchen · its free · have fun :3 =^.^="
     : spec.source === "zone" ? "the zone · R looks at the well · P plays at it"
-    : spec.source === "zone-gate" ? "a way down"
     : hook("status", spec) || "local noise · claude unreachable";
   const name = spec ? spec.name : "· · ·";
   const changed = hud.key !== key || $("name").textContent !== name;
@@ -67,6 +69,7 @@ function onSector(spec, shown, key) {
     sector.classList.remove("enter");
     void sector.offsetWidth; // restart the reveal animation
     sector.classList.add("enter");
+    wakeHud(); // a new place (a sector, a dimension, a room, a thread): its name for a moment, then the void alone
   }
   audio.setSector(shown.sound);
   if (arrived) audio.arrive();
@@ -151,6 +154,8 @@ const store = (name, value) => {
   try { localStorage.setItem(`cvoid.${name}`, JSON.stringify(value)); } catch { /* private mode */ }
 };
 let sensitivity = stored("sensitivity", 1), invertY = stored("invertY", false);
+const padMap = new PadMap({ stored, store }); // the controller's buttons, as the player has them (Tab panel: controller)
+draggablePanels({ stored, store }); // the Tab panel's windows: moved and resized at will, remembered
 
 const entity = new Entity({ scene, world, audio, map, textEl: $("entity"), waitsEl: $("waits"), stored, store });
 // turn to face this way (the view eases round, the short way)
@@ -174,7 +179,9 @@ const zone = new Zone({ scene, world, audio, hintEl: $("hint"), stored, store, a
 // its own way · steer(camera, dt, hurry): where to go and look · pull, roll, fade: its pull on you, its
 // tilt, the dark at its door · collide(position, velocity, radius) · status(spec): the HUD's line for
 // its sectors · target(): what R turns you to · notice(): what you are with (for the void's voice) ·
-// leaveRealm / enterRealm(realm, camera): going there by the map · help: its keys, for the help line
+// leaveRealm / enterRealm(realm, camera): going there by the map · help: its keys, for the help line ·
+// interact(): the controller's interact button, true when it opened or entered something of its own ·
+// pad(pad): the controller each frame of flight, before cvoid's own buttons (its own actions: pad.addActions)
 const plugins = [];
 const hook = (name, ...args) => {
   for (const p of plugins) {
@@ -222,7 +229,8 @@ function teleport(realm, x, y, z) {
 map.bind({
   spawn: spawnAt,
   onGo(realm, x, y, z) {
-    teleport(realm, x, y, z);
+    if (realm === "void" && x === SPAWN[0] && y === SPAWN[1] && z === SPAWN[2]) spawnHere(); // (the origin: looking at the clock)
+    else teleport(realm, x, y, z);
     if (map.open) map.toggle(); // and you see where you are
     lockPointer();
   },
@@ -230,22 +238,55 @@ map.bind({
 });
 
 const HELP = {
-  keys: "mouse look · w a s d fly · q e roll · enter autofly · space / c rise, sink · shift surge (twice: faster) · r level out · - = volume · f fullscreen · tab map · b listen to the room · [ ] sensitivity · i invert · h hide hud · m mute · hold right zoom",
-  pad: "sticks fly and look · triggers rise, sink · bumpers roll · a or left-stick click surge · right-stick click autofly · d-pad ▲ level out · select map · d-pad ◀ ▶ sensitivity · x invert · y mute",
+  keys: "mouse look · w a s d fly · q e roll · enter autofly · space / c rise, sink · shift surge (twice: faster) · r level out · - = volume · f fullscreen · tab map · b listen to the room · [ ] sensitivity · i invert · h keep hud · m mute · hold right zoom",
+  get pad() { return padMap.help("flight"); }, // (as the buttons are mapped: see pad.js)
   // sitting at the well in the zone
-  "play-keys": "← → move · ↓ soft drop · space hard drop · ↑ x rotate · z ctrl rotate back · a turn round · c shift hold · v zone · q e roll · r look at the well · p stand up",
-  "play-pad": "d-pad ◀ ▶ move · ▼ soft drop · ▲ hard drop · a rotate · b x rotate back · y turn round · bumpers hold · triggers zone · right-stick click look at the well · start stand up",
+  "play-keys": "← → move · ↓ soft drop · space hard drop · ↑ x rotate · z ctrl rotate back · a turn round · c shift hold · q e roll · ← → before a run: another well · r look at the well · p stand up",
+  get ["play-pad"]() { return padMap.help("well"); },
 };
-let helpMode = "keys", noteTimer = 0;
+let helpMode = "keys", noteTimer = 0, wakeTimer = 0;
+// The keys, in the Tab panel: cvoid's own (the keyboard's or the gamepad's, whichever was used last),
+// then each plugin's ("in f0ck: e open · ..."), every one a key and what it does. Seated at the well,
+// its game keys stay on the screen as well, under the game.
 function showHelp(mode = helpMode) {
   helpMode = mode;
-  const theirs = mode === "keys" && !zone.seated ? plugins.map((p) => p.help).filter(Boolean) : []; // and the plugins' keys
-  $("help").textContent = [HELP[zone.seated ? `play-${mode}` : mode], ...theirs].join(" · ");
+  const theirs = mode === "keys" ? plugins.map((p) => p.help).filter(Boolean) : [];
+  const groups = [[mode === "pad" ? "gamepad" : "cvoid", HELP[mode]], ...theirs.map((help) => {
+    const [, of, keys] = help.match(/^in ([^:]+):\s*(.*)$/) ?? [null, "", help];
+    return [of, keys];
+  })];
+  if (zone.seated) groups.unshift([`the well${mode === "pad" ? ", gamepad" : ""}`, HELP[`play-${mode}`]]);
+  const blocks = groups.map(([of, keys]) => {
+    const title = Object.assign(document.createElement("div"), { className: "of", textContent: of });
+    const list = Object.assign(document.createElement("div"), { className: "keys" });
+    for (const entry of keys.split(" · ")) {
+      // "w a s d fly" -> the keys, and what they do (the first word that is not a key on its own)
+      const words = entry.split(" "), at = Math.max(1, words.findIndex((w, i) => i > 0 && w.length > 2 && !/^(shift|ctrl|enter|space|tab|right|left|click|wheel|esc|backspace|arrows|stick|sticks|left-stick|right-stick|d-pad|triggers|bumpers|select|start)$/.test(w)));
+      list.append(Object.assign(document.createElement("b"), { textContent: words.slice(0, at).join(" ") }), Object.assign(document.createElement("span"), { textContent: words.slice(at).join(" ") }));
+    }
+    return [title, list];
+  });
+  // the first group (cvoid's own, or the well's) a column of its own; the rest beside it
+  const column = () => Object.assign(document.createElement("div"), { className: "column" }), left = column(), right = column();
+  left.append(...blocks[0]);
+  right.append(...blocks.slice(1).flat());
+  $("keysList").replaceChildren(left, ...(blocks.length > 1 ? [right] : []));
+  $("help").textContent = zone.seated ? HELP[`play-${mode}`] : "";
 }
+// a word on what just happened, under the crosshair for a moment
 function note(text) {
-  $("help").textContent = text;
+  const el = $("note");
+  el.textContent = text;
+  el.classList.add("show");
   clearTimeout(noteTimer);
-  noteTimer = setTimeout(showHelp, 1800);
+  noteTimer = setTimeout(() => el.classList.remove("show"), 1800);
+}
+// the place's name and the line under it, for a while (unless H keeps them: see the keys)
+function wakeHud(seconds = 6) {
+  $("sector").classList.add("awake");
+  $("meta").classList.add("awake");
+  clearTimeout(wakeTimer);
+  wakeTimer = setTimeout(() => { $("sector").classList.remove("awake"); $("meta").classList.remove("awake"); }, seconds * 1000);
 }
 showHelp();
 
@@ -322,8 +363,41 @@ for (const label of sliders) {
 }
 setVolume(stored("volume", 1));
 
+// The mix, under the volume in the Tab panel: how loud each kind of sound is (0 to 150%), remembered.
+{
+  const MIX = [["void", "the void"], ["music", "music"], ["sounds", "sounds"], ["voice", "voices"], ["media", "radio, posts"]];
+  const mix = stored("mix", {});
+  const rows = MIX.map(([name, title]) => {
+    const row = Object.assign(document.createElement("label"), { className: "volume mixer" });
+    const input = Object.assign(document.createElement("input"), { type: "range", min: 0, max: 150, step: 1 }), shown = document.createElement("output");
+    row.append(Object.assign(document.createElement("span"), { textContent: title }), input, shown);
+    const set = (percent) => {
+      input.value = percent;
+      input.style.setProperty("--v", percent / 150); // (how much of the line is lit)
+      shown.textContent = percent;
+      audio.setMix(name, percent / 100);
+    };
+    set(Math.round((Number.isFinite(mix[name]) ? mix[name] : 1) * 100));
+    input.addEventListener("input", () => { set(+input.value); mix[name] = +input.value / 100; store("mix", mix); });
+    input.addEventListener("keydown", (e) => e.stopPropagation()); // (its arrow keys are its own)
+    input.addEventListener("dblclick", () => { set(100); mix[name] = 1; store("mix", mix); }); // (twice: back to as it comes)
+    return row;
+  });
+  const box = Object.assign(document.createElement("div"), { className: "mix" });
+  box.append(Object.assign(document.createElement("div"), { className: "of", textContent: "mix · double click a slider: back to 100" }), ...rows);
+  $("mapPanel").append(box);
+}
+
 function toggleMute() {
   note(audio.toggleMute() ? "muted" : "sound on");
+}
+
+// everyone's place to start (SPAWN), turned to the clock in the middle of the hub
+function spawnHere() {
+  teleport("void", ...SPAWN);
+  const to = camera.position.clone().negate(), length = to.length() || 1;
+  yaw = viewYaw = Math.atan2(-to.x, -to.z);
+  pitch = viewPitch = Math.asin(to.y / length);
 }
 
 function start() {
@@ -333,12 +407,15 @@ function start() {
   yaw = viewYaw = camera.rotation.y;
   pitch = viewPitch = camera.rotation.x;
   audio.start();
-  // a chosen place to start, set on the map
+  // a chosen place to start, set on the map; else everyone's, looking at the clock
   if (map.spawn) teleport(map.spawn.realm, map.spawn.x, map.spawn.y, map.spawn.z);
+  else spawnHere();
   map.visit(world.currentKey); // where you begin counts as explored
+  voice.arrived(); // (someone it knows, it greets)
   $("start").classList.add("gone");
   $("hud").classList.add("on");
   $("crosshair").classList.add("on");
+  wakeHud(9); // where you begin, named a while (with the HUD's slow first reveal)
 }
 
 // Raw mouse input where the browser offers it: the OS pointer acceleration curve
@@ -357,7 +434,13 @@ $("start").addEventListener("click", () => {
   lockPointer();
 });
 canvas.addEventListener("click", lockPointer);
-document.addEventListener("pointerlockchange", () => { skipMoves = 2; });
+document.addEventListener("pointerlockchange", () => {
+  skipMoves = 2;
+  // Esc (the browser takes it to let go of the pointer, and the page never hears it): at the well the
+  // game pauses, and taking the pointer again (a click) goes on
+  if (document.pointerLockElement === canvas) zone.resume();
+  else zone.pause();
+});
 let skipMoves = 0;
 document.addEventListener("mousemove", (e) => {
   if (document.pointerLockElement !== canvas) return;
@@ -367,6 +450,8 @@ document.addEventListener("mousemove", (e) => {
   look(e.movementX, e.movementY, MOUSE_LOOK * sensitivity * (camera.fov / 70)); // zoomed in, the view turns as much less
 });
 window.addEventListener("keydown", (e) => {
+  // the controller page waiting for a button: Esc stops waiting
+  if (padMap.capturing && e.code === "Escape") return void padMap.cancel();
   // the map is open: Tab or Esc closes it, O goes back to the origin; flying goes on
   if (map.open && !e.repeat && (e.code === "Escape" || e.code === "Tab")) {
     e.preventDefault();
@@ -400,7 +485,7 @@ window.addEventListener("keydown", (e) => {
     if (e.code === "Enter" || e.code === "NumpadEnter") toggleAutofly();
     if (e.code === "KeyS") toggleAutofly(false);
     if (e.code === "KeyI") toggleInvert();
-    if (e.code === "KeyH") { document.body.classList.toggle("bare"); document.body.classList.add("unbared"); } // the HUD away, and back
+    if (e.code === "KeyH") note(document.body.classList.toggle("hud-shown") ? "hud kept" : "hud comes and goes"); // the place's name kept on the screen, and let go again
     if (e.code === "KeyR") levelOut();
     if (e.code === "Tab") map.toggle();
     if (e.code === "KeyF") toggleFullscreen();
@@ -463,62 +548,91 @@ window.addEventListener("blur", () => { keys.clear(); hyper = false; });
 // a gamepad press can't unlock audio on its own; any later click or key does
 for (const type of ["pointerdown", "keydown"]) window.addEventListener(type, () => audio.ctx?.resume());
 
-// ---- gamepad (standard mapping) ----
+// ---- gamepad (standard mapping, its buttons as the player has mapped them: see pad.js) ----
 
-const pad = { x: 0, y: 0, rise: 0, roll: 0, surge: false, held: new Set() };
+const pad = { x: 0, y: 0, rise: 0, roll: 0, surge: false };
 const stick = (v) => {
   const m = Math.abs(v);
   return m < DEADZONE ? 0 : Math.sign(v) * ((m - DEADZONE) / (1 - DEADZONE));
 };
+// The controller in use. With more than one connected (a PS3 controller left plugged in beside a
+// DualSense, say), the first in the browser's list is not necessarily the one in your hands: the one
+// used is kept until another has a button pressed or a stick pushed well over, and only then does
+// that one take over. One in the browser's standard layout is preferred.
+let padIndex = null;
+function activePad() {
+  const all = [...(navigator.getGamepads?.() ?? [])].filter((g) => g?.connected && g.axes.length >= 4 && g.buttons.length >= 10);
+  const standard = all.filter((g) => g.mapping === "standard"), pads = standard.length ? standard : all;
+  const touched = pads.find((g) => g.index !== padIndex && (g.buttons.some((b) => b.pressed) || g.axes.slice(0, 4).some((v) => Math.abs(v) > 0.6)));
+  const current = pads.find((g) => g.index === padIndex);
+  const gp = touched ?? current ?? pads[0] ?? null;
+  if (gp) padIndex = gp.index;
+  return gp;
+}
 function pollPad(dt) {
   pad.x = pad.y = pad.rise = pad.roll = 0;
   pad.surge = false;
-  const gp = [...(navigator.getGamepads?.() ?? [])].find((g) => g?.connected && g.axes.length >= 4);
+  const gp = activePad();
   if (!gp) return;
-  const down = (i) => !!gp.buttons[i]?.pressed;
-  const pressed = (i) => {
-    const was = pad.held.has(i);
-    if (down(i)) pad.held.add(i); else pad.held.delete(i);
-    return down(i) && !was;
-  };
+  padMap.frame(gp);
+  if (padMap.waiting()) return; // (the controller page is waiting for a button to map)
+  const hit = (id) => padMap.hit(id), down = (id) => padMap.down(id);
+  const { move, aim } = padMap.sticks(gp);
   if (!started) {
-    if (gp.buttons.some((b) => b.pressed)) {
-      gp.buttons.forEach((b, i) => b.pressed && pad.held.add(i));
+    if (padMap.newly.size) {
       start();
       showHelp("pad");
     }
     return;
   }
-  zone.pad(gp);
+  zone.pad(gp, padMap);
+  // squared response: fine aim near the centre, full speed at the rim
+  const rx = stick(aim[0]), ry = stick(aim[1]);
+  look(rx * Math.abs(rx) * dt, ry * Math.abs(ry) * dt * 0.75, PAD_LOOK * sensitivity);
   if (zone.seated) {
-    // at the well the pad plays; the right stick still looks round
-    for (let i = 0; i < gp.buttons.length; i++) if (down(i)) pad.held.add(i); else pad.held.delete(i);
-    const rx = stick(gp.axes[2]), ry = stick(gp.axes[3]);
-    look(rx * Math.abs(rx) * dt, ry * Math.abs(ry) * dt * 0.75, PAD_LOOK * sensitivity);
-    if (helpMode !== "pad" && (rx || ry || gp.buttons.some((b) => b.pressed))) showHelp("pad");
+    // at the well the pad plays; the look stick still looks round
+    if (helpMode !== "pad" && (rx || ry || padMap.now.size)) showHelp("pad");
     return;
   }
-  pad.x = stick(gp.axes[0]);
-  pad.y = stick(gp.axes[1]);
-  pad.rise = (gp.buttons[7]?.value ?? 0) - (gp.buttons[6]?.value ?? 0);
-  pad.surge = down(0) || down(10);
-  // squared response: fine aim near the centre, full speed at the rim
-  const rx = stick(gp.axes[2]), ry = stick(gp.axes[3]);
-  look(rx * Math.abs(rx) * dt, ry * Math.abs(ry) * dt * 0.75, PAD_LOOK * sensitivity);
-  if (pressed(14)) changeSensitivity(1 / 1.1);
-  if (pressed(15)) changeSensitivity(1.1);
-  if (pressed(2)) toggleInvert();
-  if (pressed(3)) toggleMute();
-  if (pressed(11)) toggleAutofly();              // right-stick click
-  if (pressed(12)) levelOut();                   // d-pad up
-  if (stick(gp.axes[1]) > 0.5) toggleAutofly(false); // pulling back stops it
-  if (pressed(8)) map.toggle();
-  if (pressed(1)) marderchen.museum.toggle();
-  if (pressed(5)) map.shift(1);
-  if (pressed(4)) map.shift(-1);
-  if (!map.open) pad.roll = (down(4) ? 1 : 0) - (down(5) ? 1 : 0); // the bumpers roll the view
+  // the plugins first, with their own actions (a press they take is not flying's too: see PadMap.take)
+  if (!map.open) for (const p of plugins) p.pad?.(padMap);
+  pad.x = stick(move[0]);
+  pad.y = stick(move[1]);
+  pad.rise = padMap.value(gp, "rise") - padMap.value(gp, "sink");
+  pad.surge = down("surge");
+  if (hit("slower")) changeSensitivity(1 / 1.1);
+  if (hit("faster")) changeSensitivity(1.1);
+  if (hit("invert")) toggleInvert();
+  if (hit("mute")) toggleMute();
+  if (hit("interact")) interact();
+  if (hit("autofly")) toggleAutofly();
+  if (hit("levelOut")) levelOut();
+  if (pad.y > 0.5) toggleAutofly(false); // pulling back stops it
+  if (hit("map")) map.toggle();
+  if (hit("open")) marderchen.museum.toggle();
+  if (hit("layerUp")) map.shift(1);
+  if (hit("layerDown")) map.shift(-1);
+  if (!map.open) pad.roll = (down("rollLeft") ? 1 : 0) - (down("rollRight") ? 1 : 0);
   if (helpMode !== "pad" && (pad.x || pad.y || rx || ry || pad.rise)) showHelp("pad");
 }
+
+// The controller's interact button: what you are with is opened or entered (a museum piece, the well
+// beside you, a plugin's post or thread: its interact hook); with nothing there, the view is recentred.
+function interact() {
+  if (marderchen.museum.open || marderchen.museum.canOpen()) return marderchen.museum.toggle();
+  if (zone.nearWell && !zone.seated) return zone.sit();
+  if (hook("interact")) return;
+  levelOut();
+}
+
+// the controller page of the Tab panel: each action and the buttons it is on (see pad.js)
+padMap.bindPanel($("padPanel"), () => padIndex !== null && !!navigator.getGamepads?.()[padIndex]?.connected);
+$("mPad").addEventListener("click", () => {
+  const open = document.body.classList.toggle("padding");
+  $("mPad").classList.toggle("on", open);
+  if (!open) padMap.cancel();
+});
+padMap.onSaved = () => showHelp();
 window.addEventListener("gamepadconnected", () => {
   if (!started) $("prompt").textContent = "click or press any button to materialize";
 });
@@ -622,7 +736,7 @@ renderer.setAnimationLoop((now) => {
   world.G.uBass.value = heard.bass; world.G.uMid.value = heard.mid; world.G.uHigh.value = heard.high; world.G.uBeat.value = heard.beat;
   // in the zone the pieces stand steady: the music does not brighten or flash their edges
   if (world.realm === ZONE) world.G.uMid.value = world.G.uBeat.value = 0;
-  world.update(dt * zone.timeScale, camera); // the Zone stops time for the whole dimension
+  world.update(dt, camera);
   if (started) {
     marderchen.update(dt, camera, keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge);
     zone.update(dt, camera, velocity);
@@ -635,6 +749,7 @@ renderer.setAnimationLoop((now) => {
     }
     // the entity does not follow into marderchen's dimension
     if (world.realm === "void" && !marderchen.mad) entity.update(dt, camera, velocity.length()); // nor does it show itself while he is out
+    else audio.entityVoice(0, 0); // and its hum does not follow you out (left humming, it buzzed on in every other dimension)
     entity.meddle(dt); // (its ways with the sound reach everywhere)
   }
   fadeEl.style.opacity = Math.max(marderchen.fade, zone.fade, ...plugins.map((p) => p.fade ?? 0)).toFixed(3); // the dark at any door
@@ -660,16 +775,17 @@ renderer.setAnimationLoop((now) => {
   }
 });
 
-window.cvoid = { world, camera, renderer, entity, marderchen, zone, voice, map, plugins, CELL, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; } };
+window.cvoid = { world, camera, renderer, entity, marderchen, zone, voice, map, plugins, padMap, CELL, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; } };
 
 // The plugins (see the top), installed once the game around them is ready: what they are given.
 const game = {
   scene, world, audio, map, camera, canvas, velocity, keys, stored, store,
+  pad: padMap, // the controller's buttons, as mapped (see pad.js): a plugin may add actions of its own
   arrive, face, note, lockPointer, levelOut, showHelp: () => showHelp(),
   started: () => started,
   aiming,                                   // flying, the pointer held, no map open
   mapOpen: () => map.open,
-  closeMap: () => { if (map.open) map.toggle(); lockPointer(); },
+  closeMap: (lock = true) => { if (map.open) map.toggle(); if (lock) lockPointer(); }, // (lock false: something else takes the screen)
   // how the picture is finished while in a dimension of its own (null: as cvoid's own): tone mapped
   // or not (a page's colours shown as they are), and how much light glows
   finish(look) {

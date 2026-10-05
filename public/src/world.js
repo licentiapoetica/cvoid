@@ -5,7 +5,7 @@ import { hashCoords, mulberry32 } from "./noise.js";
 import { ORIGIN, localSpec, voidSpec, normalizeSpec } from "./spec.js";
 import { population } from "./population.js";
 import { REALM, GATE_SECTOR, GATE_SPEC, marderSpec } from "./marderchen.js";
-import { ZONE, ZONE_GATE, ZONE_GATE_SPEC, zoneSpec } from "./zone.js";
+import { ZONE, zoneSpec } from "./zone.js";
 import { PRIMITIVES, buildLayers, buildBlueprint } from "./structures.js";
 import { CELL, UNIT, SIGHT } from "./constants.js";
 import {
@@ -472,8 +472,8 @@ export class World {
       glow: this.G.uGlow.value.clone(), accent: this.G.uAccent.value.clone(), density: 0.0022 / SIGHT,
     };
     this.cells = new Map();
-    this.realm = "void"; // or marderchen's dimension through the ring above the hub, or the zone through the one below
-    this.specs = new Map([["0,0,0", normalizeSpec(ORIGIN)], [GATE_SECTOR.join(","), normalizeSpec(GATE_SPEC)], [ZONE_GATE.join(","), normalizeSpec(ZONE_GATE_SPEC)]]);
+    this.realm = "void"; // or marderchen's dimension through the ring above the hub, or the zone through its ring round the clock
+    this.specs = new Map([["0,0,0", normalizeSpec(ORIGIN)], [GATE_SECTOR.join(","), normalizeSpec(GATE_SPEC)]]);
     this.probed = new Set();
     this.probing = new Set();
     this.pending = new Set();

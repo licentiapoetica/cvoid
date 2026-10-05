@@ -20,7 +20,7 @@ export const ORIGIN = {
   noise: { frequency: 1, octaves: 3, lacunarity: 2, gain: 0.5, warp: 0.3, ridge: 0 },
   motes: { density: 0.5, size: 1, speed: 0.15, drift: "rise" },
   orbs: { count: 7, colors: ["#ff5a5a", "#ffb347", "#f4f06a", "#6ee07a", "#58c8ff", "#6f7bff", "#c77dff"] },
-  sound: { root: 55, mode: "lydian", shimmer: 0.5, darkness: 0.45, pulse: 0, tempo: 60 },
+  sound: { root: 55, mode: "lydian", shimmer: 0.25, darkness: 0.65, pulse: 0, tempo: 60, level: 0.45 }, // quiet here: where you start and come back to
   fieldGlsl: `vec3 q = p * 0.6 + vec3(0.0, t * 0.012, 0.0); float n = fbm(q + 0.5 * snoise(q * 0.4)); return smoothstep(0.1, 0.8, n) * 0.9;`,
   source: "origin",
 };
@@ -113,6 +113,7 @@ export function normalizeSpec(raw) {
       darkness: clamp(a.darkness, 0, 1, 0.5),
       pulse: clamp(a.pulse, 0, 1, 0.2),   // how present the slow heartbeat is
       tempo: clamp(a.tempo, 30, 140, 52), // beats per minute
+      level: clamp(a.level, 0, 1, 1),     // how loud the drone is here (a place may ask for a quieter one)
     },
     fieldGlsl: glsl,
     source: s.source ?? "local",
