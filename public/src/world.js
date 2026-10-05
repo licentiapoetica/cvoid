@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { hashCoords, mulberry32 } from "./noise.js";
 import { ORIGIN, localSpec, voidSpec, normalizeSpec } from "./spec.js";
 import { population } from "./population.js";
-import { REALM, GATE_SECTOR, GATE_SPEC, marderSpec } from "./marderchen.js";
+import { REALM, marderSpec } from "./marderchen.js";
 import { ZONE, zoneSpec } from "./zone.js";
 import { PRIMITIVES, buildLayers, buildBlueprint } from "./structures.js";
 import { CELL, UNIT, SIGHT } from "./constants.js";
@@ -473,7 +473,7 @@ export class World {
     };
     this.cells = new Map();
     this.realm = "void"; // or marderchen's dimension through the ring above the hub, or the zone through its ring round the clock
-    this.specs = new Map([["0,0,0", normalizeSpec(ORIGIN)], [GATE_SECTOR.join(","), normalizeSpec(GATE_SPEC)]]);
+    this.specs = new Map([["0,0,0", normalizeSpec(ORIGIN)]]);
     this.probed = new Set();
     this.probing = new Set();
     this.pending = new Set();

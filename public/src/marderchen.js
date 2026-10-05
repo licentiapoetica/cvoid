@@ -1,22 +1,32 @@
 // marderchen's dimension. A tribute to marderchen: mechatronics technician, builder of glaring
 // psychedelic LED light organs and hand-soldered 0603 clocks, lover of cats and rainbows, who put
-// all his code on the internet for anyone to use. Fly up through the rainbow ring above the hub
-// and you are in the workshop he missed, given back without walls. He lives there, and wuselt.
+// all his code on the internet for anyone to use. Fly through his rainbow ring on the circle of portals round the clock, under its MEOW, and you are
+// in the workshop he missed, given back without walls. He lives there, and wuselt.
 //
 // Everything in WORDS and PROJECTS is his: quoted from marderchen.lima-city.de as he wrote it.
 // The sprites are his own avatar and his rainbow cat. "its free use it or parts if you want =^.^="
 import * as THREE from "three";
-import { CELL, UNIT } from "./constants.js";
+import { CELL, UNIT, hubSlot } from "./constants.js";
+import { voidHole } from "./hole.js";
 import { hashCoords, mulberry32 } from "./noise.js";
-import { ORIGIN } from "./spec.js";
 import { NOISE_LIB } from "./shaders.js";
 import { Museum, MUSEUM_SECTOR } from "./museum.js";
 
 export const REALM = "marderchen";
-export const GATE_SECTOR = [0, 1, 0]; // straight up from the hub
-const GATE_RADIUS = 36 * UNIT, HOLE = GATE_RADIUS * 0.88; // the ring, and the black hole that fills it (smaller than the portals round the clock: a door of his own)
-const CLEAR = HOLE * 4; // how far from its middle you come out of it, either way: well clear of its dark
-const PULL_REACH = GATE_RADIUS * 7.5; // how far above and below it its pull reaches (as large as the door is)
+// His door stands on the circle of portals round the clock (see hubSlot), and is made as the others
+// are (see the f0ck plugin's gates): a ring as large, a dark as large, drawing you from as far. Only
+// its colours are his. In his dimension the way out stands behind you as you come in, well clear of
+// where you are (CLEAR), facing the way you face: towards the clock.
+const GATE_R = 120, HOLE = 104;
+const CLEAR = HOLE * 4; // how far from its middle you come out of it, either way: well clear of its dark, and of its pull
+const VOID_GATE = new THREE.Vector3(), GATE_AXIS = new THREE.Vector3(); // (the axis: from it into the hub)
+const AXIS_Z = new THREE.Vector3(0, 0, 1), INSIDE_GATE = new THREE.Vector3(0, CLEAR, CLEAR); // (you come in at 0, CLEAR, 0)
+export function placeMarderchenGate() {
+  const at = hubSlot("marderchen");
+  VOID_GATE.set(...at.at);
+  GATE_AXIS.set(...at.in);
+}
+placeMarderchenGate();
 
 export const WORDS = [
   "by marderchen just use and have fun",
@@ -52,8 +62,6 @@ const PROJECTS = [
 ];
 
 const RAINBOW = ["#ff0000", "#ff8800", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#ff00ff"];
-const RING = `ring 30 36 | cube 0 0 0 3.6 3.6 3.6
-ring 12 46 | sphere 0 0 0 2.6 2.6 2.6 !`;
 
 // "marderchens MEOW letters": drawn as lines of cubes, the way his wuselline() draws a line as a
 // row of little rectangles with a rainbow running along it. The W is his own outline, from
@@ -87,27 +95,6 @@ const OPTICAL = [
 
 const layer = (o) => ({ kind: "none", primitive: "cube", density: 0.5, scale: 1, order: 1, twist: 0, spin: 0, symmetry: 1, tilt: 0, lift: 0, ...o });
 const BLACK = { fog: "#000000", deep: "#000000", glow: "#ff00ff", accent: "#00ffff" };
-
-// The sector in the void that holds the way in.
-export const GATE_SPEC = {
-  name: "marderchen's door",
-  inscription: "fly through the ring :3",
-  whispers: ["MEOW", "by marderchen just use and have fun", "[MEOW] more rainbowpower!", "=^.^=", "[MEOW]"],
-  // the void around the door looks exactly as it does at the hub: same fog, same sky, same sound.
-  // Only the ring itself is his.
-  palette: ORIGIN.palette,
-  fogDensity: ORIGIN.fogDensity,
-  layers: [layer({})],
-  noise: {},
-  motes: ORIGIN.motes,
-  orbs: { count: 0 },
-  sound: ORIGIN.sound,
-  fieldGlsl: ORIGIN.fieldGlsl,
-  blueprint: `${RING}\n${meowBlueprint(0, 66, -80, 30)}`,
-  dream: 0.1,
-  rainbow: 1,
-  source: "marderchen",
-};
 
 // One sector in seven is a dark room, and the one to the left of the workshop always is.
 export function isDarkRoom(x, y, z) {
@@ -187,8 +174,7 @@ export function marderSpec(x, y, z) {
         layer({ kind: "rings", primitive: "octa", density: 0.5, scale: 0.8, twist: 0.12, spin: 0.5, lift: 0.9 }),
       ],
       orbs: { count: 7, colors: RAINBOW },
-      blueprint: `${RING}
-cube -150 -110 -60 120 6 60
+      blueprint: `cube -150 -110 -60 120 6 60
 rep 2 110 0 0 | cube -205 -128 -60 6 36 50
 rep 5 20 0 0 | cube -190 -104 -70 12 3 18 !
 cyl -110 -98 -45 4 16 4
@@ -639,14 +625,15 @@ function textSprite(width, height, scale) {
 }
 
 const forward = new THREE.Vector3(), tmp = new THREE.Vector3(), place = new THREE.Matrix4();
+const aimRay = new THREE.Ray(), mausAt = new THREE.Vector3(), mausTo = new THREE.Vector3();
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 const AVATAR_FRAMES = 29, AVATAR_USED = 16, CAT_FRAMES = 10; // the avatar's later frames are full-screen colour flashes; left out
 
 export class Marderchen {
   constructor({ scene, world, audio, textEl, stored, store, arrive }) {
     Object.assign(this, { scene, world, audio, textEl, store, arrive });
-    // The door is a portal: a small vortex of rainbow light just above and below the ring that turns
-    // and narrows into it. It only pulls right in front of the ring: the last stretch of flying in.
+    // The door is a portal: a small vortex of rainbow light either side of the ring that turns and
+    // narrows into it, shown only from close by.
     const arms = 6, perArm = 40;
     this.vortex = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ fog: false }), arms * perArm * 2);
     this.vortex.frustumCulled = false;
@@ -662,16 +649,40 @@ export class Marderchen {
       this.vortex.setMatrixAt(i, v.matrix);
       this.vortexT[i] = t;
     }
-    this.vortex.scale.setScalar(0.3);
+    this.vortex.scale.setScalar(0.5);
+    this.vortex.rotation.x = Math.PI / 2; // (its funnel along the ring's axis)
     this.vortex.visible = false; // nothing of it shows until you are at the door
     this.fade = 0; // how dark it is at his door (main.js draws it)
     this.veil = 0; // the dark that lifts after you come through
-    scene.add(this.vortex);
-    // The door is a black hole: a ball of nothing filling the ring. You cannot see through it or
-    // past it from any side, and for a moment as you go in there is only black.
-    this.hole = new THREE.Mesh(new THREE.SphereGeometry(HOLE, 40, 24), new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide, fog: false }));
-    this.hole.visible = false;
-    scene.add(this.hole);
+    // The ring itself, as large as the others round the clock, in his rainbow running round it; the dark
+    // that fills it is the void's, as theirs is
+    this.gate = new THREE.Group();
+    const torus = new THREE.TorusGeometry(GATE_R, 3, 8, 120), hues = [], hue = new THREE.Color();
+    for (let i = 0, at = torus.attributes.position; i < at.count; i++) {
+      hue.setHSL((Math.atan2(at.getY(i), at.getX(i)) / (Math.PI * 2) + 1) % 1, 1, 0.5);
+      hues.push(hue.r, hue.g, hue.b);
+    }
+    torus.setAttribute("color", new THREE.Float32BufferAttribute(hues, 3));
+    this.rainbowRing = new THREE.Mesh(torus, new THREE.MeshBasicMaterial({ vertexColors: true }));
+    this.hole = new THREE.Mesh(new THREE.SphereGeometry(HOLE, 40, 24), voidHole(world.G.uTime));
+    this.gate.add(this.rainbowRing, this.hole, this.vortex);
+    // and over it, where the others carry their emblems, a MEOW of his: his letters as rows of little
+    // cubes with a rainbow running along them (dimmed under the glow, as the emblems are)
+    const meowCubes = [];
+    for (const [shift, points] of LETTERS) for (let i = 0; i + 1 < points.length; i++) {
+      const [ax, ay] = points[i], [bx, by] = points[i + 1], n = Math.max(1, Math.round(Math.hypot(bx - ax, by - ay) / 6.5));
+      for (let k = 0; k < n; k++) meowCubes.push([ax + shift + ((bx - ax) * k) / n - 198, ay + ((by - ay) * k) / n - 50]);
+    }
+    this.meow = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial(), meowCubes.length);
+    const cube = new THREE.Object3D();
+    meowCubes.forEach(([x, y], i) => { cube.position.set(x, y, 0); cube.scale.setScalar(4.4); cube.updateMatrix(); this.meow.setMatrixAt(i, cube.matrix); this.meow.setColorAt(i, hue); });
+    this.meowX = meowCubes.map(([x]) => x);
+    this.meow.scale.setScalar(1.1); // (110 high, as the emblems are)
+    this.meow.position.y = GATE_R + 48 + 120;
+    this.meowAt = -1;
+    this.gate.add(this.meow);
+    this.gate.visible = false;
+    scene.add(this.gate);
     this.pull = new THREE.Vector3(); // what the portal adds to the traveller's flight
     this.roll = 0;                   // and how far it has spun them
     this.eject = 0;                  // seconds left of being thrown clear on the far side
@@ -796,7 +807,8 @@ export class Marderchen {
 
     // On his workbench, in memory: the old yellowed computer mouse he rebuilt into a vape, fired by
     // clicking the mouse button. His own code mentions it: "new Atomizer remote holder caqused old
-    // mouse one totaly destroid by faling down". Here it is whole again, and now and then it clicks.
+    // mouse one totaly destroid by faling down". Here it is whole again, and now and then it clicks;
+    // with the crosshair on it (it lights up a little), click and you fire it yourself.
     const beige = new THREE.MeshBasicMaterial({ color: 0x8f8560, fog: false }), edge = new THREE.LineBasicMaterial({ color: 0xe9dfb4, fog: false });
     const part = (geometry, material, x, y, z, sx, sy, sz) => {
       const mesh = new THREE.Mesh(geometry, material);
@@ -819,6 +831,7 @@ export class Marderchen {
     this.maus.position.set(-272, -214, -118); // on the workbench
     this.maus.rotation.y = 0.5;
     this.maus.scale.setScalar(1.5);
+    this.mausBeige = beige;
     this.group.add(this.maus);
     this.dampf = new THREE.Points(
       new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(48 * 3), 3)),
@@ -827,7 +840,8 @@ export class Marderchen {
     this.dampf.frustumCulled = false;
     this.group.add(this.dampf);
     this.mausIn = 6;
-    this.zug = 0; // seconds since the last click
+    this.zug = 0;     // seconds since the last click
+    this.zugStark = 1; // and how deep a breath it was (yours are deeper than his idle ones)
 
     // the kote board: in a sector made from one of his files, the file itself runs down a board
     this.kode = { file: null, lines: [], top: 0, redraw: 0, canvas: document.createElement("canvas") };
@@ -864,11 +878,12 @@ export class Marderchen {
         y += i === 0 ? 34 : 24;
       }
       plaque.texture.needsUpdate = true;
-      // a board that hangs in one place in the workshop, to the right of the clock, turned toward
-      // where visitors come out of the ring. It does not turn to follow you.
+      // a board that hangs in one place in the workshop, well to the right of the clock (the whole
+      // clock is seen beside it from where you come in), turned toward where visitors come in. It does
+      // not turn to follow you.
       const board = new THREE.Mesh(new THREE.PlaneGeometry(560, 560), new THREE.MeshBasicMaterial({ map: plaque.texture, fog: false }));
-      board.position.set(210 * UNIT, 40 * UNIT, -250 * UNIT);
-      board.lookAt(0, 120, 0);
+      board.position.set(340 * UNIT, 60 * UNIT, -215 * UNIT);
+      board.lookAt(0, CLEAR, 0);
       const back = new THREE.Mesh(new THREE.PlaneGeometry(560, 560), new THREE.MeshBasicMaterial({ color: 0x000000, fog: false, side: THREE.BackSide }));
       board.add(back); // black from behind, so the text is never seen mirrored
       this.group.add(board);
@@ -896,7 +911,12 @@ export class Marderchen {
   }
 
   centre(realm, out) {
-    return realm === REALM ? out.set(0, 0, 0) : out.fromArray(GATE_SECTOR).multiplyScalar(CELL);
+    return out.copy(this.gateAt(realm).centre);
+  }
+
+  // where the ring stands, and its axis (pointing out of it, the way you come out on that side)
+  gateAt(realm) {
+    return realm === REALM ? { centre: INSIDE_GATE, axis: AXIS_Z } : { centre: VOID_GATE, axis: GATE_AXIS };
   }
 
   // ---- the ring ----
@@ -905,16 +925,17 @@ export class Marderchen {
   travel(camera) {
     const { world } = this, entering = world.realm !== REALM;
     world.setRealm(entering ? REALM : "void");
-    const centre = this.centre(world.realm, tmp);
+    const { centre, axis } = this.gateAt(world.realm);
     if (entering) {
-      // you come out just above the ring in the middle of his workshop, slowed to a drift, facing the clock
-      camera.position.set(centre.x, centre.y + CLEAR, centre.z);
+      // you come out over the middle of his workshop, slowed to a drift, facing the clock, the ring behind you
+      camera.position.copy(centre).addScaledVector(axis, -CLEAR);
       this.arrive(0, -0.04);
     } else {
-      // and leaving, just below the ring over the hub, the way you came
-      camera.position.set(centre.x, centre.y - CLEAR, centre.z);
-      this.arrive(camera.rotation.y, camera.rotation.x);
+      // and leaving, in front of the ring in the hub, facing out of it into the hub
+      camera.position.copy(centre).addScaledVector(axis, CLEAR);
+      this.arrive(Math.atan2(-axis.x, -axis.z), 0);
     }
+    this.inHole = false;
     this.spent = true; // it will not take you again until you have got clear of it
     this.veil = 1.3;
     this.audio.sting();
@@ -1262,6 +1283,71 @@ export class Marderchen {
     }
   }
 
+  // The mouse fires: its button goes down with a click, and vapour rises out of the atomizer (stark: how
+  // thick; 1 his idle breaths, more when you click it)
+  zieh(camera, stark) {
+    this.mausIn = rand(14, 32);
+    this.zug = 0;
+    this.zugStark = stark;
+    if (camera.position.distanceTo(this.maus.position) < 600) this.audio.relay(0.08 * stark);
+    const at = this.dampf.geometry.attributes.position, top = tmp.set(0, 28, 8).applyMatrix4(this.maus.matrixWorld);
+    for (let i = 0; i < at.count; i++) at.setXYZ(i, top.x + rand(-2, 2) * stark, top.y + rand(0, 6), top.z + rand(-2, 2) * stark);
+  }
+
+  // whether the crosshair is on the mouse, from near enough to reach it (a little round it counts)
+  mausAimed(camera) {
+    if (this.world.realm !== REALM || !this.group.visible) return false;
+    const at = this.maus.getWorldPosition(mausAt), distance = at.distanceTo(camera.position);
+    if (distance > 1400) return false;
+    aimRay.origin.copy(camera.position);
+    camera.getWorldDirection(aimRay.direction);
+    return aimRay.direction.dot(mausTo.copy(at).sub(camera.position)) > 0 && aimRay.distanceToPoint(at) < 36 + distance * 0.02;
+  }
+
+  // a click (or a tap) in his workshop: the mouse, if the crosshair is on it. True when it took the click
+  click(camera) {
+    if (!this.mausAimed(camera)) return false;
+    this.zieh(camera, 2.4);
+    return true;
+  }
+
+  // The ring where it stands in this world, turning its rainbow, the MEOW over it lit along its letters
+  // and read the right way round from either side; its vortex only from close by. How far off it is.
+  showGate(dt, camera) {
+    const { centre, axis } = this.gateAt(this.world.realm), nearDoor = centre.distanceTo(camera.position);
+    this.gate.position.copy(centre);
+    this.gate.quaternion.setFromUnitVectors(AXIS_Z, axis);
+    this.gate.visible = this.world.realm === REALM || nearDoor < 7000;
+    this.meow.visible = this.world.realm !== REALM;
+    if (!this.gate.visible) return nearDoor;
+    this.rainbowRing.rotation.z -= dt * 0.5;
+    if (this.meow.visible && this.time - this.meowAt > 1 / 30) {
+      this.meowAt = this.time;
+      for (let i = 0; i < this.meowX.length; i++) {
+        const d = rainbowcalc(this.meowX[i] * 4 + this.time * 600);
+        this.meow.setColorAt(i, this.clock.colour.setRGB((d[0] / 400) * 0.62, (d[1] / 400) * 0.62, (d[2] / 400) * 0.62));
+      }
+      this.meow.instanceColor.needsUpdate = true;
+      this.meow.scale.x = tmp.copy(camera.position).sub(centre).dot(axis) < 0 ? -1.1 : 1.1; // (from behind: turned)
+    }
+    this.vortex.visible = nearDoor < 700;
+    if (this.vortex.visible) {
+      this.vortex.rotation.y -= dt * 1.4;
+      for (let i = 0; i < this.vortexT.length; i++) {
+        const d = rainbowcalc(this.vortexT[i] * 1500 + this.time * 900), fade = 0.3 * (1 - this.vortexT[i]) * Math.min(1, (700 - nearDoor) / 300);
+        this.vortex.setColorAt(i, this.clock.colour.setRGB((d[0] / 400) * fade, (d[1] / 400) * fade, (d[2] / 400) * fade));
+      }
+      this.vortex.instanceColor.needsUpdate = true;
+    }
+    return nearDoor;
+  }
+
+  // behind the start screen: his ring stands in the hub with the others
+  idle(dt, camera) {
+    this.time += dt;
+    if (this.world.realm === "void") this.showGate(dt, camera);
+  }
+
   update(dt, camera, surge = false) {
     const { world } = this;
     this.time += dt;
@@ -1269,7 +1355,7 @@ export class Marderchen {
 
     // in another dimension altogether (the zone): nothing of his door, nor of him, is there
     if (world.realm !== REALM && world.realm !== "void") {
-      this.hole.visible = this.vortex.visible = false;
+      this.gate.visible = false;
       this.pull.set(0, 0, 0);
       this.roll *= Math.exp(-dt * 2.5);
       this.veil = Math.max(0, this.veil - dt / 1.9);
@@ -1279,42 +1365,37 @@ export class Marderchen {
     }
 
     // ---- the door: a black hole in a ring, in whichever world you are in ----
-    const centre = this.vortex.position.copy(this.centre(world.realm, tmp));
-    const nearDoor = centre.distanceTo(camera.position);
-    this.hole.position.copy(centre);
-    this.hole.visible = world.realm === REALM || nearDoor < 5000;
-    // the turning light in it is faint, and only shows from close by
-    this.vortex.visible = nearDoor < 420;
-    if (this.vortex.visible) {
-      this.vortex.rotation.y -= dt * 1.4;
-      for (let i = 0; i < this.vortexT.length; i++) {
-        const d = rainbowcalc(this.vortexT[i] * 1500 + this.time * 900), fade = 0.3 * (1 - this.vortexT[i]) * Math.min(1, (420 - nearDoor) / 200);
-        this.vortex.setColorAt(i, this.clock.colour.setRGB((d[0] / 400) * fade, (d[1] / 400) * fade, (d[2] / 400) * fade));
-      }
-      this.vortex.instanceColor.needsUpdate = true;
-    }
-    // (it draws you again only once you are out of its reach: come through, you land well inside it, and
-    // were taken straight back)
-    if (nearDoor > PULL_REACH + 100) this.spent = false;
+    const { centre, axis } = this.gateAt(world.realm), nearDoor = this.showGate(dt, camera);
+    // The ring you have just come out of does not draw you: not until you are beyond its reach (and
+    // inside, the way out only ever draws gently, from close by). Flying into it on purpose always
+    // takes you through. (As the others round the clock do: see the f0ck plugin's updateGate.)
+    const inside = world.realm === REALM;
+    if (nearDoor > (inside ? 1400 : 1000)) this.spent = false;
     this.pull.set(0, 0, 0);
     let suck = 0;
-    const dx = camera.position.x - centre.x, dy = camera.position.y - centre.y, dz = camera.position.z - centre.z, radial = Math.hypot(dx, dz) || 1;
-    // The pull starts a long way out, above and below the ring, in a cone that widens with distance.
-    // Far off it is only a drift toward the axis; it grows steadily the closer you come.
-    const REACH = PULL_REACH, wide = GATE_RADIUS + Math.abs(dy) * 0.55;
-    if (!this.spent && Math.abs(dy) < REACH && radial < wide) {
-      suck = (1 - Math.abs(dy) / REACH) ** 1.5 * (1 - radial / wide);
-      this.pull.set((-dx / radial) * 190 - (dz / radial) * 70, -Math.sign(dy) * 260, (-dz / radial) * 190 + (dx / radial) * 70).multiplyScalar(suck);
+    // the pull: a cone either side of the ring, gentle far off, strong at the end, and turning
+    tmp.copy(camera.position).sub(centre);
+    const along = tmp.dot(axis);
+    tmp.addScaledVector(axis, -along);
+    const radial = tmp.length() || 1, wide = GATE_R + Math.abs(along) * 0.55, REACH = inside ? 420 : 900;
+    if (!this.spent && Math.abs(along) < REACH && radial < wide) {
+      suck = (1 - Math.abs(along) / REACH) ** 1.5 * (1 - radial / wide);
+      tmp.divideScalar(radial);
+      this.pull.copy(tmp).multiplyScalar(-190).addScaledVector(axis, -Math.sign(along) * 260).add(forward.crossVectors(axis, tmp).multiplyScalar(70)).multiplyScalar(suck * (inside ? 0.45 : 1));
     }
-    this.roll += suck ** 2 * dt * 1.6; // the turning only comes on near the end
+    this.roll += suck ** 2 * dt * (inside ? 0.6 : 1.6); // the turning only comes on near the end
     this.roll -= Math.round(this.roll / (Math.PI * 2)) * Math.PI * 2;
     if (!suck) this.roll *= Math.exp(-dt * 2.5);
     // The dark. It gathers smoothly as you close on the hole and is complete before you reach the
-    // middle; you pass through while nothing can be seen; on the far side it lifts as slowly.
-    const closing = this.spent ? 0 : 1 - THREE.MathUtils.smoothstep(nearDoor, HOLE * 1.0, HOLE * 2.6);
+    // middle; you pass through while nothing can be seen; on the far side it lifts as slowly (and
+    // coming back to the one you came out of, it gathers only at its mouth)
+    const closing = 1 - THREE.MathUtils.smoothstep(nearDoor, HOLE * 0.7, this.spent ? HOLE * 1.3 : HOLE * 2.6);
     this.veil = Math.max(0, this.veil - dt / 1.9);
     this.fade = Math.max(closing, Math.min(1, this.veil)); // main.js draws the dark: either door may be closing
-    if (!this.spent && nearDoor < HOLE * 0.7) return this.travel(camera);
+    // through only by flying into it from outside: not by being in it already
+    const inHole = nearDoor < HOLE * 0.7, cameIn = inHole && !this.inHole;
+    this.inHole = inHole;
+    if (cameIn) return this.travel(camera);
 
     this.museum.update(dt, camera, world.realm === REALM && world.currentSpec?.name === "marderchen's museum");
     if (world.realm !== REALM) return this.wild(dt, camera);
@@ -1395,20 +1476,15 @@ export class Marderchen {
 
     // the mouse on the desk: click, and a breath of vapour
     this.zug += dt;
-    if ((this.mausIn -= dt) <= 0) {
-      this.mausIn = rand(14, 32);
-      this.zug = 0;
-      if (camera.position.distanceTo(this.maus.position) < 600) this.audio.relay(0.08);
-      const at = this.dampf.geometry.attributes.position, top = tmp.set(0, 28, 8).applyMatrix4(this.maus.matrixWorld);
-      for (let i = 0; i < at.count; i++) at.setXYZ(i, top.x + rand(-2, 2), top.y + rand(0, 6), top.z + rand(-2, 2));
-    }
+    if ((this.mausIn -= dt) <= 0) this.zieh(camera, 1);
+    this.mausBeige.color.setHex(this.mausAimed(camera) ? 0xc4b886 : 0x8f8560);
     this.mausTaste.position.y = this.zug < 0.3 ? 6.4 : 7.2;
     if (this.zug < 6) {
       const at = this.dampf.geometry.attributes.position;
       for (let i = 0; i < at.count; i++) at.setXYZ(i, at.getX(i) + Math.sin(i * 1.7 + this.time) * 5 * dt, at.getY(i) + (9 + (i % 7) * 2.5) * dt, at.getZ(i) + Math.cos(i * 2.3 + this.time) * 5 * dt);
       at.needsUpdate = true;
     }
-    this.dampf.material.opacity = 0.22 * Math.max(0, Math.min(1, this.zug * 3, (6 - this.zug) / 4));
+    this.dampf.material.opacity = 0.22 * this.zugStark * Math.max(0, Math.min(1, this.zug * 3, (6 - this.zug) / 4));
 
     this.brainhack.zeitreise(this.audio.chipClock(), dt);
     this.meowmeter.update(dt, this.time);

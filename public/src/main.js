@@ -9,7 +9,7 @@ import { World, CELL, addRealm } from "./world.js";
 import { VoidAudio } from "./audio.js";
 import { VoidMap } from "./map.js";
 import { Entity } from "./entity.js";
-import { Marderchen, REALM } from "./marderchen.js";
+import { Marderchen, REALM, placeMarderchenGate } from "./marderchen.js";
 import { Zone, ZONE, placeZoneGate } from "./zone.js";
 import { PadMap } from "./pad.js";
 import { SPAWN, setPortals, hubSlot, portalNames } from "./constants.js";
@@ -616,6 +616,7 @@ document.addEventListener("mousedown", (e) => {
     // a portal in the hub under the crosshair: flown into; else the click is the plugins'
     const portal = portalAimedAt();
     if (portal) return flyIntoPortal(portal);
+    if (marderchen.click(camera)) return; // (his vape mouse, on the desk in his workshop)
     hook("mouse", e);
   }
 });
@@ -737,14 +738,13 @@ function stopFlying() {
   portalFlight = null;
   autofly = false;
 }
-// the portal the crosshair is on, in the hub (round the clock, and marderchen's door), if any
+// the portal the crosshair is on, in the hub (round the clock), if any
 // (what each is called, under the crosshair while it is on one: see showPortalName)
 const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen" };
 function portalAimedAt() {
   if (world.realm !== "void") return null;
   // (each with the size of its dark sphere: the crosshair on that, and nowhere round it)
   const spots = portalNames().map((name) => ({ name, at: new THREE.Vector3(...hubSlot(name).at), hole: name === "zone" ? 112 : 104 }));
-  spots.push({ name: "marderchen", at: marderchen.centre("void", new THREE.Vector3()), hole: 63 });
   const ahead = camera.getWorldDirection(new THREE.Vector3());
   let best = null, bestOff = 0;
   for (const spot of spots) {
@@ -799,6 +799,7 @@ function tap() {
   }
   const portal = portalAimedAt();
   if (portal) return flyIntoPortal(portal);
+  if (marderchen.click(camera)) return;
   hook("mouse", { button: 0, touch: true });
 }
 // a long press (a finger held still): as a right click is, letting go of what you picked or calling off a
@@ -951,7 +952,7 @@ renderer.setAnimationLoop((now) => {
   if (meter.time >= 0.5) { meter.fps = meter.frames / meter.time; meter.frames = 0; meter.time = 0; if (map.open) showNow(); }
   elapsed += dt;
   pollPad(dt);
-  if (!started) { idle(elapsed); for (const p of plugins) p.idle?.(dt); } // (what they have in the hub moves behind the start screen too)
+  if (!started) { idle(elapsed); marderchen.idle(dt, camera); for (const p of plugins) p.idle?.(dt); } // (what they have in the hub moves behind the start screen too)
   else if (!marderchen.museum.open && !hook("busy")) fly(dt); // a piece is open: stay where you are
   const heard = audio.features(dt);
   world.G.uBass.value = heard.bass; world.G.uMid.value = heard.mid; world.G.uHigh.value = heard.high; world.G.uBeat.value = heard.beat;
@@ -1027,6 +1028,7 @@ const game = {
 const pluginUrls = await fetch("/api/plugins").then((r) => (r.ok ? r.json() : [])).catch(() => []);
 setPortals(pluginUrls.map((url) => url.match(/\/plugins\/([^/]+)\//)?.[1]).filter(Boolean));
 placeZoneGate();
+placeMarderchenGate();
 for (const url of pluginUrls) {
   try {
     plugins.push((await import(url)).default(game) ?? {});

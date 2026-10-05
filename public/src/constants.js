@@ -15,13 +15,13 @@ export const hubPortal = (angle) => ({
   in: [-Math.sin(angle), 0, Math.cos(angle)],
 });
 // Who stands where on that circle: these, in this order round it (f0ck's straight ahead), each the same
-// way from the next, as many as there are (setPortals: the plugins this cvoid has, and the zone, which
-// is cvoid's own), so the circle is always evenly kept, however many there are. hubSlot(name): where
-// that one stands.
-export const PORTAL_ORDER = ["f0ck", "z0r", "gumo", "somafm", "zone", "chan", "shorts", "tiktok", "redgifs"];
+// way from the next, as many as there are (setPortals: the plugins this cvoid has, and the zone and
+// marderchen's door, which are cvoid's own), so the circle is always evenly kept, however many there
+// are. hubSlot(name): where that one stands.
+export const PORTAL_ORDER = ["f0ck", "z0r", "gumo", "somafm", "zone", "marderchen", "chan", "shorts", "tiktok", "redgifs"];
 let portals = PORTAL_ORDER;
 export function setPortals(plugins) {
-  portals = PORTAL_ORDER.filter((name) => name === "zone" || plugins.includes(name));
+  portals = PORTAL_ORDER.filter((name) => name === "zone" || name === "marderchen" || plugins.includes(name));
 }
 export const portalNames = () => portals;
 export const hubSlot = (name) => hubPortal((Math.max(0, portals.indexOf(name)) / portals.length) * Math.PI * 2);

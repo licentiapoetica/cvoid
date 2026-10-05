@@ -20,7 +20,7 @@ Controls:
   `[` `]` look sensitivity, `I` invert vertical look, `M` mute, `-` `=` volume (also a slider on the
   start screen and in the map's panel), `R` level out (upright again,
   horizon level, still heading the same way; in the zone it also turns you to the well).
-  In the hub, with the crosshair on a portal (round the clock, or marderchen's door) its name shows
+  In the hub, with the crosshair on a portal (round the clock) its name shows
   under the crosshair; click and you are turned to it and flown in (`S` stops it; it stops itself
   once you are through, or past it).
   Hold the right mouse button to zoom in (about 2×, the view turning slower to match); let go
@@ -56,7 +56,7 @@ Controls:
   what is in it flows to fit. Each is remembered where you left it; pressed twice quickly (not on a
   control), it goes back where it began.
 - Touch: drag to look, hold a second finger to fly forward. Tap with the crosshair on a portal in the
-  hub (round the clock, or marderchen's door) to turn to it and fly into it; tap on anything else as
+  hub (round the clock) to turn to it and fly into it; tap on anything else as
   a click (a post in f0ck's dimensions: listened to and flown to). Double tap to surge, as Shift does,
   until the next double tap. The crosshair is a small solid light-blue square.
   The Tab panel opens from the "menu" button, top right (it reads "close" while open); on a narrow
@@ -146,9 +146,9 @@ A tribute to marderchen: mechatronics technician, builder of glaring psychedelic
 organs and hand-soldered 0603 clocks, lover of cats and rainbows, who put all of his code on the
 internet for anyone to use.
 
-Fly straight up from the hub. In sector `0, 1, 0` there is a rainbow ring with a small vortex turning
-in it. It is a portal: right in front of the ring it draws you the last stretch in, turns you a
-little, and lets you out the other side into his dimension: the workshop he missed, given back without walls. Everything there is
+His door stands with the other portals on the circle round the clock: a ring in a running rainbow,
+under a MEOW of little cubes, with a small vortex turning in it from close by. It draws you in as the
+others do, turns you a little, and lets you out the other side into his dimension: the workshop he missed, given back without walls. Everything there is
 an LED on a running rainbow, it all flashes in time to a small chiptune, his six-digit clock
 shows the real time, his chaos generator runs, his cats follow him, and he himself scurries
 about between it all and says things. The entity does not follow you in. The ring in his
