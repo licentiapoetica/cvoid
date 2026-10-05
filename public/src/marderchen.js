@@ -15,7 +15,8 @@ import { Museum, MUSEUM_SECTOR } from "./museum.js";
 export const REALM = "marderchen";
 export const GATE_SECTOR = [0, 1, 0]; // straight up from the hub
 const GATE_RADIUS = 36 * UNIT, HOLE = GATE_RADIUS * 0.88; // the ring, and the black hole that fills it (smaller than the portals round the clock: a door of his own)
-const CLEAR = HOLE * 4; // how far from its middle you come out of it, either way: well clear of its dark, and of its pull
+const CLEAR = HOLE * 4; // how far from its middle you come out of it, either way: well clear of its dark
+const PULL_REACH = GATE_RADIUS * 7.5; // how far above and below it its pull reaches (as large as the door is)
 
 export const WORDS = [
   "by marderchen just use and have fun",
@@ -1292,13 +1293,15 @@ export class Marderchen {
       }
       this.vortex.instanceColor.needsUpdate = true;
     }
-    if (nearDoor > HOLE * 2.8) this.spent = false;
+    // (it draws you again only once you are out of its reach: come through, you land well inside it, and
+    // were taken straight back)
+    if (nearDoor > PULL_REACH + 100) this.spent = false;
     this.pull.set(0, 0, 0);
     let suck = 0;
     const dx = camera.position.x - centre.x, dy = camera.position.y - centre.y, dz = camera.position.z - centre.z, radial = Math.hypot(dx, dz) || 1;
     // The pull starts a long way out, above and below the ring, in a cone that widens with distance.
     // Far off it is only a drift toward the axis; it grows steadily the closer you come.
-    const REACH = 900, wide = GATE_RADIUS + Math.abs(dy) * 0.55;
+    const REACH = PULL_REACH, wide = GATE_RADIUS + Math.abs(dy) * 0.55;
     if (!this.spent && Math.abs(dy) < REACH && radial < wide) {
       suck = (1 - Math.abs(dy) / REACH) ** 1.5 * (1 - radial / wide);
       this.pull.set((-dx / radial) * 190 - (dz / radial) * 70, -Math.sign(dy) * 260, (-dz / radial) * 190 + (dx / radial) * 70).multiplyScalar(suck);
