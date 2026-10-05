@@ -340,7 +340,7 @@ map.bind({
 });
 
 const HELP = {
-  keys: "mouse look · w a s d fly · q e roll · enter autofly · space / c rise, sink · shift surge (twice: faster) · r level out · v laser · - = volume · f fullscreen · tab map · b listen to the room · [ ] sensitivity · i invert · h keep hud · m mute · hold right zoom",
+  keys: "mouse look · w a s d fly · q e roll · enter autofly · space / c rise, sink · shift surge (twice: faster) · r level out · v laser · - = volume · f fullscreen · tab map · b listen to the room · [ ] sensitivity · h keep hud · m mute · hold right zoom",
   get pad() { return padMap.help("flight"); }, // (as the buttons are mapped: see pad.js)
   // sitting at the well in the zone
   "play-keys": "← → move · ↓ soft drop · space hard drop · ↑ x rotate · z ctrl rotate back · a turn round · c shift hold · q e roll · ← → before a run: another well · r look at the well · p stand up",
@@ -598,7 +598,6 @@ window.addEventListener("keydown", (e) => {
     if (e.code === "Equal" || e.code === "NumpadAdd") setVolume(audio.volume + 0.1, true);
     if (e.code === "Enter" || e.code === "NumpadEnter") toggleAutofly();
     if (e.code === "KeyS") toggleAutofly(false);
-    if (e.code === "KeyI") toggleInvert();
     if (e.code === "KeyH") note(document.body.classList.toggle("hud-shown") ? "hud kept" : "hud comes and goes"); // the place's name kept on the screen, and let go again
     if (e.code === "KeyR") levelOut();
     if (e.code === "KeyV" && !e.repeat && started) fireLaser();
@@ -1044,6 +1043,7 @@ function frame(now) {
     marderchen.update(dt, camera, keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge);
     zone.update(dt, camera, velocity);
     for (const p of plugins) p.update?.(dt, camera);
+    back.held = !!portalFlight && portalFlight.at === back.position; // (clicked: it waits to be flown into)
     if (back.update(dt, camera, started && !map.open)) goBack();
     voice.update(dt, velocity.length(), $("entity").classList.contains("show"));
     if (zone.seated !== seatedBefore) {

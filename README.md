@@ -17,18 +17,21 @@ Controls:
 
 - Mouse and keyboard: mouse look, `W A S D` fly, `Q` `E` roll, `Enter` autofly (keeps flying forward until
   `Enter` again or `S`), `Space` / `C` rise and sink, `Shift` surge,
-  `[` `]` look sensitivity, `I` invert vertical look, `M` mute, `-` `=` volume (also a slider on the
+  `[` `]` look sensitivity, `M` mute, `-` `=` volume (also a slider on the
   start screen and in the map's panel), `R` level out (upright again,
   horizon level, still heading the same way; in the zone it also turns you to the well).
   In the hub, with the crosshair on a portal (round the clock) its name shows
   under the crosshair; click and you are turned to it and flown in (`S` stops it; it stops itself
   once you are through, or past it).
   Once you have gone somewhere (through a portal, into a tag's room, out of one, or across the map),
-  a companion floats along beside you, ahead and low to the left, bobbing: the way back, a mouth of
-  dark burnt into the air, its edge smouldering, giving off a thin smoke. Click it (or fly into it;
+  a companion floats along at your side, off to the left, bobbing: the way back, a mouth of dark burnt
+  into the air, its edge burning in a cold blue fire, giving off a thin mist, two eyes in its dark that
+  blink, glance about and show how it is (wide when it has just come, pleased when you look at it,
+  happy as you fly in, narrowed at speed, anxious left behind, drowsy when you keep still). It never
+  stays in front of what you look at: it moves aside, unless you turn to it. Click it (or fly into it;
   its mouth opens round you and the dark gathers) and you are back where you were before, in that
   dimension and room, where you were a few seconds before you went; again, and a step further back.
-  Looked at or come near, it waits. Double clicking a portal (or the companion) flies you in as fast
+  The crosshair on it, or come near, it waits. Double clicking a portal (or the companion) flies you in as fast
   as anything flies. `V` shoots a laser straight ahead; clicking a portal shoots one at it.
   Hold the right mouse button to zoom in (about 2×, the view turning slower to match); let go
   to zoom back out. `F` goes fullscreen. Outside fullscreen the browser keeps its own shortcuts, so `Ctrl+W`
