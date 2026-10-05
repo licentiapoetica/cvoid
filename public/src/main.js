@@ -741,14 +741,15 @@ function stopFlying() {
 const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen" };
 function portalAimedAt() {
   if (world.realm !== "void") return null;
-  const spots = portalNames().map((name) => ({ name, at: new THREE.Vector3(...hubSlot(name).at) }));
-  spots.push({ name: "marderchen", at: marderchen.centre("void", new THREE.Vector3()) });
+  // (each with the size of its dark sphere: the crosshair on that, and nowhere round it)
+  const spots = portalNames().map((name) => ({ name, at: new THREE.Vector3(...hubSlot(name).at), hole: name === "zone" ? 112 : 104 }));
+  spots.push({ name: "marderchen", at: marderchen.centre("void", new THREE.Vector3()), hole: 63 });
   const ahead = camera.getWorldDirection(new THREE.Vector3());
-  let best = null, bestOff = 0.07; // (about four degrees: a portal far off is small)
+  let best = null, bestOff = 0;
   for (const spot of spots) {
     const to = spot.at.clone().sub(camera.position), distance = to.length();
     if (distance < 1 || distance > 9000) continue;
-    const off = to.normalize().angleTo(ahead) - Math.atan(150 / distance); // (from its rim, not its middle)
+    const off = to.normalize().angleTo(ahead) - Math.atan(spot.hole / distance); // (below 0: on its sphere)
     if (off < bestOff) { bestOff = off; best = spot; }
   }
   return best;
