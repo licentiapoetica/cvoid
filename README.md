@@ -1,5 +1,7 @@
 # cvoid
 
+![Irrlicht, the cold flame that keeps by you, beside a reef of orange cubes in Kiln Reef, a sector Claude dreamt](docs/cvoid.jpg)
+
 Fly through an endless generative void in the browser, after the PlayStation 2 system menu:
 fog, drifting motes, glass orbs, towers of cubes. Space is a grid of sectors, and each unseen
 sector is dreamt up by Claude: its name, palette, geometry, noise recipe, drone, the words
@@ -397,3 +399,24 @@ the screen); the keys are listed in the Tab panel. A sector Claude has dreamt is
 - `public/src/spec.js`: origin hub, local fallback generator, spec clamping
 - `public/src/shaders.js`: noise library and all GLSL
 - `public/src/audio.js`: synthesized drone, shimmer and wind
+
+## Credits and licence
+
+<img src="docs/irrlicht.png" alt="Irrlicht" width="160" align="right">
+
+Made by Kibi Kelburton, with Claude (Opus 5.5, by Anthropic), who wrote the code together with
+Kibi in Claude Code and, in the void, dreams the sectors and speaks for the entity. Tab, then
+`credits`, lists the open-source libraries cvoid is made with and the code it borrows.
+
+Copyright (C) 2026 Kibi Kelburton. cvoid is free software: you can redistribute it and/or modify it
+under the terms of the GNU Affero General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later version (see `LICENSE`).
+It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
+implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. If you run a changed cvoid
+for others to use over a network, the AGPL asks you to offer them its source.
+
+Not covered by that licence: marderchen's own work, which stays his. That is his code as ported in
+`public/src/marderchen.js` (`rainbowcalc()`, `ratemal()` and its step table, the falling-pixel game,
+the chaostyper) and everything in `public/marderchen/` (his avatar, his cats, his meows, his ASCII
+signature, and his comments in `kote.json`). The libraries and borrowed code keep their own licences
+(MIT, Apache-2.0, LGPL, public domain; see the credits).

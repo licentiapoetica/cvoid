@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "description": "Fly through a generative void, after the PlayStation 2 system menu. Sectors are dreamed up by Claude.",
+  "license": "AGPL-3.0-or-later",
+  "author": "Kibi Kelburton",
   "scripts": {
     "start": "node --env-file-if-exists=.env server.js",
     "museum": "node scripts/museum.mjs",

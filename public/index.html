@@ -288,6 +288,26 @@
   #padPanel button:hover { background: rgba(140, 160, 220, .28); }
   #padPanel button.on { background: rgba(95, 140, 255, .32); border-color: #9fb8ff; box-shadow: 0 0 8px rgba(95, 140, 255, .35); }
   #padPanel button.set { text-align: left; }
+  /* the credits page, in the keys' place while it is open: what cvoid is made with, and whose it is */
+  #creditsPanel {
+    position: fixed; right: 24px; top: 68px; z-index: 4; display: none; flex-direction: column; gap: 8px;
+    max-width: min(560px, calc(100vw - 48px)); max-height: calc(100vh - 92px); overflow-y: auto;
+    padding: 14px 16px; background: rgba(2, 3, 14, .85); border: 1px solid rgba(140, 160, 220, .3);
+    font: 300 11px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .06em; color: #cfdcff; text-transform: lowercase;
+  }
+  .mapping.crediting #creditsPanel { display: flex; }
+  .mapping.crediting #keysPanel, .mapping.crediting #padPanel { display: none; }
+  #creditsPanel .title { letter-spacing: .3em; opacity: .8; font-size: 12px; }
+  #creditsPanel .of { opacity: .5; letter-spacing: .2em; margin-top: 6px; }
+  #creditsPanel .lead { opacity: .65; }
+  #creditsPanel .lead a { color: #fff; text-transform: none; text-underline-offset: 3px; }
+  #creditsPanel .lead a:hover { color: #9fb8ff; }
+  /* each one: its name (a link to it) and licence on one line, what it does here under them */
+  #creditsPanel .credits { display: grid; grid-template-columns: 1fr max-content; gap: 1px 12px; }
+  #creditsPanel .credits :is(a, b) { color: #fff; font-weight: inherit; text-decoration: none; text-transform: none; }
+  #creditsPanel .credits a:hover { color: #9fb8ff; text-decoration: underline; text-underline-offset: 3px; }
+  #creditsPanel .credits .licence { opacity: .55; text-transform: none; text-align: right; }
+  #creditsPanel .credits .what { grid-column: 1 / -1; opacity: .65; margin-bottom: 6px; }
   #meta .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: .7em; background: currentColor; vertical-align: 1px; }
   #meta.waiting .dot { animation: breathe 1s ease-in-out infinite; }
   /* only the well's game keys, while seated at it (the rest are in the Tab panel) */
@@ -307,7 +327,7 @@
   <div class="row"><span>sector</span><input id="mSX" placeholder="x"><input id="mSY" placeholder="y"><input id="mSZ" placeholder="z"></div>
   <div class="row"><span>offset</span><input id="mOX" placeholder="x"><input id="mOY" placeholder="y"><input id="mOZ" placeholder="z"></div>
   <div class="row"><span>screen</span><div class="choices" id="mScreen"></div></div>
-  <div class="row"><button id="mGo">go</button><button id="mSpawn">start here</button><button id="mRandom">random</button><button id="mOrigin">origin</button><button id="mHere">find me</button><button id="mPad">controller</button></div>
+  <div class="row"><button id="mGo">go</button><button id="mSpawn">start here</button><button id="mRandom">random</button><button id="mOrigin">origin</button><button id="mHere">find me</button><button id="mPad">controller</button><button id="mCredits">credits</button></div>
   <div id="mNote">click the map to pick a spot, or type one</div>
   <label class="volume"><span>volume</span><input type="range" min="0" max="100" step="1"><output></output></label>
 </div>
@@ -328,6 +348,33 @@
   <div class="of" id="gRaw"></div>
 </div>
 <div id="padPanel"></div>
+<div id="creditsPanel">
+  <div class="title">credits</div>
+  <div class="credits">
+    <b>Kibi Kelburton</b><span class="licence"></span><span class="what">made cvoid</span>
+    <a href="https://claude.com/claude-code" target="_blank" rel="noopener">Claude</a><span class="licence">Opus 5.5, by Anthropic</span><span class="what">wrote its code with Kibi, in Claude Code; in the void, dreams the sectors and speaks for the entity</span>
+    <b>marderchen</b><span class="licence"></span><span class="what">his avatar, his cats, his code and his comments, in his dimension</span>
+  </div>
+  <div class="lead">cvoid is free software, under the <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener">GNU AGPL-3.0</a> or later; its <a href="https://github.com/licentiapoetica/cvoid" target="_blank" rel="noopener">source</a>. marderchen's work in it stays his</div>
+  <div class="of">open source</div>
+  <div class="lead">made with these, and with thanks to the people who made them</div>
+  <div class="credits">
+    <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a><span class="licence">MIT</span><span class="what">the whole picture: the void, its structures, the glow, the zone's models</span>
+    <a href="https://ruffle.rs" target="_blank" rel="noopener">Ruffle</a><span class="licence">MIT / Apache-2.0</span><span class="what">flash, played again: the pieces in marderchen's museum</span>
+    <a href="https://github.com/anthropics/anthropic-sdk-typescript" target="_blank" rel="noopener">Anthropic TypeScript SDK</a><span class="licence">MIT</span><span class="what">how the server asks Claude, who dreams the sectors and speaks for the entity</span>
+    <a href="https://zod.dev" target="_blank" rel="noopener">Zod</a><span class="licence">MIT</span><span class="what">the shape a dreamt sector has to have</span>
+    <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a><span class="licence">MIT</span><span class="what">the server</span>
+    <a href="https://pptr.dev" target="_blank" rel="noopener">Puppeteer</a><span class="licence">Apache-2.0</span><span class="what">pictures of the flash pieces, for the museum (npm run museum:thumbs)</span>
+    <a href="https://ffmpeg.org" target="_blank" rel="noopener">FFmpeg</a><span class="licence">LGPL-2.1+</span><span class="what">the museum's thumbnails and web video (npm run museum)</span>
+  </div>
+  <div class="of">code it borrows</div>
+  <div class="credits">
+    <a href="https://github.com/stegu/webgl-noise" target="_blank" rel="noopener">webgl-noise</a><span class="licence">MIT</span><span class="what">simplex noise on the GPU, by Ian McEwan and Stefan Gustavson: the sky and every sector's field</span>
+    <a href="https://github.com/stegu/perlin-noise" target="_blank" rel="noopener">Simplex noise demystified</a><span class="licence">public domain</span><span class="what">simplex noise on the CPU, after Stefan Gustavson: where the void is crowded and where it is empty</span>
+    <a href="https://gist.github.com/tommyettinger/46a874533244883189143505d203312c" target="_blank" rel="noopener">mulberry32</a><span class="licence">public domain</span><span class="what">seeded randomness, by Tommy Ettinger: the same place is always the same</span>
+    <a href="https://github.com/aappleby/smhasher" target="_blank" rel="noopener">MurmurHash3</a><span class="licence">public domain</span><span class="what">its finaliser, by Austin Appleby: a sector's coordinates into its seed</span>
+  </div>
+</div>
 <div id="crosshair"></div>
 <button id="menuButton" type="button" aria-label="menu">menu</button>
 <div id="actButtons"><button id="laserButton" type="button">laser</button></div>

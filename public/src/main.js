@@ -828,6 +828,13 @@ $("mPad").addEventListener("click", () => {
   const open = document.body.classList.toggle("padding");
   $("mPad").classList.toggle("on", open);
   if (!open) padMap.cancel();
+  if (open && document.body.classList.contains("crediting")) $("mCredits").click(); // (one page in the keys' place at a time)
+});
+// the credits page of the Tab panel, in the keys' place like the controller's: what cvoid is made with
+$("mCredits").addEventListener("click", () => {
+  const open = document.body.classList.toggle("crediting");
+  $("mCredits").classList.toggle("on", open);
+  if (open && document.body.classList.contains("padding")) $("mPad").click();
 });
 padMap.onSaved = () => showHelp();
 window.addEventListener("gamepadconnected", () => {
