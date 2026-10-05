@@ -12,6 +12,7 @@ import { Entity } from "./entity.js";
 import { Marderchen, REALM, placeMarderchenGate } from "./marderchen.js";
 import { Zone, ZONE, placeZoneGate } from "./zone.js";
 import { Back, BACK_HOLE } from "./back.js";
+import { Meteors } from "./meteors.js";
 import { PadMap } from "./pad.js";
 import { SPAWN, setPortals, hubSlot, portalNames } from "./constants.js";
 import { draggablePanels } from "./panels.js";
@@ -202,6 +203,7 @@ function arrive(toYaw, toPitch) {
 }
 const marderchen = new Marderchen({ scene, world, audio, textEl: $("marder"), stored, store, arrive });
 const zone = new Zone({ scene, world, audio, hintEl: $("hint"), stored, store, arrive, face, levelOut: () => levelOut() });
+const meteors = new Meteors({ scene, world }); // now and then a shooting star, far out in the void
 // the way back (see back.js): each place called by its dimension's name, and the room's in it
 const back = new Back({ scene, world, name: (realm, room) => {
   const where = realm === "void" ? "the void" : realmNames[realm] ?? realm;
@@ -1023,6 +1025,7 @@ function frame(now) {
   // in the zone the pieces stand steady: the music does not brighten or flash their edges
   if (world.realm === ZONE) world.G.uMid.value = world.G.uBeat.value = 0;
   world.update(dt, camera);
+  meteors.update(dt, camera); // (behind the start screen too)
   if (started) {
     marderchen.update(dt, camera, keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge);
     zone.update(dt, camera, velocity);
@@ -1066,7 +1069,7 @@ function frame(now) {
 runFrames();
 
 // (viewers: the f0ck plugin's viewers, each registering itself as it is made: see back.js)
-window.cvoid = { world, camera, renderer, entity, marderchen, zone, back, voice, map, plugins, padMap, CELL, graphics: gfx, viewers: [], aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; } };
+window.cvoid = { world, camera, renderer, entity, marderchen, zone, back, voice, map, plugins, padMap, CELL, graphics: gfx, viewers: [], meteors, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; } };
 
 // The plugins (see the top), installed once the game around them is ready: what they are given.
 const game = {
