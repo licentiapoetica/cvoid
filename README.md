@@ -1,6 +1,6 @@
 # cvoid
 
-![Irrlicht, the cold flame that keeps by you, beside a reef of orange cubes in Kiln Reef, a sector Claude dreamt](docs/cvoid.jpg)
+![The origin of cvoid: the hub's clock in its ring of cubes, and Irrlicht, the cold flame that keeps by you](docs/cvoid.jpg)
 
 Fly through an endless generative void in the browser, after the PlayStation 2 system menu:
 fog, drifting motes, glass orbs, towers of cubes. Space is a grid of sectors, and each unseen
