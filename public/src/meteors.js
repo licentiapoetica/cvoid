@@ -1,5 +1,6 @@
 // Shooting stars, far out in the void: now and then (every ten to thirty seconds or so) a thin streak of
-// light crosses a little of the dark and is gone in a second, its head bright, its tail fading behind it,
+// light crosses a little of the dark and is gone in a second (now and then a long one, its trail drawn far
+// out behind it, for two), its head bright, its tail fading behind it,
 // tinged with the void's own glow. More often somewhere you are looking, so they are seen. They are as far as anything is drawn and move with you, as the stars do, so no flight
 // brings you nearer to them; whatever stands nearer passes in front of them.
 import * as THREE from "three";
@@ -7,6 +8,7 @@ import * as THREE from "three";
 const FAR = 16000;            // how far out they cross (just inside what is drawn at all: see the camera)
 const WIDE = 120;             // the head's width there (two or three pixels)
 const MOST = 2;               // at once, at most
+const LONG = 0.25;            // how many of them are long ones, with long trails
 
 const VERT = /* glsl */ `attribute float aAlong; attribute float aSide; varying float vAlong; varying float vSide;
 void main() { vAlong = aAlong; vSide = aSide; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`;
@@ -60,10 +62,12 @@ export class Meteors {
     // the way it goes: across the sky at that point (perpendicular to it), slanting downwards
     side.crossVectors(from, up).normalize();
     star.way.copy(side).multiplyScalar(Math.random() < 0.5 ? -1 : 1).addScaledVector(up, -rand(0.3, 1.1)).projectOnPlane(from).normalize();
-    star.life = rand(0.55, 1.2);
+    // now and then (one in four or so) a long one: slower, further round the sky, its tail drawn out behind it
+    const long = Math.random() < LONG;
+    star.life = long ? rand(1.4, 2.4) : rand(0.55, 1.2);
     star.age = 0;
-    star.sweep = rand(0.1, 0.24);    // how far round the sky its head goes, in radians
-    star.length = rand(0.05, 0.11);  // and its longest tail
+    star.sweep = long ? rand(0.35, 0.6) : rand(0.1, 0.24);   // how far round the sky its head goes, in radians
+    star.length = long ? rand(0.22, 0.4) : rand(0.05, 0.11); // and its longest tail
     // tinged with the void's glow, mostly white
     star.mesh.material.uniforms.uColor.value.copy(this.world.G.uGlow.value).lerp(new THREE.Color(1, 1, 1), 0.45);
     star.mesh.visible = true;

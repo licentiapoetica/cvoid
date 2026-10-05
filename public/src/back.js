@@ -25,6 +25,7 @@
 import * as THREE from "three";
 import { NOISE_LIB } from "./shaders.js";
 import { SPAWN } from "./constants.js";
+import { Watching } from "./watch.js";
 
 export const NAME = "Irrlicht";       // what it is called: said under the crosshair when it is aimed at
 export const BACK_HOLE = 26;          // its mouth's dark (the crosshair on this is on it)
@@ -35,6 +36,7 @@ const KEEP = 20;                      // how many places back it remembers
 const BEFORE = 2.5;                   // seconds before a jump: where you were then
 const FAR = 2500;                     // moved this far in one frame: a jump (the map)
 const SPOT = new THREE.Vector3(-260, 0, -300); // where it floats, from you: off to the left, at the side of what you see (above where the place's name is written)
+const TIP_FREE = 0.26; // looking up or down this far (radians, ~15 degrees), it keeps level; further, it tips along
 const CLEAR_OF = 0.9; // and never long in front of what you look at: within this of straight ahead (cosine, ~25 degrees) it moves aside
 const BORED = 8; // seconds of the place round you not yet materialized (Claude still writing it) before it is annoyed
 const GREET_AFTER = 2.6, GREET_FOR = 4.2, GREET_WAIT = 30; // seconds: after it has come, its greeting said this long, and given up on if it has not come by then
@@ -101,6 +103,7 @@ void main(){
 
 const ahead = new THREE.Vector3(), to = new THREE.Vector3(), spot = new THREE.Vector3(), yawOnly = new THREE.Euler(0, 0, 0, "YXZ");
 const seg = new THREE.Line3(), near = new THREE.Vector3(), drift = new THREE.Vector3();
+const QUIET = { bass: 0, mid: 0, high: 0, beat: 0 };
 const ZERO = new THREE.Vector2(), DOWN = new THREE.Vector2(0, -0.035), side = new THREE.Vector2();
 const words = new THREE.Vector3(), up = new THREE.Vector3();
 const pullV = new THREE.Vector3(), moved = new THREE.Vector3(), step = new THREE.Vector3(), toIt = new THREE.Vector3();
@@ -202,16 +205,22 @@ export class Back {
     this.greeting = { text: GREETINGS[Math.floor(Math.random() * GREETINGS.length)](name), at: null, by: this.time + GREET_WAIT };
   }
 
-  // its greeting, while it is said: beside it, above its mouth, wherever it is on the screen
+  // a word or two of its own (as it watches along: see watch.js), said at once, for this long
+  say(text, seconds = 2.4) {
+    if (!this.greeting) this.remark = { text, at: this.time, for: seconds };
+  }
+
+  // its greeting (or a remark), while it is said: beside it, above its mouth, wherever it is on the screen
   speak(dt, camera, visible) {
-    const g = this.greeting, el = this.textEl;
+    const g = this.greeting ?? this.remark, el = this.textEl;
     if (!g || !el) return;
     if (g.at === null) {
       if (visible && this.shown > 0.9) g.at = this.time + GREET_AFTER;
       else if (this.time > g.by) this.greeting = null;
       return;
     }
-    const saying = this.time >= g.at && this.time < g.at + GREET_FOR;
+    const lasts = g.for ?? GREET_FOR;
+    const saying = this.time >= g.at && this.time < g.at + lasts;
     if (this.time >= g.at && el.textContent !== g.text) el.textContent = g.text;
     words.copy(this.position).addScaledVector(up.set(0, 1, 0).applyQuaternion(camera.quaternion), MOUTH * 0.45 * this.mouth.scale.x).project(camera);
     const onScreen = visible && words.z < 1 && Math.abs(words.x) < 1.1 && Math.abs(words.y) < 1.1;
@@ -221,7 +230,11 @@ export class Back {
       el.style.left = `${THREE.MathUtils.clamp((words.x + 1) / 2 * w, half, w - half)}px`;
       el.style.top = `${(1 - words.y) / 2 * innerHeight}px`;
     }
-    if (this.time >= g.at + GREET_FOR) this.greeting = null;
+    if (this.time >= g.at + lasts) {
+      if (g === this.greeting) this.greeting = null;
+      else this.remark = null;
+      el.classList.remove("show");
+    }
   }
   // taken: the place it goes to, no longer kept (and the jump there is not itself a place to go back to)
   // to the origin, or back again: it blinks, taking it in
@@ -393,6 +406,12 @@ export class Back {
     let lid = 0.18, wide = 1, smile = 0, look = m.glance, mood = "calm";
     if (closing > 0.4 || this.open > 0.3) { mood = "happy"; lid = 0; wide = 1.1; smile = 1; look = ZERO; }
     else if (this.greeting?.at != null && this.time >= this.greeting.at) { mood = "greeting"; lid = 0; wide = 1.15; smile = 1; look = towardYou.multiplyScalar(0.4); }
+    else if (this.watching) {
+      // on a tour, at a post: watching it with you (a test: see watch.js)
+      const w = (this.watch ??= new Watching()).update(dt, this.watching, this.heard ?? QUIET, towardYou);
+      mood = `watching: ${w.name}`; lid = w.lid; wide = w.wide; smile = w.smile; look = w.look;
+      if (w.say) this.say(w.say);
+    }
     else if (this.time - m.born < 2.2) { mood = "new"; lid = 0; wide = 1.3; if (m.glanceIn > 0.6) m.glanceIn = 0.6; }
     else if (m.waited > BORED) {
       // annoyed: a flat look sideways at you, and now and then its eyes rolled up and over, lids lifting
@@ -494,7 +513,7 @@ export class Back {
     for (const s of this.sparks) s.life = 0;
   }
 
-  // its place beside you (turned as you are, but not tipped as you look up or down), at once or easing.
+  // its place beside you (turned as you are, and tipped only as you look far up or down), at once or easing.
   // Turned as you will be once the view has eased round, not as you are this moment: come out of a portal
   // facing another way, it is put beside where you will look, not where you looked, which the view then
   // turns onto (and it would be in the middle of what you see)
@@ -503,7 +522,10 @@ export class Back {
   // strongly), so it gathers speed and glides to a stop. However fast you go, it neither falls behind
   // nor overshoots: your speed is not its to catch up with, only where it is beside you.
   place(camera, now, dt = 0, moved = null) {
-    yawOnly.set(0, this.heading?.() ?? camera.rotation.y, 0);
+    // (and, looking far up or down, as a tour flying down does, tipped along past the first ~15 degrees, so
+    // it stays in sight; near level it keeps level, calm as you look about)
+    const pitch = camera.rotation.x, tip = Math.sign(pitch) * Math.max(0, Math.abs(pitch) - TIP_FREE);
+    yawOnly.set(tip, this.heading?.() ?? camera.rotation.y, 0);
     spot.copy(SPOT).setX(Math.abs(SPOT.x) * (this.side ?? -1)).applyEuler(yawOnly).add(camera.position);
     if (now) {
       this.home.copy(spot);

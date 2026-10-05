@@ -20,7 +20,8 @@ And a cold flame with eyes keeps by you. It is called Irrlicht, and through it y
 
 Without a key the void still opens, made of local noise instead of dreams.
 
-Mouse to look, `W` `A` `S` `D` to fly, `Shift` to surge, `V` casts a light ahead. `Tab` holds the rest: the map
+Mouse to look, `W` `A` `S` `D` to fly, `Shift` to surge, `V` casts a light ahead, `J` throws a gob of
+alien goo at the post you look at (it clings to the screen and runs down it). `Tab` holds the rest: the map
 of everywhere you have been, the keys, the controller, the screen, the credits.
 
 <details>
@@ -46,13 +47,37 @@ a dimension, a game, a place of someone's own. cvoid needs none of them, and kee
 repository. What a plugin is given and the hooks it answers are written down in `public/src/main.js`
 (the page) and `server.js` (the server).
 
+## Made with
+
+Open source, and with thanks to the people who made it:
+
+| | licence | |
+|---|---|---|
+| [three.js](https://threejs.org) | MIT | the whole picture: the void, what stands in it, the glow |
+| [Ruffle](https://ruffle.rs) | MIT / Apache-2.0 | Flash, played again, in the plugins' dimensions |
+| [Anthropic TypeScript SDK](https://github.com/anthropics/anthropic-sdk-typescript) | MIT | how the server asks Claude, who dreams the places |
+| [Zod](https://zod.dev) | MIT | the shape a dreamt place has to have |
+| [Node.js](https://nodejs.org) | MIT | the server |
+| [Puppeteer](https://pptr.dev) | Apache-2.0 | cvoid driven headless: its tests, and stills of it |
+
+And the code it borrows:
+
+| | licence | |
+|---|---|---|
+| [webgl-noise](https://github.com/stegu/webgl-noise) | MIT | simplex noise on the GPU, by Ian McEwan and Stefan Gustavson: the sky and every place's field |
+| [Simplex noise demystified](https://github.com/stegu/perlin-noise) | public domain | simplex noise on the CPU, after Stefan Gustavson: where the void is crowded and where it is empty |
+| [mulberry32](https://gist.github.com/tommyettinger/46a874533244883189143505d203312c) | public domain | seeded randomness, by Tommy Ettinger: the same place is always the same |
+| [MurmurHash3](https://github.com/aappleby/smhasher) | public domain | its finaliser, by Austin Appleby: a place's coordinates into its seed |
+
+What a plugin brings keeps its own licence, and is named on the credits page in cvoid (`Tab`, then
+`credits`).
+
 ## Made by
 
 <img src="docs/irrlicht.png" alt="Irrlicht" width="140" align="right">
 
 Kibi Kelburton, with Claude (Opus 5.5, by Anthropic), who wrote the code with Kibi in Claude Code
-and, in the void, dreams the places and speaks for what waits there. What cvoid is made with, and
-the code it borrows, are on the credits page (`Tab`, then `credits`).
+and, in the void, dreams the places and speaks for what waits there.
 
 Copyright (C) 2026 Kibi Kelburton. cvoid is free software under the GNU Affero General Public
 License, version 3 or (at your option) any later version (see `LICENSE`), and comes with no

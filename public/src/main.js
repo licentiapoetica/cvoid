@@ -12,6 +12,7 @@ import { Entity } from "./entity.js";
 import { Back, BACK_HOLE, NAME as COMPANION } from "./back.js";
 import { Meteors } from "./meteors.js";
 import { Lasers } from "./laser.js";
+import { Goo } from "./goo.js";
 import { PadMap } from "./pad.js";
 import { SPAWN, setPortals, hubSlot, portalNames } from "./constants.js";
 import { draggablePanels } from "./panels.js";
@@ -201,6 +202,7 @@ function arrive(toYaw, toPitch) {
 }
 const meteors = new Meteors({ scene, world }); // now and then a shooting star, far out in the void
 const lasers = new Lasers({ scene, world });   // yours (a portal clicked, V) and, with the together plugin, the others'
+const goo = new Goo({ scene, world, storeEl: $("gooStore"), muzzle: (camera) => lasers.muzzle(camera) }); // J: shot at the post looked at (see goo.js)
 // V (or the laser button on a touch screen): a shot straight ahead, into the dark
 function fireLaser() {
   const from = lasers.muzzle(camera);
@@ -367,7 +369,7 @@ map.bind({
 });
 
 const HELP = {
-  keys: "mouse look · w a s d fly · q e roll · enter autofly · space / c rise, sink · shift surge (twice: faster) · r level out · v laser · - = volume · f fullscreen · tab map · b listen to the room · [ ] sensitivity · h keep hud · m mute · hold right zoom",
+  keys: "mouse look · w a s d fly · q e roll · enter autofly · space / c rise, sink · shift surge (twice: faster) · r level out · v laser · j goo · - = volume · f fullscreen · tab map · b listen to the room · [ ] sensitivity · h keep hud · m mute · hold right zoom",
   get pad() { return padMap.help("flight"); }, // (as the buttons are mapped: see pad.js)
 };
 let helpMode = "keys", noteTimer = 0, wakeTimer = 0;
@@ -645,6 +647,7 @@ window.addEventListener("keydown", (e) => {
     if (e.code === "KeyH") note(document.body.classList.toggle("hud-shown") ? "hud kept" : "hud comes and goes"); // the place's name kept on the screen, and let go again
     if (e.code === "KeyR") levelOut();
     if (e.code === "KeyV" && !e.repeat && started) fireLaser();
+    if (e.code === "KeyJ" && started && !goo.shoot(camera)) note("nothing left · it gathers again"); // (see goo.js: its store)
     if (e.code === "Tab") map.toggle();
     if (e.code === "KeyF") toggleFullscreen();
     if (e.code === "KeyB") audio.toggleMic().then((on) => note(on ? "listening to the room" : "listening to the void"), () => note("microphone unavailable"));
@@ -822,7 +825,8 @@ function stopFlying() {
   portalFlight = null;
   autofly = false;
 }
-// the portal the crosshair is on, in the hub (round the clock), if any
+// the portal the crosshair is on, if any: in the hub, one round the clock; in a plugin's dimension, its
+// way out (a plugin's exit hook: { at, label, hole? }, or several, while you are in its dimension)
 // (what each is called, under the crosshair while it is on one: see showPortalName)
 const PORTAL_HOLES = { zone: 112 }; // (how wide a ring's dark sphere is, where it is not the usual)
 const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen" };
@@ -831,6 +835,7 @@ function portalAimedAt() {
   // floating beside you, wherever you are)
   const spots = back.ready ? [{ name: "back", label: back.label, at: back.position, hole: BACK_HOLE }] : [];
   if (world.realm === "void") spots.push(...portalNames().map((name) => ({ name, at: new THREE.Vector3(...hubSlot(name).at), hole: PORTAL_HOLES[name] ?? 104 })));
+  else spots.push(...[].concat(hook("exit") ?? []).map((exit) => ({ name: "exit", hole: 104, ...exit })));
   const ahead = camera.getWorldDirection(new THREE.Vector3());
   let best = null, bestOff = 0;
   for (const spot of spots) {
@@ -841,14 +846,14 @@ function portalAimedAt() {
   }
   return best;
 }
-// a portal in the hub, clicked or tapped: turned to, and flown into (and no further: see fly)
+// a portal, clicked or tapped (one in the hub, or a dimension's way out): turned to, and flown into (and no further: see fly)
 function flyIntoPortal(portal) {
   if (held()) return;
   if (portal.name === "back" && !back.next) return note(back.toOrigin ? `${COMPANION} · you are at the origin` : `${COMPANION} · nowhere to go back to yet`); // (in the hub, before you have been anywhere: only company)
   // clicked again at once (a double click) on the way into the same one: faster
   if (portalFlight && portalFlight.at.distanceTo(portal.at) < 1 && performance.now() - portalFlight.since < 450) {
     portalFlight.fast = true;
-    return note(`into ${portal.label ?? PORTAL_NAMES[portal.name] ?? portal.name} · faster`);
+    return note(`${portal.name === "exit" ? portal.label : `into ${portal.label ?? PORTAL_NAMES[portal.name] ?? portal.name}`} · faster`);
   }
   if (portal.name === "back") hook("autofly", false); // (on a tour: the tour is over, you are going back)
   const to = portal.at.clone().sub(camera.position), length = to.length() || 1;
@@ -1080,6 +1085,7 @@ function runFrames() {
 }
 
 let elapsed = 0, last = performance.now(), coordsTimer = 0, seatedBefore = false;
+let watchAsk = 0; // (when next to ask what a tour holds you at: see back.watching)
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
@@ -1098,9 +1104,17 @@ function frame(now) {
   world.update(dt, camera);
   meteors.update(dt, camera); // (behind the start screen too)
   lasers.update(dt);
+  goo.update(dt, camera);
   if (started) {
     for (const p of plugins) p.update?.(dt, camera);
     back.held = !!portalFlight && portalFlight.at === back.position; // (clicked: it waits to be flown into)
+    // (a test: a tour holding you at a post, Irrlicht watches it with you, hearing what you hear: see watch.js)
+    if ((watchAsk -= dt) <= 0) {
+      watchAsk = 0.3;
+      const at = back.touring && velocity.length() < 40 ? hook("notice") : null;
+      back.watching = at ? at.picked ?? { id: world.realm, text: "" } : null;
+    }
+    back.heard = heard;
     if (back.update(dt, camera, started && !hook("hold"))) goBack(); // (held where you are, it keeps away; the Tab panel open, it stays)
     voice.update(dt, velocity.length(), $("entity").classList.contains("show"));
     const seated = !!hook("seat");
