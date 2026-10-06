@@ -17,7 +17,8 @@
 // MOODS): wide and looking all round when it has just come; calm, glancing now and then; looking back
 // at you, pleased, when you look at it; happy, two arches, as you fly into it; narrowed and looking
 // ahead when you go fast; wide and anxious when you have left it far behind; drowsy, nodding off, when
-// you have kept still a long while; annoyed, half lidded, looking sideways at you and rolling its eyes,
+// you have kept still a long while; curious, now and then, when calm, turning its face from you a
+// while to look at something (a portal, a way out, or only off into the dark) and back; annoyed, half lidded, looking sideways at you and rolling its eyes,
 // the longer the more often, when where you are takes a long while to materialize.
 //
 // Given a name on the start screen, it greets you by it as the flight begins: a few words beside it, in
@@ -41,6 +42,8 @@ const CLEAR_OF = 0.9; // and never long in front of what you look at: within thi
 const BORED = 8; // seconds of the place round you not yet materialized (Claude still writing it) before it is annoyed
 const GREET_AFTER = 2.6, GREET_FOR = 4.2, GREET_WAIT = 30; // seconds: after it has come, its greeting said this long, and given up on if it has not come by then
 const GREETINGS = [(n) => `hello, ${n}`, (n) => `oh, ${n}. there you are`, (n) => `${n}! let's go`, (n) => `hi ${n}. i'll keep by you`];
+const LOOKS = [7, 16], LOOK_FOR = [1.8, 4.5]; // seconds between its looks away from you (calm), and how long it looks
+const TURNS = 0.95; // how far it turns its face to look (radians, ~55 degrees: further, its eyes do the rest)
 const SMOKE = 48, EMBERS = 16; // (a thin smoke: it smoulders, it does not billow)
 
 // the mouth: a disc of dark with a ragged edge that smoulders, embers crawling along it, charred round it
@@ -107,13 +110,17 @@ const QUIET = { bass: 0, mid: 0, high: 0, beat: 0 };
 const ZERO = new THREE.Vector2(), DOWN = new THREE.Vector2(0, -0.035), side = new THREE.Vector2();
 const words = new THREE.Vector3(), up = new THREE.Vector3();
 const pullV = new THREE.Vector3(), moved = new THREE.Vector3(), step = new THREE.Vector3(), toIt = new THREE.Vector3();
+const gazer = new THREE.Object3D(), turnedQ = new THREE.Quaternion(), local = new THREE.Vector3(), fromYou = new THREE.Vector3();
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 
 export class Back {
   // name(realm, room): what a place is called, for the name under the crosshair; textEl: where it speaks;
-  // heading(): the way the view is turning to (it eases round: see main.js face)
-  constructor({ scene, world, name, textEl, toOrigin, heading }) {
-    Object.assign(this, { world, name, textEl, heading });
+  // heading(): the way the view is turning to (it eases round: see main.js face); sights(): where the
+  // things round you are (portals, ways out), for it to look at now and then
+  constructor({ scene, world, name, textEl, toOrigin, heading, sights }) {
+    Object.assign(this, { world, name, textEl, heading, sights });
+    this.gaze = new THREE.Vector3(); // what it looks at, looking away from you (see wonder)
+    this.turned = 0;                 // 0 to 1: how far its face is turned to it
     this.greeting = null; // { text, at (when it is said; null till it has come), by (given up on after) } (see greet)
     this.places = [];
     this.recent = []; // where you have been these last seconds: { t, position, yaw, pitch }
@@ -371,7 +378,12 @@ export class Back {
       const closing = this.into;
       this.feel(dt, camera, { distance, onIt, closing });
       this.mouth.position.copy(this.position);
-      this.mouth.quaternion.copy(camera.quaternion); // (it always faces you)
+      this.mouth.quaternion.copy(camera.quaternion); // (it faces you, but for a look away: see wonder)
+      if (this.turned > 0.001) {
+        gazer.position.copy(this.position);
+        gazer.lookAt(this.gaze);
+        this.mouth.quaternion.rotateTowards(gazer.quaternion, this.turned * TURNS);
+      }
       this.mouth.scale.setScalar((0.25 + 0.75 * this.shown) * (1 + OPENS * this.open));
       this.mouth.material.uniforms.uShow.value = this.shown;
       this.mouth.material.uniforms.uOpen.value = this.open;
@@ -433,7 +445,11 @@ export class Back {
     else if (distance > 900) { mood = "behind"; lid = 0; wide = 1.28; look = towardYou; }
     else if (m.speed > 700) { mood = "fast"; lid = 0.46; look = towardYou; }
     else if (m.still > 20) { mood = "drowsy"; lid = 0.66 + 0.22 * Math.max(0, Math.sin(this.time * 0.6)); look = DOWN; }
+    else if (this.wonder(dt, camera)) { mood = "curious"; lid = 0.05; wide = 1.12; look = side.copy(m.away).addScaledVector(m.glance, 0.35); }
+    if (mood !== "curious" && m.sight) { m.sight = false; m.wonderIn = rand(...LOOKS); } // (anything else, and it is back to you)
     this.moodName = mood;
+    // its face turned to what it looks at: slowly away, back to you quickly
+    this.turned += ((mood === "curious" ? 1 : 0) - this.turned) * Math.min(1, dt * (mood === "curious" ? 2.2 : 6));
     const ease = Math.min(1, dt * 5);
     m.lid += (lid - m.lid) * ease;
     m.wide += (wide - m.wide) * ease;
@@ -454,6 +470,40 @@ export class Back {
     u.uWide.value = m.wide;
     u.uSmile.value = m.smile;
     u.uLook.value.copy(m.look);
+  }
+
+  // Now and then, calm, it looks away from you a while and checks something out: a portal or a way out
+  // near it, or only somewhere off in the dark, away from you. Its eyes go first, then its face turns
+  // after them (and back to you after, or at once if anything else comes up). True while it looks.
+  wonder(dt, camera) {
+    const m = this.mood;
+    m.wonderIn ??= rand(...LOOKS);
+    if (!m.sight) {
+      if ((m.wonderIn -= dt) > 0) return false;
+      const near = (this.sights?.() ?? []).filter((at) => { const d = at.distanceTo(this.position); return d > 200 && d < 6000; });
+      if (near.length && Math.random() < 0.7) this.gaze.copy(near[Math.floor(Math.random() * near.length)]);
+      else {
+        // (off into the dark: anywhere, but leaning away from you)
+        local.randomDirection().addScaledVector(fromYou.copy(this.position).sub(camera.position).normalize(), 0.7).normalize();
+        this.gaze.copy(this.position).addScaledVector(local, 2000);
+      }
+      m.sight = true;
+      m.sightFor = rand(...LOOK_FOR);
+      if (Math.random() < 0.12) this.say(["hm?", "ooh", "what's that", "..."][Math.floor(Math.random() * 4)], 1.6);
+    }
+    if ((m.sightFor -= dt) <= 0) {
+      m.sight = false;
+      m.wonderIn = rand(...LOOKS);
+      return false;
+    }
+    // where its eyes look: the way to it, as its face is when turned all it turns
+    gazer.position.copy(this.position);
+    gazer.lookAt(this.gaze);
+    turnedQ.copy(camera.quaternion).rotateTowards(gazer.quaternion, TURNS).invert();
+    local.copy(this.gaze).sub(this.position).normalize().applyQuaternion(turnedQ);
+    (m.away ??= new THREE.Vector2()).set(local.x, local.y).multiplyScalar(0.08);
+    if (m.away.length() > 0.06) m.away.setLength(0.06);
+    return true;
   }
 
   // its smoke and embers: given off at its edge, rising and spreading, left behind as it moves

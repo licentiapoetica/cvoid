@@ -343,9 +343,15 @@ export class VoidAudio {
     return { gain, source };
   }
 
-  // while something a plugin plays is plainly heard, the drone steps back for it
-  setMedia(on) {
-    if (!this.ctx || this.mediaOn === on) return;
+  // while something a plugin plays is plainly heard, the drone steps back for it. who: whose it is, so
+  // one plugin's silence does not take back another's (those that do not say share one)
+  setMedia(on, who = "") {
+    if (!this.ctx) return;
+    this.mediaBy ??= new Set();
+    if (on) this.mediaBy.add(who);
+    else this.mediaBy.delete(who);
+    on = this.mediaBy.size > 0;
+    if (this.mediaOn === on) return;
     this.mediaOn = on;
     this.droneLevel.gain.setTargetAtTime(on ? 0.3 : 1, this.ctx.currentTime, 1.5);
   }

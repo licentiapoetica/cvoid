@@ -109,16 +109,22 @@ map.load();
 const MAX_RATIO = Math.min(window.devicePixelRatio, 1.5), MIN_RATIO = 0.5;
 const RESOLUTIONS = { auto: null, "50%": 0.5, "75%": 0.75, "100%": 1, sharp: Math.min(window.devicePixelRatio, 2) };
 let ratio = RESOLUTIONS[gfx.resolution] ?? MAX_RATIO;
+// never drawn larger than the GPU can make a picture: past it the passes' targets are not made and
+// the screen stays black (Firefox resisting fingerprinting allows only 2048, and says the screen is
+// twice as dense as it is, so a wide window goes past it)
+const gl = renderer.getContext();
+const GPU_MAX = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), gl.getParameter(gl.MAX_RENDERBUFFER_SIZE), ...gl.getParameter(gl.MAX_VIEWPORT_DIMS));
+const drawRatio = (w = window.innerWidth, h = window.innerHeight) => Math.min(ratio, GPU_MAX / w, GPU_MAX / h);
 function resize() {
-  const w = window.innerWidth, h = window.innerHeight;
-  renderer.setPixelRatio(ratio);
+  const w = window.innerWidth, h = window.innerHeight, drawn = drawRatio(w, h);
+  renderer.setPixelRatio(drawn);
   renderer.setSize(w, h, false);
-  composer.setPixelRatio(ratio);
+  composer.setPixelRatio(drawn);
   composer.setSize(w, h);
   screen.resize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  world.G.uPx.value = (ratio * h) / 900;
+  world.G.uPx.value = (drawn * h) / 900;
   map.resize();
 }
 // It goes by the typical frame (the median), not the average: one stall (a sector being built, a
@@ -209,7 +215,9 @@ function fireLaser() {
   lasers.shoot({ from, to: from.clone().addScaledVector(camera.getWorldDirection(new THREE.Vector3()), 2600) });
 }
 // the way back (see back.js): each place called by its dimension's name, and the room's in it
-const back = new Back({ scene, world, textEl: $("irrlicht"), toOrigin: stored("irrlichtToOrigin", false), heading: () => yaw, name: (realm, room) => {
+// (and the things round you, for it to look at now and then: the portals round the clock, or a dimension's ways out)
+const back = new Back({ scene, world, textEl: $("irrlicht"), toOrigin: stored("irrlichtToOrigin", false), heading: () => yaw,
+  sights: () => world.realm === "void" ? portalNames().map((name) => new THREE.Vector3(...hubSlot(name).at)) : [].concat(hook("exit") ?? []).map((exit) => exit.at).filter(Boolean), name: (realm, room) => {
   const where = realm === "void" ? "the void" : realmNames[realm] ?? realm;
   return room ? `${where} · ${room.label ?? room.key}` : where;
 } });
@@ -278,7 +286,7 @@ choices("gVideos", [1, 2, 3, 6], "videos");
 choices("gLoops", [2, 4, 6, 10], "loops");
 choices("gEase", Object.keys(LOOK_EASES), "ease");
 function showNow() {
-  const w = Math.round(innerWidth * ratio), h = Math.round(innerHeight * ratio);
+  const w = Math.round(innerWidth * drawRatio()), h = Math.round(innerHeight * drawRatio());
   $("gNow").textContent = `now ${Math.round(meter.fps)} frames a second${gfx.vsync ? "" : " · vsync off"} · drawn at ${w} × ${h}${RESOLUTIONS[gfx.resolution] ? "" : " (auto)"}`;
   $("gFpsNow").textContent = `·  ${Math.round(meter.fps)} fps`; // (and in its title, plainly)
 }
@@ -828,7 +836,7 @@ function stopFlying() {
 // way out (a plugin's exit hook: { at, label, hole? }, or several, while you are in its dimension)
 // (what each is called, under the crosshair while it is on one: see showPortalName)
 const PORTAL_HOLES = { zone: 112 }; // (how wide a ring's dark sphere is, where it is not the usual)
-const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen", discord: "discord", bhop: "bhop" };
+const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", player: "the player", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen", discord: "discord", bhop: "bhop", mania: "mania" };
 function portalAimedAt() {
   // (each with the size of its dark sphere: the crosshair on that, and nowhere round it; the way back
   // floating beside you, wherever you are)
