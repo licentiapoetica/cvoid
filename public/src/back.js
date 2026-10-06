@@ -301,6 +301,9 @@ export class Back {
       // a tour flying you (a plugin's: see main.js), it is not being come to, only passed: it does not wait
       // for the view the tour turns over it, keeps out of the tour's way, and is not gone through
       const touring = this.touring && !this.held;
+      // on foot, in a plugin's dimension that moves you itself (bhop's: afoot, set each frame), it is as
+      // ever, but not gone through by running into it: only clicked
+      const passable = this.afoot && !this.held;
       // turning to it: the crosshair brought nearer it by your turning (not by its own drifting), from
       // within a good way round it. It waits for you then, before you are on it, to be clicked.
       const off = Math.acos(THREE.MathUtils.clamp(facing, -1, 1));
@@ -348,7 +351,7 @@ export class Back {
       // mouth, not just near it. Then its mouth opens round you and the dark gathers, steadily the
       // nearer you are, all the way in: it does not swell at the last, nor falter as it bobs off your line.
       let into = 0, closer = 0;
-      if (this.next && !touring && this.lastCam && this.lastPos && dt > 0) {
+      if (this.next && !touring && !passable && this.lastCam && this.lastPos && dt > 0) {
         step.copy(camera.position).sub(this.lastCam).sub(this.position).add(this.lastPos);
         toIt.copy(this.position).sub(camera.position);
         const going = step.length();
@@ -374,7 +377,7 @@ export class Back {
       this.mouth.material.uniforms.uOpen.value = this.open;
 
       // through: its mouth reached (the whole way since the last frame, so no flight is too fast for it)
-      if (this.next && !touring && this.shown > 0.9 && this.lastCam) {
+      if (this.next && !touring && !passable && this.shown > 0.9 && this.lastCam) {
         seg.set(this.lastCam, camera.position);
         through = seg.closestPointToPoint(this.position, true, near).distanceTo(this.position) < Math.max(BACK_HOLE * 0.8, REACH * this.open);
       }
