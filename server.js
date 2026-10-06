@@ -9,6 +9,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { population } from "./public/src/population.js";
 import { makeLock } from "./locks.js";
+import { makeSlots } from "./slots.js";
+import { makeAdmin } from "./admin.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(here, "public");
@@ -23,6 +25,8 @@ const EFFORT = process.env.VVOID_EFFORT ?? "low";
 const MAX_NEW = Number(process.env.VVOID_MAX_SECTORS ?? 300); // new Claude sectors per server run
 const MAX_BEATS = Number(process.env.VVOID_MAX_BEATS ?? 600); // entity turns per server run
 const CONCURRENCY = 4;
+const admin = makeAdmin(process.env.VVOID_ADMIN_KEY, { send, readBody, whoIs }); // past the line and every lock (see admin.js)
+const slots = makeSlots(Number(process.env.VVOID_MAX_SLOTS ?? 0), admin); // how many may be in the void at once (0: any number; see slots.js)
 
 // What the chosen model accepts. Fast mode (same model, quicker output, twice the price) exists on Opus only.
 const TAKES_EFFORT = !MODEL.includes("haiku");
@@ -584,6 +588,18 @@ async function serveFile(res, root, rel) {
   }
 }
 
+// The address a request is from. Behind a proxy on the same machine (nginx: the request comes from loopback)
+// it is the one the proxy says: X-Real-IP, or else the last of X-Forwarded-For (the one the proxy added).
+// From anywhere else those headers are anyone's to write, and are not listened to.
+const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+function whoIs(req) {
+  const peer = req.socket.remoteAddress ?? "?";
+  if (!LOOPBACK.has(peer)) return peer;
+  const real = String(req.headers["x-real-ip"] ?? "").trim();
+  const forwarded = String(req.headers["x-forwarded-for"] ?? "").split(",").map((a) => a.trim()).filter(Boolean).at(-1);
+  return real || forwarded || peer;
+}
+
 function send(res, status, body) {
   const json = typeof body !== "string";
   res.writeHead(status, { "content-type": json ? "application/json" : "text/plain; charset=utf-8" });
@@ -593,7 +609,7 @@ function send(res, status, body) {
 // What is vvoid's own on its address: its page and files, its plugins' files and its own API (a
 // plugin passing a whole other site through on vvoid's address leaves these alone; "/" is vvoid's
 // unless a page framed inside vvoid's goes there).
-const VVOID_PATHS = /^\/(index\.html|src\/|vendor\/|plugins\/|api\/(void|entity|sectors?|plugins|locks)(\/|$))/;
+const VVOID_PATHS = /^\/(index\.html|src\/|vendor\/|plugins\/|api\/(void|entity|sectors?|plugins|locks|slots|admin)(\/|$))/;
 const vvoidOwns = (req, pathname) => (pathname === "/" ? req.headers["sec-fetch-dest"] !== "iframe" : VVOID_PATHS.test(pathname));
 
 // ---- plugins: optional local additions, in plugins/<name>/ (kept out of the repository) ----
@@ -637,7 +653,7 @@ for (const entry of (await fs.readdir(PLUGINS, { withFileTypes: true }).catch(()
   if (!entry.isDirectory() || !/^[\w-]+$/.test(entry.name)) continue;
   const dir = path.join(PLUGINS, entry.name);
   try {
-    const lock = makeLock(entry.name, { here, send, readBody });
+    const lock = makeLock(entry.name, { here, send, readBody, whoIs, admin });
     if (lock.set) locks.set(entry.name, lock);
     if (existsSync(path.join(dir, "server.js"))) {
       const given = { send, readBody, serveFile, clip, claude, here, owns: vvoidOwns, port: PORT, host: HOST, hub: (text) => HUB_EXTRAS.push(text), lock };
@@ -663,6 +679,8 @@ const server = http.createServer(async (req, res) => {
     for (const plugin of serverPlugins) if (await plugin.handle?.(req, res, url)) return;
     if (url.pathname === "/api/plugins") return send(res, 200, clientPlugins);
     if (url.pathname === "/api/locks") return send(res, 200, [...locks.keys()]); // (the plugins behind a password)
+    if (slots.handle(req, res, url, send)) return; // (who is in, and the line to come in)
+    if (await admin.handle(req, res, url)) return;
     const ofPlugin = url.pathname.match(/^\/plugins\/([\w-]+)\/(.+)$/);
     if (ofPlugin) return serveFile(res, path.join(PLUGINS, ofPlugin[1], "public"), decodeURIComponent(ofPlugin[2]));
     if (url.pathname === "/api/void" && req.method === "POST") {
@@ -765,5 +783,5 @@ server.on("upgrade", (req, socket, head) => {
   socket.destroy();
 });
 server.listen(PORT, HOST, () => {
-  console.log(`[vvoid] http://${HOST}:${PORT}  ·  model ${MODEL} (${TAKES_EFFORT ? `effort ${EFFORT}` : "no effort setting"}${fast ? ", fast mode" : ""})  ·  cache ${path.relative(here, CACHE)}`);
+  console.log(`[vvoid] http://${HOST}:${PORT}  ·  model ${MODEL} (${TAKES_EFFORT ? `effort ${EFFORT}` : "no effort setting"}${fast ? ", fast mode" : ""})${slots.max ? `  ·  ${slots.max} slots` : ""}${admin.set ? ", an admin key" : ""}  ·  cache ${path.relative(here, CACHE)}`);
 });

@@ -15,6 +15,7 @@ export class Locks {
     this.looks = new Map(); // plugin name -> its gate's { title, color }, as it set them (wherever it is asked from)
     this.forget = new Set();  // the plugins whose password is not remembered: asked every time (VVOID_REMEMBER unset)
     this.leaving = new Map(); // plugin name -> what it does when its session is let go (see onLeave)
+    this.keeping = new Map(); // plugin name -> while it answers true, its session outlives leaving its dimensions (see keep)
     this.gate = Object.assign(document.createElement("div"), { id: "lockGate" });
     this.gate.innerHTML = `<div class="gate-box"><h2></h2><input type="password" autocomplete="current-password" spellcheck="false"><p class="why"></p><p class="hint">the password · enter to go in · esc to stay</p></div>`;
     document.body.append(this.gate);
@@ -45,9 +46,12 @@ export class Locks {
   }
   // what the plugin does when its session is let go (its own state of being in, dropped)
   onLeave(name, fn) { this.leaving.set(name, fn); }
+  // what keeps its session as you leave its dimensions (something of it taken along: discord's call);
+  // once that is over, out of them still, the plugin calls left(name) itself
+  keep(name, fn) { this.keeping.set(name, fn); }
   // left its dimensions: a password not remembered is let go, to be asked again next time
   left(name) {
-    if (!this.forget.has(name) || !this.open.get(name)) return;
+    if (!this.forget.has(name) || !this.open.get(name) || this.keeping.get(name)?.()) return;
     this.leave(name);
   }
   has(name) { return this.open.has(name); }                     // behind a password at all
@@ -74,11 +78,14 @@ export class Locks {
   // the password on the screen, for the plugin `name`: true once it opened, false turned away (Esc, or a
   // wrong password: said on the gate a moment, and then it closes as Esc does).
   // title: what the gate says (the plugin's name); color: its glow
-  ask(name, look = {}) {
+  async ask(name, look = {}) {
     const { title = name, color = "#8fd3ff" } = { ...look, ...this.looks.get(name) };
-    if (!this.locked(name)) return Promise.resolve(true);
+    if (!this.locked(name)) return true;
     if (this.asking) this.done(false);
-    this.asking = name;
+    this.asking = name; // (asking from now, while it is asked again first)
+    await this.check(name); // (an admin since the page opened goes through without it: see admin.js)
+    if (this.asking !== name) return false; // (another portal took the gate meanwhile)
+    if (!this.locked(name)) return (this.asking = null), true;
     document.exitPointerLock?.();
     this.gate.querySelector("h2").textContent = title;
     this.gate.style.setProperty("--lock-glow", color);

@@ -37,6 +37,15 @@ of everywhere you have been, the keys, the controller, the screen, the credits.
 | `VVOID_CACHE` | `.cache/sectors` | where the dreamt places are kept |
 | `VVOID_MAX_SECTORS` | `300` | new places per run of the server |
 | `VVOID_MAX_BEATS` | `600` | turns of the entity per run |
+| `VVOID_MAX_SLOTS` | none | how many may be in the void at once; the rest wait in line on the start screen |
+| `VVOID_ADMIN_KEY` | none | open vvoid once as `/?admin=<key>`: that browser is admin for a year, straight in past the line (taking no slot) and through every portal without its password; `/?admin=` lets it go |
+
+Behind nginx on the same machine, let it say who is asking (for the logs, and so that wrong passwords
+are counted per visitor rather than for everyone at once):
+
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
 
 </details>
 

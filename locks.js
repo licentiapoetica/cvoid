@@ -36,7 +36,7 @@ const minutes = (ms) => { const s = Math.ceil(ms / 1000); return `${Math.floor(s
 const all = []; // every lock (opened together when they share a password)
 
 // the lock of the plugin `name` (made for every plugin; it locks only with a password set)
-export function makeLock(name, { here, send, readBody }) {
+export function makeLock(name, { here, send, readBody, whoIs, admin }) {
   const env = name.toUpperCase().replace(/-/g, "_");
   const own = process.env[`VVOID_${env}_PASSWORD`], password = own ?? process.env.VVOID_PASSWORD ?? "";
   const remember = duration(process.env[`VVOID_${env}_REMEMBER`] ?? process.env.VVOID_REMEMBER); // ms (0: asked every time)
@@ -67,7 +67,7 @@ export function makeLock(name, { here, send, readBody }) {
 
   // whether this request may pass: no password set, or a session
   function open(req) {
-    if (!password) return true;
+    if (!password || admin?.is(req)) return true; // (an admin goes through every lock: see admin.js)
     const token = cookieOf(req);
     if (!token || !/^[0-9a-f]{64}$/.test(token)) return false;
     const key = hash(token).toString("hex"), at = sessions.get(key);
@@ -79,7 +79,7 @@ export function makeLock(name, { here, send, readBody }) {
 
   const right = (given) => typeof given === "string" && given.length > 0 && given.length < 1024 && timingSafeEqual(hash(given), hash(password));
   async function login(req, res) {
-    const who = req.socket.remoteAddress ?? "?", now = Date.now(), t = tries.get(who) ?? { fails: 0, until: 0, last: 0 };
+    const who = whoIs(req), now = Date.now(), t = tries.get(who) ?? { fails: 0, until: 0, last: 0 };
     wrongs = wrongs.filter((at) => now - at < 60_000);
     if (now < t.until) return send(res, 429, { error: `too many wrong passwords: wait ${minutes(t.until - now)}`, wait: Math.ceil((t.until - now) / 1000) });
     if (wrongs.length >= 20) return send(res, 429, { error: "too many wrong passwords here: wait a minute", wait: 60 });

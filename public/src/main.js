@@ -18,6 +18,7 @@ import { PadMap } from "./pad.js";
 import { SPAWN, setPortals, hubSlot, portalNames } from "./constants.js";
 import { draggablePanels } from "./panels.js";
 import { Locks } from "./locks.js";
+import { Slots } from "./slots.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -302,6 +303,23 @@ $("gSens").addEventListener("input", () => {
   $("gSensOut").textContent = `${sensitivity.toFixed(2)}×`;
 });
 for (const type of ["keydown", "keyup"]) $("gSens").addEventListener(type, (e) => e.stopPropagation()); // (its arrow keys are its own)
+// The field of view: as wide as asked, across, as games give it (Counter-Strike's 90), whatever shape the
+// window is; unset, vvoid's own (70 up and down). The lens still widens at speed and narrows zoomed in,
+// from there; and the mouse turns the view as far for the same push, however wide it is.
+const OWN_TALL = 70;
+const tallFor = (across) => THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(across) / 2) / camera.aspect));
+const acrossFor = (tall) => THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(tall) / 2) * camera.aspect));
+const baseFov = () => (gfx.fov ? tallFor(gfx.fov) : OWN_TALL);
+function showFov() {
+  const across = gfx.fov ?? Math.round(acrossFor(OWN_TALL));
+  $("gFov").value = across;
+  $("gFovOut").textContent = `${Math.round(across)}°${gfx.fov ? "" : " (vvoid's)"}`;
+}
+$("gFov").addEventListener("input", () => { gfx.fov = Number($("gFov").value); keepGraphics(); showFov(); });
+$("gFov").addEventListener("dblclick", () => { delete gfx.fov; keepGraphics(); showFov(); }); // (double clicked: back to vvoid's own)
+for (const type of ["keydown", "keyup"]) $("gFov").addEventListener(type, (e) => e.stopPropagation());
+window.addEventListener("resize", showFov); // (across, at the window's new shape)
+showFov();
 function showRaw() {
   $("gRaw").textContent = rawInput === null ? "raw input: known once the pointer is taken"
     : rawInput ? "raw input: yes (the mouse as it moves, no acceleration)"
@@ -647,8 +665,12 @@ function spawnHere() {
   pitch = viewPitch = Math.asin(to.y / length);
 }
 
+// the start screen's count of who is in, and the line when the void is full (VVOID_MAX_SLOTS: see slots.js)
+const slots = new Slots(() => start());
+
 function start() {
   if (started) return;
+  if (!slots.enter()) return; // (full: in line, and in by itself when a slot comes free)
   started = true;
   // take over from the idle orbit without a jump
   yaw = viewYaw = camera.rotation.y;
@@ -678,7 +700,7 @@ new MutationObserver(() => { $("menuButton").textContent = map.open ? "close" : 
 // Raw mouse input where the browser offers it: the OS pointer acceleration curve
 // is what makes locked-pointer look feel slippery.
 async function lockPointer() {
-  if (!canvas.requestPointerLock || document.pointerLockElement === canvas) return;
+  if (!started || !canvas.requestPointerLock || document.pointerLockElement === canvas) return; // (in line, the pointer stays free)
   try {
     await canvas.requestPointerLock({ unadjustedMovement: true });
     rawInput = !/firefox/i.test(navigator.userAgent); // (Firefox takes the option without a word, and gives no raw input)
@@ -705,7 +727,7 @@ document.addEventListener("mousemove", (e) => {
   // the first events after locking, and occasional huge deltas some browsers emit, would snap the view
   if (skipMoves > 0) return void skipMoves--;
   if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return;
-  look(e.movementX, e.movementY, MOUSE_LOOK * sensitivity * (camera.fov / 70)); // zoomed in, the view turns as much less
+  look(e.movementX, e.movementY, MOUSE_LOOK * sensitivity * (camera.fov / baseFov())); // zoomed in, the view turns as much less
 });
 window.addEventListener("keydown", (e) => {
   // Ctrl is down (descending) while flying: Ctrl+D, Ctrl+S, Ctrl+A... are the game's keys, not the
@@ -841,7 +863,7 @@ function pollPad(dt) {
   for (const p of plugins) p.gamepad?.(gp, padMap);
   // squared response: fine aim near the centre, full speed at the rim
   const rx = stick(aim[0]), ry = stick(aim[1]);
-  look(rx * Math.abs(rx) * dt, ry * Math.abs(ry) * dt * 0.75, PAD_LOOK * sensitivity * (camera.fov / 70)); // (zoomed in, turning less, as the mouse does)
+  look(rx * Math.abs(rx) * dt, ry * Math.abs(ry) * dt * 0.75, PAD_LOOK * sensitivity * (camera.fov / baseFov())); // (zoomed in, turning less, as the mouse does)
   if (hook("seat")) {
     // in a plugin's seat the pad plays; the look stick still looks round
     if (helpMode !== "pad" && (rx || ry || padMap.now.size)) showHelp("pad");
@@ -1241,7 +1263,7 @@ function frame(now) {
   audio.setSpeed(velocity.length());
   // the lens widens a little at speed, and narrows (zooms in) while the right button (or the controller's zoom) is held
   const zooming = padZoom || (rightHeld && performance.now() - rightHeld > ZOOM_AFTER * 1000);
-  const fov = (70 + Math.min(velocity.length() / 500, 1) * 18) * (zooming ? ZOOM : 1);
+  const fov = baseFov() * (1 + Math.min(velocity.length() / 500, 1) * (18 / OWN_TALL)) * (zooming ? ZOOM : 1); // (from the field of view chosen: see baseFov)
   if (Math.abs(fov - camera.fov) > 0.05) {
     camera.fov += (fov - camera.fov) * Math.min(1, dt * 4);
     camera.updateProjectionMatrix();
@@ -1264,6 +1286,7 @@ runFrames();
 // (viewers: the f0ck plugin's viewers, each registering itself as it is made: see back.js)
 window.vvoid = {
   world, camera, renderer, entity, back, voice, map, plugins, padMap, CELL, graphics: gfx, viewers: [], meteors, lasers, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; },
+  baseFov, // (the camera's own field of view, up and down, before zoom and speed widen or narrow it)
   // Held where you are (see held: a group's member, say), asked by every way into a dimension or a room (its
   // ring, a tag's portal, a search): they neither draw you nor take you, and with say, the reason is said.
   // Never while you are being put somewhere (the group taking you along, the way back, the map).
