@@ -28,13 +28,17 @@ const GROUPS = { flight: "flying" };
 const PLAYSTATION = ["✕", "○", "□", "△", "L1", "R1", "L2", "R2", "create", "options", "L3", "R3", "d-pad up", "d-pad down", "d-pad left", "d-pad right", "PS", "touchpad"];
 const XBOX = ["A", "B", "X", "Y", "LB", "RB", "LT", "RT", "view", "menu", "LS", "RS", "d-pad up", "d-pad down", "d-pad left", "d-pad right", "home"];
 const isPlayStation = (id) => /054c|sony|playstation|dualsense|dualshock|wireless controller/i.test(id ?? "");
+// how far a stick may rest off its middle and still be still (the Tab panel's controller page): a worn
+// stick does not come back to the middle, and past this it flies you on its own. And the triggers' own.
+export const DEADZONES = [0.1, 0.14, 0.2, 0.25, 0.3, 0.4];
+const TRIGGER_DEAD = 0.08;
 const valid = (list) => (Array.isArray(list) && list.every((i) => Number.isInteger(i) && i >= 0 && i < 32) ? [...new Set(list)] : null);
 
 export class PadMap {
   constructor({ stored, store }) {
     this.store = store;
     const saved = stored("pad", {});
-    this.actions = [...ACTIONS];     // cvoid's own, and what plugins add (see addActions)
+    this.actions = [...ACTIONS];     // vvoid's own, and what plugins add (see addActions)
     this.groups = { ...GROUPS };
     this.saved = saved?.bound ?? {}; // (the plugins' are read from here as they add theirs)
     this.bound = Object.fromEntries(ACTIONS.map((a) => [a.id, valid(this.saved[a.id]) ?? [...a.buttons]]));
@@ -48,6 +52,8 @@ export class PadMap {
     // saved before R3 zoomed (it was autofly's): autofly, still there, goes to d-pad up
     if ((saved?.version ?? 0) < 4 && `${this.bound.autofly}` === "11") this.bound.autofly = [12];
     this.swap = !!saved?.swap; // the sticks the other way round: the right one flies, the left one looks
+    this.deadzone = DEADZONES.includes(saved?.deadzone) ? saved.deadzone : 0.14;
+    this.rest = null; // what the sticks and triggers read now, untouched (shown on the controller page)
     this.names = PLAYSTATION;
     this.id = "";
     this.index = null;
@@ -60,13 +66,26 @@ export class PadMap {
   }
 
   save() {
-    this.store("pad", { version: 4, bound: this.bound, swap: this.swap });
+    this.store("pad", { version: 4, bound: this.bound, swap: this.swap, deadzone: this.deadzone });
     this.onChange?.(); // (the page drawn again)
     this.onSaved?.();  // (and the help line: see main.js)
   }
 
+  // where the sticks and triggers are now, as they are read (on the controller page, a few times a second):
+  // left alone, what they read is their drift
+  showRest() {
+    if (!this.restEl) return;
+    const r = this.rest, f = (v) => (v < 0 ? "" : " ") + v.toFixed(2), past = (x, y) => (Math.hypot(x, y) > this.deadzone ? " (past the dead zone: moving you)" : "");
+    this.restEl.textContent = !r ? "" : `now · left stick ${f(r.axes[0])} ${f(r.axes[1])}${past(r.axes[0], r.axes[1])} · right stick ${f(r.axes[2])} ${f(r.axes[3])}${past(r.axes[2], r.axes[3])} · triggers ${r.triggers[0].toFixed(2)} ${r.triggers[1].toFixed(2)}`;
+  }
+
   // once a frame, with the controller in use: what is down, what was just pressed and let go
   frame(gp) {
+    if (this.restEl?.isConnected && performance.now() - (this.restAt ?? 0) > 200) {
+      this.restAt = performance.now();
+      this.rest = { axes: [0, 1, 2, 3].map((i) => gp.axes[i] ?? 0), triggers: [6, 7].map((i) => gp.buttons[i]?.value ?? 0) };
+      this.showRest();
+    }
     const now = new Set(gp.buttons.flatMap((b, i) => (b.pressed ? [i] : [])));
     if (gp.index !== this.index || gp.id !== this.id) {
       // another controller: what it already holds is not a press, and its buttons have its names
@@ -94,7 +113,7 @@ export class PadMap {
     this.onChange?.();
   }
 
-  // An action's press, used by whoever asks first (plugins are asked before cvoid's own flying): its
+  // An action's press, used by whoever asks first (plugins are asked before vvoid's own flying): its
   // buttons are then not pressed, nor held, for anything else until they are let go. True if it was pressed.
   take(id) {
     if (!this.hit(id)) return false;
@@ -117,14 +136,26 @@ export class PadMap {
   released(id) {
     return this.buttons(id).some((i) => this.gone.has(i)) && !this.down(id);
   }
-  // how far a button is pushed in (the triggers), 0..1
+  // how far a button is pushed in (the triggers), 0..1: one resting a hair in is not pushed
   value(gp, id) {
-    return Math.max(0, ...this.buttons(id).map((i) => gp.buttons[i]?.value ?? 0));
+    const v = Math.max(0, ...this.buttons(id).map((i) => gp.buttons[i]?.value ?? 0));
+    return v < TRIGGER_DEAD ? 0 : (v - TRIGGER_DEAD) / (1 - TRIGGER_DEAD);
   }
-  // the sticks: one flies (or moves, in a plugin's game), the other looks
+  // the sticks: one flies (or moves, in a plugin's game), the other looks. Each with its dead zone taken
+  // out round its middle (a circle, not each axis on its own), the rest stretched out to the rim again
   sticks(gp) {
-    const left = [gp.axes[0] ?? 0, gp.axes[1] ?? 0], right = [gp.axes[2] ?? 0, gp.axes[3] ?? 0];
+    const zoned = (x, y) => {
+      const m = Math.hypot(x, y), d = this.deadzone;
+      if (m <= d) return [0, 0];
+      const k = Math.min(1, (m - d) / (1 - d)) / m;
+      return [x * k, y * k];
+    };
+    const left = zoned(gp.axes[0] ?? 0, gp.axes[1] ?? 0), right = zoned(gp.axes[2] ?? 0, gp.axes[3] ?? 0);
     return this.swap ? { move: right, aim: left } : { move: left, aim: right };
+  }
+  setDeadzone(d) {
+    this.deadzone = d;
+    this.save();
   }
 
   name(i) {
@@ -170,6 +201,7 @@ export class PadMap {
   reset() {
     for (const a of this.actions) this.bound[a.id] = [...a.buttons];
     this.swap = false;
+    this.deadzone = 0.14;
     this.save();
   }
   toggleSwap() {
@@ -201,6 +233,12 @@ export class PadMap {
         }
         rows.push(list);
       }
+      // the dead zone, and where the sticks and triggers rest now: a stick resting past it flies you on its own
+      rows.push(make("div", { className: "of" }, "dead zone"));
+      rows.push(make("div", { className: "row" }, ...DEADZONES.map((d) => make("button", { className: this.deadzone === d ? "on" : "", onclick: () => this.setDeadzone(d) }, d.toFixed(2)))));
+      this.restEl = make("div", { className: "which" }, "");
+      rows.push(this.restEl);
+      this.showRest();
       const swap = make("button", { className: this.swap ? "on" : "", onclick: () => this.toggleSwap() }, "swap sticks");
       const reset = make("button", { onclick: () => this.reset() }, "reset all");
       rows.push(make("div", { className: "row" }, swap, reset));

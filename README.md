@@ -1,6 +1,6 @@
-# cvoid
+# vvoid
 
-![The origin of cvoid: the hub's clock in its ring of cubes, and Irrlicht, the cold flame that keeps by you](docs/cvoid.jpg)
+![The origin of vvoid: the hub's clock in its ring of cubes, and Irrlicht, the cold flame that keeps by you](docs/vvoid.jpg)
 
 Past the blue fog of the PlayStation 2 system menu, there is more of it.
 
@@ -30,22 +30,25 @@ of everywhere you have been, the keys, the controller, the screen, the credits.
 | | default | |
 |---|---|---|
 | `PORT` | `5173` | |
-| `CVOID_HOST` | `127.0.0.1` | bind address |
-| `CVOID_MODEL` | `claude-opus-5-5` | who dreams |
-| `CVOID_EFFORT` | `low` | higher: slower, more considered places |
-| `CVOID_FAST` | off | `1`: Opus fast mode (twice the price) |
-| `CVOID_CACHE` | `.cache/sectors` | where the dreamt places are kept |
-| `CVOID_MAX_SECTORS` | `300` | new places per run of the server |
-| `CVOID_MAX_BEATS` | `600` | turns of the entity per run |
+| `VVOID_HOST` | `127.0.0.1` | bind address |
+| `VVOID_MODEL` | `claude-opus-5-5` | who dreams |
+| `VVOID_EFFORT` | `low` | higher: slower, more considered places |
+| `VVOID_FAST` | off | `1`: Opus fast mode (twice the price) |
+| `VVOID_CACHE` | `.cache/sectors` | where the dreamt places are kept |
+| `VVOID_MAX_SECTORS` | `300` | new places per run of the server |
+| `VVOID_MAX_BEATS` | `600` | turns of the entity per run |
 
 </details>
 
 ## Other doors
 
 Round the clock at the origin there is room for more rings. Each is a plugin, a folder in `plugins/`:
-a dimension, a game, a place of someone's own. cvoid needs none of them, and keeps them out of its
+a dimension, a game, a place of someone's own. vvoid needs none of them, and keeps them out of its
 repository. What a plugin is given and the hooks it answers are written down in `public/src/main.js`
-(the page) and `server.js` (the server).
+(the page) and `server.js` (the server). Any of them can be put behind a password, asked at its ring:
+`VVOID_PASSWORD` in `.env` for all of them, `VVOID_<NAME>_PASSWORD` for one, over it; asked every time,
+unless `VVOID_REMEMBER` (or `VVOID_<NAME>_REMEMBER`: `30d`, `12h`) says how long to remember it (see `locks.js`).
+None is locked unless a password is set.
 
 ## Made with
 
@@ -58,7 +61,7 @@ Open source, and with thanks to the people who made it:
 | [Anthropic TypeScript SDK](https://github.com/anthropics/anthropic-sdk-typescript) | MIT | how the server asks Claude, who dreams the places |
 | [Zod](https://zod.dev) | MIT | the shape a dreamt place has to have |
 | [Node.js](https://nodejs.org) | MIT | the server |
-| [Puppeteer](https://pptr.dev) | Apache-2.0 | cvoid driven headless: its tests, and stills of it |
+| [Puppeteer](https://pptr.dev) | Apache-2.0 | vvoid driven headless: its tests, and stills of it |
 
 And the code it borrows:
 
@@ -69,7 +72,7 @@ And the code it borrows:
 | [mulberry32](https://gist.github.com/tommyettinger/46a874533244883189143505d203312c) | public domain | seeded randomness, by Tommy Ettinger: the same place is always the same |
 | [MurmurHash3](https://github.com/aappleby/smhasher) | public domain | its finaliser, by Austin Appleby: a place's coordinates into its seed |
 
-What a plugin brings keeps its own licence, and is named on the credits page in cvoid (`Tab`, then
+What a plugin brings keeps its own licence, and is named on the credits page in vvoid (`Tab`, then
 `credits`).
 
 ## Made by
@@ -79,7 +82,7 @@ What a plugin brings keeps its own licence, and is named on the credits page in 
 Kibi Kelburton, with Claude (Opus 5.5, by Anthropic), who wrote the code with Kibi in Claude Code
 and, in the void, dreams the places and speaks for what waits there.
 
-Copyright (C) 2026 Kibi Kelburton. cvoid is free software under the GNU Affero General Public
+Copyright (C) 2026 Kibi Kelburton. vvoid is free software under the GNU Affero General Public
 License, version 3 or (at your option) any later version (see `LICENSE`), and comes with no
-warranty. Run it, change it, pass it on; if you let others use a changed cvoid over a network,
+warranty. Run it, change it, pass it on; if you let others use a changed vvoid over a network,
 offer them its source.

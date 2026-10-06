@@ -3,7 +3,8 @@
 // of one, or across the map in one jump), it floats along at your side, off to the left and a little low,
 // bobbing as it goes, the way a small machine keeps by someone it looks after. It is not a portal like
 // the others: a mouth of dark burnt into the air, its edge burning in a cold blue fire (icefire), giving
-// off a thin mist that trails behind it as it moves. Through it, you are back where you were before: the dimension, the room
+// off a thin mist that trails behind it as it moves. It is round, a ball of that dark, its face on one
+// side of it: turned away from you, looking at something, you see the back of its head. Through it, you are back where you were before: the dimension, the room
 // in it, and where you were a few seconds before you went (not already in the pull of what took you),
 // facing as you faced. Taken, it takes you a step further back the next time, as far as it remembers.
 // In the hub with nowhere to go back to, it only keeps you company: not a way anywhere, it does not open.
@@ -43,13 +44,14 @@ const BORED = 8; // seconds of the place round you not yet materialized (Claude 
 const GREET_AFTER = 2.6, GREET_FOR = 4.2, GREET_WAIT = 30; // seconds: after it has come, its greeting said this long, and given up on if it has not come by then
 const GREETINGS = [(n) => `hello, ${n}`, (n) => `oh, ${n}. there you are`, (n) => `${n}! let's go`, (n) => `hi ${n}. i'll keep by you`];
 const LOOKS = [7, 16], LOOK_FOR = [1.8, 4.5]; // seconds between its looks away from you (calm), and how long it looks
-const TURNS = 0.95; // how far it turns its face to look (radians, ~55 degrees: further, its eyes do the rest)
+const TURNS = Math.PI; // how far it turns its face to look (radians: all the way, its back to you if need be; less, and its eyes do the rest)
 const SMOKE = 48, EMBERS = 16; // (a thin smoke: it smoulders, it does not billow)
 
 // the mouth: a disc of dark with a ragged edge that smoulders, embers crawling along it, charred round it
 const MOUTH_VERT = /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`;
 const MOUTH_FRAG = /* glsl */ `${NOISE_LIB}
-uniform float uTime, uShow, uOpen, uLid, uWide, uSmile; uniform vec2 uLook; varying vec2 vUv;
+uniform float uTime, uShow, uOpen, uLid, uWide, uSmile; uniform vec2 uLook; uniform mat3 uFace; varying vec2 vUv;
+const float BALL = .5; // (the ball's own size, in the disc: its outline round from anywhere, the ragged edge burnt round that)
 // one eye, q from its middle: an oval whose lid comes down from the top (lid 0 open, 1 shut), or,
 // happy (smile 1), an arch
 float eye(vec2 q, float w, float h, float lid, float smile) {
@@ -72,18 +74,29 @@ void main(){
   float rim = exp(-abs(r - edge) * 38.) * flick;
   float glow = (step(edge, r) * exp(-(r - edge) * 9.) * .35 + (1. - step(edge, r)) * exp(-(edge - r) * 16.) * .18) * (.6 + .4 * flick); // (out round it; only a little way in)
   vec3 hot = mix(vec3(.04, .22, .85), vec3(.62, .92, 1.), clamp(rim * 1.4, 0., 1.)); // icefire: deep blue, white-cyan where hottest
-  // inside: not empty: a slow dark blue turning deep in it
-  float swirl = fbm(vec3(p * 2.2 + vec2(sin(t * .2), cos(t * .17)), t * .25 + r * 2.));
+  // the ball: the way its surface faces, here (n: as you see it; f: as its face is turned, its face to +z)
+  vec2 b = p / BALL; if (dot(b, b) > 1.) b = normalize(b);
+  vec3 n = vec3(b, sqrt(max(0., 1. - dot(b, b))));
+  vec3 f = uFace * n;
+  // inside: not empty: a slow dark blue turning deep in it (on the ball, turning with it)
+  float swirl = fbm(f * 1.5 + vec3(sin(t * .2), cos(t * .17), t * .25));
   vec3 deep = vec3(.002, .004, .012) + vec3(.01, .035, .1) * smoothstep(.1, .8, swirl) * (1. - r / max(edge, .01));
   // charred round the outside: a faint soot ring, so it reads against bright skies too
   float soot = smoothstep(edge + .3, edge, r) * (1. - inside) * .55;
+  // and the cold fire's light caught on it, high on the side you see, so it reads round
+  deep += vec3(.02, .07, .18) * pow(max(0., dot(n, normalize(vec3(-.45, .55, .7)))), 14.) * .5;
+  // the back of its head: the light of its eyes come through it, dim, in a patch that turns round with it
+  float nape = smoothstep(-.2, -.95, f.z) * (.85 + .15 * sin(t * 1.3));
+  deep += vec3(.03, .11, .32) * nape * nape * (.7 + .5 * smoothstep(.3, .8, swirl));
   vec3 c = deep * inside + hot * (rim + glow) * .62; // (kept under the glow's threshold mostly: an ember, not a flare)
   // its eyes, in the dark, looking where it looks; a hotter middle to each, flickering with its edge
-  vec2 e = p - vec2(0., .04) - uLook;
+  // its eyes, on its face: drawn where it is turned (foreshortened round the ball, gone round the back)
+  vec2 e = f.xy * BALL - vec2(0., .04) - uLook;
+  float front = smoothstep(.2, .5, f.z);
   float w = .052 * uWide, h = .07 * uWide;
   float eyes = eye(e - vec2(-.15, 0.), w, h, uLid, uSmile) + eye(e - vec2(.15, 0.), w, h, uLid, uSmile);
   float core = exp(-dot(e - vec2(-.15, .01), e - vec2(-.15, .01)) * 900.) + exp(-dot(e - vec2(.15, .01), e - vec2(.15, .01)) * 900.);
-  c += eyes * inside * mix(vec3(.32, .72, 1.), vec3(.86, .97, 1.), clamp(core, 0., 1.)) * (.78 + .1 * flick);
+  c += eyes * front * inside * mix(vec3(.32, .72, 1.), vec3(.86, .97, 1.), clamp(core, 0., 1.)) * (.78 + .1 * flick);
   float alpha = max(inside, max(soot, clamp(rim + glow, 0., 1.)));
   gl_FragColor = vec4(c * uShow, alpha * uShow);
 }`;
@@ -110,7 +123,7 @@ const QUIET = { bass: 0, mid: 0, high: 0, beat: 0 };
 const ZERO = new THREE.Vector2(), DOWN = new THREE.Vector2(0, -0.035), side = new THREE.Vector2();
 const words = new THREE.Vector3(), up = new THREE.Vector3();
 const pullV = new THREE.Vector3(), moved = new THREE.Vector3(), step = new THREE.Vector3(), toIt = new THREE.Vector3();
-const gazer = new THREE.Object3D(), turnedQ = new THREE.Quaternion(), local = new THREE.Vector3(), fromYou = new THREE.Vector3();
+const gazer = new THREE.Object3D(), turnedQ = new THREE.Quaternion(), faceQ = new THREE.Quaternion(), faceM = new THREE.Matrix4(), local = new THREE.Vector3(), fromYou = new THREE.Vector3();
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 
 export class Back {
@@ -135,6 +148,7 @@ export class Back {
     this.closer = 0;  // how fast you near it, its own drifting taken out (eased)
     this.fade = 0;    // the dark as you go in (main.js draws it)
     this.home = new THREE.Vector3();     // where it would float (eased towards you)
+    this.post = null;                    // a place it waits at instead, not following you (a plugin's, set each frame: bhop's stage)
     this.speed = new THREE.Vector3();    // and how it is going, beside you (see place)
     this.keen = 1.7;
     this.carry = 1;
@@ -147,6 +161,7 @@ export class Back {
       uniforms: {
         uTime: G.uTime, uShow: { value: 0 }, uOpen: { value: 0 },
         uLid: { value: 0.15 }, uWide: { value: 1 }, uSmile: { value: 0 }, uLook: { value: new THREE.Vector2() },
+        uFace: { value: new THREE.Matrix3() },
       },
       vertexShader: MOUTH_VERT, fragmentShader: MOUTH_FRAG,
       transparent: true, depthWrite: false,
@@ -189,7 +204,7 @@ export class Back {
 
   // where you are: the dimension, and the room of the viewer that dimension is (see the f0ck plugin)
   where() {
-    const realm = this.world.realm, viewer = (window.cvoid?.viewers ?? []).find((v) => v.realm === realm) ?? null, room = viewer?.room ?? null;
+    const realm = this.world.realm, viewer = (window.vvoid?.viewers ?? []).find((v) => v.realm === realm) ?? null, room = viewer?.room ?? null;
     return { key: `${realm}|${room?.key ?? ""}`, realm, viewer, room };
   }
 
@@ -311,6 +326,8 @@ export class Back {
       // on foot, in a plugin's dimension that moves you itself (bhop's: afoot, set each frame), it is as
       // ever, but not gone through by running into it: only clicked
       const passable = this.afoot && !this.held;
+      // at its post (a plugin's: see post), it goes there and stays, neither following you nor going aside
+      const posted = !!this.post && !this.held;
       // turning to it: the crosshair brought nearer it by your turning (not by its own drifting), from
       // within a good way round it. It waits for you then, before you are on it, to be clicked.
       const off = Math.acos(THREE.MathUtils.clamp(facing, -1, 1));
@@ -335,16 +352,16 @@ export class Back {
         const going = step.length(), along = going > 1e-6 ? step.dot(to) / going : 0;
         onWay = along > 0 && distance * Math.sqrt(Math.max(0, 1 - along * along)) < BACK_HOLE * 5 && distance < 1500;
       }
-      this.before = (facing > CLEAR_OF || onWay) && !waits ? (this.before ?? 0) + dt * (onWay ? 4 : 1) : 0; // (how long it has been before you, not aimed at)
+      this.before = (facing > CLEAR_OF || onWay) && !waits && !posted ? (this.before ?? 0) + dt * (onWay ? 4 : 1) : 0; // (how long it has been before you, not aimed at)
       const inTheWay = this.before > 0.6;
       // going aside: to whichever side of what you see it is on already (never across the middle), and
       // keeping to that side after
       if (inTheWay && !aside) this.side = spot.copy(this.position).project(camera).x >= 0 ? 1 : -1;
       // how keenly it goes to its place (eased from one way of going to another, never switched at once),
       // and how much it keeps your pace (none while it waits: it stays where it is, to be flown into)
-      const keen = waits ? 0 : distance > 3000 ? 4 : inTheWay ? 3.2 : 1.7 * THREE.MathUtils.lerp(1, THREE.MathUtils.smoothstep(distance, 160, 420), drifting);
+      const keen = posted ? (this.home.distanceTo(this.post) > 3000 ? 4 : 2) : waits ? 0 : distance > 3000 ? 4 : inTheWay ? 3.2 : 1.7 * THREE.MathUtils.lerp(1, THREE.MathUtils.smoothstep(distance, 160, 420), drifting);
       this.keen += (keen - this.keen) * Math.min(1, dt * 2.5);
-      this.carry += ((waits ? 0 : 1) - this.carry) * Math.min(1, dt * 2.5);
+      this.carry += ((waits || posted ? 0 : 1) - this.carry) * Math.min(1, dt * 2.5);
       this.place(camera, false, dt, moved);
       const follow = this.carry;
       // bobbing as it hovers, a slow small circling with it
@@ -378,12 +395,16 @@ export class Back {
       const closing = this.into;
       this.feel(dt, camera, { distance, onIt, closing });
       this.mouth.position.copy(this.position);
-      this.mouth.quaternion.copy(camera.quaternion); // (it faces you, but for a look away: see wonder)
+      // (a ball looks round from anywhere: drawn facing you, and its face turned on it, see wonder)
+      this.mouth.quaternion.copy(camera.quaternion);
+      faceQ.copy(camera.quaternion);
       if (this.turned > 0.001) {
         gazer.position.copy(this.position);
         gazer.lookAt(this.gaze);
-        this.mouth.quaternion.rotateTowards(gazer.quaternion, this.turned * TURNS);
+        faceQ.slerp(turnedQ.copy(camera.quaternion).rotateTowards(gazer.quaternion, TURNS), this.turned);
       }
+      faceM.makeRotationFromQuaternion(faceQ.invert().multiply(camera.quaternion)); // (as you see it, to as its face is)
+      this.mouth.material.uniforms.uFace.value.setFromMatrix4(faceM);
       this.mouth.scale.setScalar((0.25 + 0.75 * this.shown) * (1 + OPENS * this.open));
       this.mouth.material.uniforms.uShow.value = this.shown;
       this.mouth.material.uniforms.uOpen.value = this.open;
@@ -473,8 +494,8 @@ export class Back {
   }
 
   // Now and then, calm, it looks away from you a while and checks something out: a portal or a way out
-  // near it, or only somewhere off in the dark, away from you. Its eyes go first, then its face turns
-  // after them (and back to you after, or at once if anything else comes up). True while it looks.
+  // near it, or only somewhere off in the dark, away from you. Its eyes go first, then it turns round
+  // after them, its back to you if that is where it looks (and back to you after, or at once if anything else comes up). True while it looks.
   wonder(dt, camera) {
     const m = this.mood;
     m.wonderIn ??= rand(...LOOKS);
@@ -579,7 +600,8 @@ export class Back {
     // it stays in sight; near level it keeps level, calm as you look about)
     const pitch = camera.rotation.x, tip = Math.sign(pitch) * Math.max(0, Math.abs(pitch) - TIP_FREE);
     yawOnly.set(tip, this.heading?.() ?? camera.rotation.y, 0);
-    spot.copy(SPOT).setX(Math.abs(SPOT.x) * (this.side ?? -1)).applyEuler(yawOnly).add(camera.position);
+    if (this.post && !this.held) spot.copy(this.post); // (at its post: there, wherever you are)
+    else spot.copy(SPOT).setX(Math.abs(SPOT.x) * (this.side ?? -1)).applyEuler(yawOnly).add(camera.position);
     if (now) {
       this.home.copy(spot);
       this.speed.set(0, 0, 0);

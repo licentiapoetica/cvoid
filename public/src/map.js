@@ -15,13 +15,13 @@ export class VoidMap {
     this.mark = null; // the sector where the entity says it is waiting
     // Only where you have actually been is drawn: sectors loaded around you, or dreamt ahead of you,
     // stay off the map until you enter them. Kept across visits ("m:" / "z:" for the other dimensions).
-    try { this.visited = new Set(JSON.parse(localStorage.getItem("cvoid.visited")) ?? []); } catch { this.visited = new Set(); }
+    try { this.visited = new Set(JSON.parse(localStorage.getItem("vvoid.visited")) ?? []); } catch { this.visited = new Set(); }
   }
 
   visit(key) {
     if (!key || this.visited.has(key)) return;
     this.visited.add(key);
-    try { localStorage.setItem("cvoid.visited", JSON.stringify([...this.visited])); } catch { /* private mode: this visit only */ }
+    try { localStorage.setItem("vvoid.visited", JSON.stringify([...this.visited])); } catch { /* private mode: this visit only */ }
   }
 
   addRealm(name, letter, title) {

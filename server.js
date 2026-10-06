@@ -1,4 +1,4 @@
-// cvoid server: serves the game and asks Claude to dream up void sectors.
+// vvoid server: serves the game and asks Claude to dream up void sectors.
 // The API key never leaves this process; the browser only sends integer coordinates.
 import http from "node:http";
 import fs from "node:fs/promises";
@@ -8,25 +8,26 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { population } from "./public/src/population.js";
+import { makeLock } from "./locks.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(here, "public");
 const THREE_DIR = path.join(here, "node_modules", "three");
 const RUFFLE_DIR = path.join(here, "node_modules", "@ruffle-rs", "ruffle");
-const CACHE = path.resolve(here, process.env.CVOID_CACHE ?? path.join(".cache", "sectors"));
+const CACHE = path.resolve(here, process.env.VVOID_CACHE ?? path.join(".cache", "sectors"));
 
 const PORT = Number(process.env.PORT ?? 5173);
-const HOST = process.env.CVOID_HOST ?? "127.0.0.1"; // not HOST: shells often preset that to the hostname
-const MODEL = process.env.CVOID_MODEL ?? "claude-opus-5-5";
-const EFFORT = process.env.CVOID_EFFORT ?? "low";
-const MAX_NEW = Number(process.env.CVOID_MAX_SECTORS ?? 300); // new Claude sectors per server run
-const MAX_BEATS = Number(process.env.CVOID_MAX_BEATS ?? 600); // entity turns per server run
+const HOST = process.env.VVOID_HOST ?? "127.0.0.1"; // not HOST: shells often preset that to the hostname
+const MODEL = process.env.VVOID_MODEL ?? "claude-opus-5-5";
+const EFFORT = process.env.VVOID_EFFORT ?? "low";
+const MAX_NEW = Number(process.env.VVOID_MAX_SECTORS ?? 300); // new Claude sectors per server run
+const MAX_BEATS = Number(process.env.VVOID_MAX_BEATS ?? 600); // entity turns per server run
 const CONCURRENCY = 4;
 
 // What the chosen model accepts. Fast mode (same model, quicker output, twice the price) exists on Opus only.
 const TAKES_EFFORT = !MODEL.includes("haiku");
 const TAKES_FALLBACKS = /^claude-(opus-5|opus-5-5|sonnet-5-5|fable-5-1)$/.test(MODEL);
-let fast = process.env.CVOID_FAST === "1" && /^claude-opus-(5|5-5|4-8)$/.test(MODEL);
+let fast = process.env.VVOID_FAST === "1" && /^claude-opus-(5|5-5|4-8)$/.test(MODEL);
 
 const KINDS = [
   "towers", "monoliths", "lattice", "shards", "rings", "spiral", "swarm", "shell",
@@ -221,7 +222,7 @@ async function voidVoice(journey) {
   if (response.stop_reason === "refusal" || response.stop_reason === "max_tokens") throw new Error(`void: ${response.stop_reason}`);
   const voice = Voice.parse(JSON.parse(response.content.find((block) => block.type === "text")?.text ?? ""));
   const lines = voice.lines.slice(0, 3).map((l) => clip(l, 80)).filter(Boolean);
-  console.log(`[cvoid] the void · "${lines.join(" / ")}" · ${((Date.now() - started) / 1000).toFixed(1)}s`);
+  console.log(`[vvoid] the void · "${lines.join(" / ")}" · ${((Date.now() - started) / 1000).toFixed(1)}s`);
   return { lines, source: "claude" };
 }
 
@@ -240,7 +241,7 @@ let client = null;
 try {
   client = new Anthropic();
 } catch (err) {
-  console.warn(`[cvoid] Claude client unavailable: ${err.message}`);
+  console.warn(`[vvoid] Claude client unavailable: ${err.message}`);
 }
 let unavailable = client ? null : "no client";
 let generated = 0;
@@ -264,16 +265,16 @@ function noteFailure(err, where) {
   if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
     unavailable = `credentials rejected (${err.status})`;
   } else if (err instanceof Anthropic.RateLimitError) {
-    console.warn(`[cvoid] ${where} rate limited; falling back to local noise for this sector`);
+    console.warn(`[vvoid] ${where} rate limited; falling back to local noise for this sector`);
   } else if (err instanceof Anthropic.APIError) {
-    console.warn(`[cvoid] ${where} API error ${err.status}: ${err.message}`);
+    console.warn(`[vvoid] ${where} API error ${err.status}: ${err.message}`);
   } else if (/authentication method/i.test(err.message)) {
     // The SDK throws a plain Error before any request when no credentials resolve.
     unavailable = "no credentials (set ANTHROPIC_API_KEY)";
   } else {
-    console.warn(`[cvoid] ${where} ${err.message}`);
+    console.warn(`[vvoid] ${where} ${err.message}`);
   }
-  if (unavailable) console.warn(`[cvoid] Claude unavailable: ${unavailable}. The void runs on local noise.`);
+  if (unavailable) console.warn(`[vvoid] Claude unavailable: ${unavailable}. The void runs on local noise.`);
 }
 
 // Sectors where the entity said it would wait. Remembered so the place can be dreamt accordingly.
@@ -345,7 +346,7 @@ async function entityBeat(journey) {
     await fs.mkdir(path.dirname(MARKS_FILE), { recursive: true });
     await fs.writeFile(MARKS_FILE, JSON.stringify([...marks]));
   }
-  console.log(`[cvoid] entity · ${result.act}${result.rendezvous ? ` at (${result.rendezvous.join(", ")})` : ""} · "${result.lines.join(" / ")}" · ${((Date.now() - started) / 1000).toFixed(1)}s`);
+  console.log(`[vvoid] entity · ${result.act}${result.rendezvous ? ` at (${result.rendezvous.join(", ")})` : ""} · "${result.lines.join(" / ")}" · ${((Date.now() - started) / 1000).toFixed(1)}s`);
   return result;
 }
 
@@ -491,7 +492,7 @@ async function dream(x, y, z, onPartial) {
   } catch (err) {
     // fast mode has its own rate limit and isn't on every account: drop to standard speed and carry on
     if (!fast || !(err instanceof Anthropic.RateLimitError || err instanceof Anthropic.BadRequestError)) throw err;
-    console.warn(`[cvoid] fast mode unavailable (${err.status}), continuing at standard speed`);
+    console.warn(`[vvoid] fast mode unavailable (${err.status}), continuing at standard speed`);
     fast = false;
     response = await request();
   }
@@ -525,7 +526,7 @@ function sectorJob(x, y, z) {
       }));
       await fs.mkdir(CACHE, { recursive: true });
       await fs.writeFile(cacheFile(x, y, z), JSON.stringify(sector, null, 2));
-      console.log(`[cvoid] (${key}) "${sector.name}" · ${kindOf(sector)} · ${((Date.now() - started) / 1000).toFixed(1)}s (${stats})`);
+      console.log(`[vvoid] (${key}) "${sector.name}" · ${kindOf(sector)} · ${((Date.now() - started) / 1000).toFixed(1)}s (${stats})`);
       return sector;
     } catch (err) {
       generated--;
@@ -589,17 +590,20 @@ function send(res, status, body) {
   res.end(json ? JSON.stringify(body) : body);
 }
 
-// What is cvoid's own on its address: its page and files, its plugins' files and its own API (a
-// plugin passing a whole other site through on cvoid's address leaves these alone; "/" is cvoid's
-// unless a page framed inside cvoid's goes there).
-const CVOID_PATHS = /^\/(index\.html|src\/|vendor\/|plugins\/|api\/(void|entity|sectors?|plugins)(\/|$))/;
-const cvoidOwns = (req, pathname) => (pathname === "/" ? req.headers["sec-fetch-dest"] !== "iframe" : CVOID_PATHS.test(pathname));
+// What is vvoid's own on its address: its page and files, its plugins' files and its own API (a
+// plugin passing a whole other site through on vvoid's address leaves these alone; "/" is vvoid's
+// unless a page framed inside vvoid's goes there).
+const VVOID_PATHS = /^\/(index\.html|src\/|vendor\/|plugins\/|api\/(void|entity|sectors?|plugins|locks)(\/|$))/;
+const vvoidOwns = (req, pathname) => (pathname === "/" ? req.headers["sec-fetch-dest"] !== "iframe" : VVOID_PATHS.test(pathname));
 
 // ---- plugins: optional local additions, in plugins/<name>/ (kept out of the repository) ----
 // A plugin's server.js, if it has one, default-exports a function given what it may use, and returns
-// its handlers: handle(req, res, url), true when it answered (it is asked before cvoid's own routes),
+// its handlers: handle(req, res, url), true when it answered (it is asked before vvoid's own routes),
 // and upgrade(req, socket, head) for websockets, true when it took one. Its public/ folder is served at
-// /plugins/<name>/, and its public/client.js, if there, is loaded into the page (see main.js).
+// /plugins/<name>/, and its public/client.js, if there, is loaded into the page (see main.js). Any of them
+// can be locked behind a password (see locks.js): it is given its lock, `lock.set` whether it is locked and
+// `lock.open(req)` whether a request has the session, and may return `unlocked`, routes of its own that
+// stay open without one.
 const PLUGINS = path.join(here, "plugins");
 // Claude, for a plugin that has someone speak: ask(params, who) with the model and its settings filled
 // in, on the same budget of turns as the entity (ready() first: false when Claude cannot be asked)
@@ -623,27 +627,42 @@ const claude = {
 };
 const HUB_EXTRAS = []; // what plugins have added to the hub, as Claude is told when it dreams beside it
 const serverPlugins = [], clientPlugins = [];
+const locks = new Map(); // plugin name -> its lock, for those with a password
+// a file of a plugin's public/ folder (the page's own code: open whatever its lock)
+const publicFile = (name, rel) => {
+  const root = path.join(PLUGINS, name, "public"), file = path.resolve(root, `.${path.posix.normalize(`/${rel}`)}`);
+  return file.startsWith(root + path.sep) && fs.stat(file).then((s) => s.isFile(), () => false);
+};
 for (const entry of (await fs.readdir(PLUGINS, { withFileTypes: true }).catch(() => [])).sort((a, b) => a.name.localeCompare(b.name))) {
   if (!entry.isDirectory() || !/^[\w-]+$/.test(entry.name)) continue;
   const dir = path.join(PLUGINS, entry.name);
   try {
+    const lock = makeLock(entry.name, { here, send, readBody });
+    if (lock.set) locks.set(entry.name, lock);
     if (existsSync(path.join(dir, "server.js"))) {
-      const given = { send, readBody, serveFile, clip, claude, here, owns: cvoidOwns, port: PORT, host: HOST, hub: (text) => HUB_EXTRAS.push(text) };
+      const given = { send, readBody, serveFile, clip, claude, here, owns: vvoidOwns, port: PORT, host: HOST, hub: (text) => HUB_EXTRAS.push(text), lock };
       const made = await (await import(pathToFileURL(path.join(dir, "server.js")).href)).default(given);
       if (made) serverPlugins.push(made);
+      lock.unlocked = made?.unlocked ?? [];
     }
     if (existsSync(path.join(dir, "public", "client.js"))) clientPlugins.push(`/plugins/${entry.name}/client.js`);
-    console.log(`[cvoid] plugin: ${entry.name}`);
+    console.log(`[vvoid] plugin: ${entry.name}`);
   } catch (err) {
-    console.warn(`[cvoid] the plugin ${entry.name} could not be loaded: ${err.message}`);
+    console.warn(`[vvoid] the plugin ${entry.name} could not be loaded: ${err.message}`);
   }
 }
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   try {
+    // a locked plugin's: the way in, or the session asked for, before the plugin is
+    // (its own paths, /plugins/<name>/, and its API, /api/<name>: that has no way in, and no files)
+    const ofLocked = url.pathname.match(/^\/plugins\/([\w-]+)\/(.*)$/), ofApi = url.pathname.match(/^\/api\/([\w-]+)(\/.*)?$/);
+    const lock = locks.get(ofLocked?.[1] ?? ofApi?.[1]);
+    if (lock && (await lock.guard(req, res, ofLocked ? decodeURIComponent(ofLocked[2]) : `/api${url.pathname.slice(4)}`, (rel) => (ofLocked ? publicFile(lock.name, rel) : false)))) return;
     for (const plugin of serverPlugins) if (await plugin.handle?.(req, res, url)) return;
     if (url.pathname === "/api/plugins") return send(res, 200, clientPlugins);
+    if (url.pathname === "/api/locks") return send(res, 200, [...locks.keys()]); // (the plugins behind a password)
     const ofPlugin = url.pathname.match(/^\/plugins\/([\w-]+)\/(.+)$/);
     if (ofPlugin) return serveFile(res, path.join(PLUGINS, ofPlugin[1], "public"), decodeURIComponent(ofPlugin[2]));
     if (url.pathname === "/api/void" && req.method === "POST") {
@@ -696,7 +715,7 @@ const server = http.createServer(async (req, res) => {
         const cached = await readCached(x, y, z);
         if (cached) return send(res, 200, cached);
         // a miss; the header tells the browser not to wait for Claude
-        res.writeHead(204, unavailable ? { "x-cvoid-offline": "1" } : {});
+        res.writeHead(204, unavailable ? { "x-vvoid-offline": "1" } : {});
         return res.end();
       }
       // Full request: newline-delimited JSON. A new sector sends its geometry first, then the whole thing.
@@ -739,9 +758,12 @@ const server = http.createServer(async (req, res) => {
 if (client) await client.models.retrieve(MODEL).catch((err) => noteFailure(err, "startup check:"));
 
 server.on("upgrade", (req, socket, head) => {
+  // (a locked plugin's websockets, only with its session)
+  const lock = locks.get(req.url.match(/^\/(?:plugins|api)\/([\w-]+)(?:[/?]|$)/)?.[1]);
+  if (lock && !lock.open(req)) return void socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
   for (const plugin of serverPlugins) if (plugin.upgrade?.(req, socket, head)) return;
   socket.destroy();
 });
 server.listen(PORT, HOST, () => {
-  console.log(`[cvoid] http://${HOST}:${PORT}  ·  model ${MODEL} (${TAKES_EFFORT ? `effort ${EFFORT}` : "no effort setting"}${fast ? ", fast mode" : ""})  ·  cache ${path.relative(here, CACHE)}`);
+  console.log(`[vvoid] http://${HOST}:${PORT}  ·  model ${MODEL} (${TAKES_EFFORT ? `effort ${EFFORT}` : "no effort setting"}${fast ? ", fast mode" : ""})  ·  cache ${path.relative(here, CACHE)}`);
 });

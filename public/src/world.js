@@ -357,7 +357,7 @@ class Sky {
     this.wanted = body;
     fieldCompiles(this.world.renderer.getContext(), body).then((check) => {
       if (this.wanted !== body) return; // overtaken while it was being checked
-      if (!check.ok) console.warn("[cvoid] sector field failed to compile, using default:\n", check.log, "\n", body);
+      if (!check.ok) console.warn("[vvoid] sector field failed to compile, using default:\n", check.log, "\n", body);
       this.show(check.ok ? body : DEFAULT_FIELD);
     });
   }
@@ -593,7 +593,7 @@ export class World {
             }
           }
         }
-      } else if (res.headers.has("x-cvoid-offline")) status = 503;
+      } else if (res.headers.has("x-vvoid-offline")) status = 503;
     } catch {
       status = 503;
     }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>cvoid</title>
+<title>vvoid</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%2302030e'/%3E%3Crect x='5' y='5' width='6' height='6' fill='none' stroke='%235f8cff'/%3E%3C/svg%3E">
 <style>
   html, body { margin: 0; height: 100%; background: #02030e; overflow: hidden; }
@@ -114,6 +114,8 @@
   #crosshair.woken { transition: opacity .2s ease; }                  /* (and back at once, after being still) */
   #crosshair.still { opacity: 0; transition: opacity 1.2s ease; }     /* you still a while: gone (see STILL in main.js) */
   .mapping #crosshair { opacity: 0; transition: opacity .25s ease; }
+  /* the password asked (see locks.js): the crosshair, and the portal's name under it, gone at once */
+  .asking #crosshair, .asking #hubPortalName { opacity: 0 !important; transition: none !important; }
   /* on a touch screen, the Tab panel's way in (there is no Tab key): a small button, top right, once
      you have materialized; it reads "close" while the panel is open */
   #menuButton {
@@ -212,7 +214,7 @@
   #mNote { min-height: 1.2em; opacity: .7; max-width: 44ch; }
   .mapping #sector, .mapping #help { opacity: 0; transition: opacity .25s ease; }
   .seated #sector { opacity: 0; } /* (and the place's name would sit over the game) */
-  /* the keys, in the Tab panel: cvoid's own, then each plugin's (the gamepad's when one is in use) */
+  /* the keys, in the Tab panel: vvoid's own, then each plugin's (the gamepad's when one is in use) */
   /* graphics and the mouse: what to give up for a smoother picture */
   #gfxPanel {
     position: fixed; left: 24px; top: 68px; z-index: 4; display: none; flex-direction: column; gap: 8px; max-width: min(420px, calc(100vw - 48px));
@@ -243,7 +245,7 @@
   }
   .mapping #keysPanel { display: flex; }
   #keysPanel .title { letter-spacing: .3em; opacity: .8; font-size: 12px; }
-  /* cvoid's keys in one column, the plugins' beside them: wide rather than tall, clear of their panels */
+  /* vvoid's keys in one column, the plugins' beside them: wide rather than tall, clear of their panels */
   #keysList { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 0 32px; align-items: start; }
   #keysList .column { display: flex; flex-direction: column; gap: 4px; }
   #keysPanel .keys { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; }
@@ -288,7 +290,7 @@
   #padPanel button:hover { background: rgba(140, 160, 220, .28); }
   #padPanel button.on { background: rgba(95, 140, 255, .32); border-color: #9fb8ff; box-shadow: 0 0 8px rgba(95, 140, 255, .35); }
   #padPanel button.set { text-align: left; }
-  /* the credits page, in the keys' place while it is open: what cvoid is made with, and whose it is */
+  /* the credits page, in the keys' place while it is open: what vvoid is made with, and whose it is */
   #creditsPanel {
     position: fixed; right: 24px; top: 68px; z-index: 4; display: none; flex-direction: column; gap: 8px;
     max-width: min(560px, calc(100vw - 48px)); max-height: calc(100vh - 92px); overflow-y: auto;
@@ -313,7 +315,35 @@
   /* only a seat's game keys, while held in it (the rest are in the Tab panel) */
   #help { position: absolute; right: 6vw; bottom: 7vh; max-width: 46vw; font-size: 11px; opacity: .4; text-align: right; text-transform: lowercase; }
   @media (max-width: 700px) { #help { display: none; } }
+  /* a locked plugin's password, asked at its portal (see locks.js) */
+  #lockGate {
+    position: fixed; inset: 0; z-index: 9; display: none; place-items: center; padding: 0 16px; background: radial-gradient(ellipse at center, rgba(2, 3, 14, .35) 0%, rgba(2, 3, 14, .85) 100%);
+    font: 300 13px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .12em; color: #cfdcff; text-transform: lowercase; text-align: center;
+  }
+  #lockGate.open { display: grid; animation: form .5s ease; }
+  #lockGate h2 { margin: 0 0 1.4em; font-weight: 200; font-size: 34px; letter-spacing: .4em; text-indent: .4em; text-shadow: 0 0 30px var(--lock-glow, #8fd3ff); }
+  #lockGate input {
+    width: min(18em, 80vw); padding: 6px 0; border: 0; border-bottom: 1px solid rgba(140, 160, 220, .35); background: transparent; outline: none; color: #cfdcff;
+    caret-color: #9fb8ff; text-align: center; font: 300 15px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .3em; user-select: text; -webkit-user-select: text;
+  }
+  #lockGate input:focus { border-bottom-color: var(--lock-glow, #8fd3ff); box-shadow: 0 6px 8px -8px var(--lock-glow, #8fd3ff); }
+  #lockGate p { margin: 1.6em 0 0; opacity: .6; max-width: 34em; line-height: 1.7; }
+  #lockGate .why { color: #ff9aa0; opacity: 1; min-height: 1.7em; }
+  #lockGate.shake .gate-box { animation: lock-shake .4s ease; }
+  @keyframes lock-shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
 </style>
+<script>
+// vvoid was cvoid: what this browser kept under the old name (settings, the map, the plugins' own) moves
+// to the new one, once, before anything reads it
+try {
+  for (const key of Object.keys(localStorage)) {
+    if (!key.startsWith("cvoid.")) continue;
+    const to = "vvoid." + key.slice(6);
+    if (localStorage.getItem(to) === null) localStorage.setItem(to, localStorage.getItem(key));
+    localStorage.removeItem(key);
+  }
+} catch { /* private mode: nothing kept to move */ }
+</script>
 <script type="importmap">
 { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
 </script>
@@ -350,10 +380,10 @@
 <div id="creditsPanel">
   <div class="title">credits</div>
   <div class="credits" id="creditsMade">
-    <b>Kibi Kelburton</b><span class="licence"></span><span class="what">made cvoid</span>
+    <b>Kibi Kelburton</b><span class="licence"></span><span class="what">made vvoid</span>
     <a href="https://claude.com/claude-code" target="_blank" rel="noopener">Claude</a><span class="licence">Opus 5.5, by Anthropic</span><span class="what">wrote its code with Kibi, in Claude Code; in the void, dreams the sectors and speaks for the entity</span>
   </div>
-  <div class="lead">cvoid is free software, under the <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener">GNU AGPL-3.0</a> or later; its <a href="https://github.com/licentiapoetica/cvoid" target="_blank" rel="noopener">source</a>. what the plugins bring keeps its own</div>
+  <div class="lead">vvoid is free software, under the <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener">GNU AGPL-3.0</a> or later; its <a href="https://github.com/licentiapoetica/vvoid" target="_blank" rel="noopener">source</a>. what the plugins bring keeps its own</div>
   <div class="of">open source</div>
   <div class="lead">made with these, and with thanks to the people who made them</div>
   <div class="credits" id="creditsOpen">
@@ -362,7 +392,7 @@
     <a href="https://github.com/anthropics/anthropic-sdk-typescript" target="_blank" rel="noopener">Anthropic TypeScript SDK</a><span class="licence">MIT</span><span class="what">how the server asks Claude, who dreams the sectors and speaks for the entity</span>
     <a href="https://zod.dev" target="_blank" rel="noopener">Zod</a><span class="licence">MIT</span><span class="what">the shape a dreamt sector has to have</span>
     <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a><span class="licence">MIT</span><span class="what">the server</span>
-    <a href="https://pptr.dev" target="_blank" rel="noopener">Puppeteer</a><span class="licence">Apache-2.0</span><span class="what">cvoid driven headless: its tests, and stills of it</span>
+    <a href="https://pptr.dev" target="_blank" rel="noopener">Puppeteer</a><span class="licence">Apache-2.0</span><span class="what">vvoid driven headless: its tests, and stills of it</span>
   </div>
   <div class="of">code it borrows</div>
   <div class="credits">
@@ -387,7 +417,7 @@
 <div id="irrlicht"></div>
 <div id="gooStore"><div class="fill"></div></div>
 <div id="stage"></div>
-<div id="start"><div><h1>cvoid</h1><p id="prompt">click to materialize</p>
+<div id="start"><div><h1>vvoid</h1><p id="prompt">click to materialize</p>
   <label class="player"><input type="text" maxlength="24" placeholder="your name (optional)" autocomplete="nickname" spellcheck="false"></label>
   <label class="volume"><span>volume</span><input type="range" min="0" max="100" step="1"><output></output></label></div></div>
 <script type="module" src="/src/main.js"></script>

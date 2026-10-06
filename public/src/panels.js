@@ -1,4 +1,4 @@
-// The Tab panel's windows (cvoid's own, and whatever plugins add: every element straight under the body
+// The Tab panel's windows (vvoid's own, and whatever plugins add: every element straight under the body
 // whose id ends in "Panel"), each one moved by dragging it by any part that is not a control, and
 // resized by its corner. Where each one is and how large is remembered; kept on the screen when the
 // window changes size; a double click on it (not on a control) puts it back where it began.

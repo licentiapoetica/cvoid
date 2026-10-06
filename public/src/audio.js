@@ -406,6 +406,34 @@ export class VoidAudio {
     osc.stop(now + 0.35);
   }
 
+  // refused (a wrong password at a locked portal): a knock, and under it two low tones a tritone apart,
+  // sagging, the drone held down while they sound
+  refuse() {
+    if (!this.ctx || this.ctx.state !== "running") return;
+    const ctx = this.ctx, now = ctx.currentTime, low = ctx.createBiquadFilter(), gain = ctx.createGain();
+    this.bump(0.8);
+    low.type = "lowpass";
+    low.frequency.setValueAtTime(900, now);
+    low.frequency.exponentialRampToValueAtTime(160, now + 1.6);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.32, now + 0.06);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.9);
+    low.connect(gain);
+    gain.connect(this.buses.void.dry);
+    gain.connect(this.buses.void.wet);
+    for (const [from, type] of [[73, "sawtooth"], [73 * Math.SQRT2, "triangle"]]) {
+      const osc = ctx.createOscillator();
+      osc.type = type;
+      osc.frequency.setValueAtTime(from, now);
+      osc.frequency.exponentialRampToValueAtTime(from * 0.71, now + 1.8);
+      osc.connect(low);
+      osc.start(now);
+      osc.stop(now + 2);
+    }
+    this.master.gain.setTargetAtTime(this.level * 0.45, now, 0.05);
+    if (!this.ducked) this.master.gain.setTargetAtTime(this.level, now + 0.9, 0.6);
+  }
+
   // everything stops; then one note
   hush(seconds) {
     if (!this.ctx) return;

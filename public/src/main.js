@@ -13,9 +13,11 @@ import { Back, BACK_HOLE, NAME as COMPANION } from "./back.js";
 import { Meteors } from "./meteors.js";
 import { Lasers } from "./laser.js";
 import { Goo } from "./goo.js";
+import { Forming } from "./forming.js";
 import { PadMap } from "./pad.js";
 import { SPAWN, setPortals, hubSlot, portalNames } from "./constants.js";
 import { draggablePanels } from "./panels.js";
+import { Locks } from "./locks.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -48,8 +50,8 @@ composer.addPass(screen.pass);
 // frame rate and whether frames keep time with the screen (vsync), the glow, smooth edges, how many videos play at once in the plugins' dimensions, and how
 // the view follows the mouse
 const gfx = {
-  resolution: "auto", fps: 0, vsync: true, bloom: true, aa: false, videos: 3, loops: 4, ease: "normal",
-  ...(() => { try { return JSON.parse(localStorage.getItem("cvoid.graphics")) ?? {}; } catch { return {}; } })(),
+  resolution: "auto", fps: 0, vsync: true, bloom: true, aa: false, videos: 3, loops: 2, ease: "normal",
+  ...(() => { try { return JSON.parse(localStorage.getItem("vvoid.graphics")) ?? {}; } catch { return {}; } })(),
 };
 const meter = { frames: 0, time: 0, fps: 0 }; // frames a second, as drawn (shown in the graphics panel)
 let rawInput = null; // whether the mouse comes raw (known once the pointer has been taken: see lockPointer)
@@ -100,7 +102,7 @@ function onSector(spec, shown, key) {
 }
 
 const map = new VoidMap($("map"));
-const spawnAt = (() => { try { return JSON.parse(localStorage.getItem("cvoid.spawn")); } catch { return null; } })();
+const spawnAt = (() => { try { return JSON.parse(localStorage.getItem("vvoid.spawn")); } catch { return null; } })();
 const world = new World(scene, renderer, { onSector, onSpec: (key, spec) => map.add(key, spec) });
 for (const [key, spec] of world.specs) map.add(key, spec); // the hub and the two doors: fixed places, not what the cache remembers
 map.load();
@@ -183,13 +185,12 @@ const MOUSE_LOOK = 0.0016;  // radians per count of raw mouse movement
 // mice; higher is tighter, 0 none at all
 const lookEase = () => LOOK_EASES[gfx.ease] ?? 30;
 const PAD_LOOK = 2.6;       // radians per second at full stick
-const DEADZONE = 0.14;
 
 const stored = (name, fallback) => {
-  try { return JSON.parse(localStorage.getItem(`cvoid.${name}`)) ?? fallback; } catch { return fallback; }
+  try { return JSON.parse(localStorage.getItem(`vvoid.${name}`)) ?? fallback; } catch { return fallback; }
 };
 const store = (name, value) => {
-  try { localStorage.setItem(`cvoid.${name}`, JSON.stringify(value)); } catch { /* private mode */ }
+  try { localStorage.setItem(`vvoid.${name}`, JSON.stringify(value)); } catch { /* private mode */ }
 };
 let sensitivity = stored("sensitivity", 1), invertY = stored("invertY", false);
 const padMap = new PadMap({ stored, store }); // the controller's buttons, as the player has them (Tab panel: controller)
@@ -208,6 +209,7 @@ function arrive(toYaw, toPitch) {
 }
 const meteors = new Meteors({ scene, world }); // now and then a shooting star, far out in the void
 const lasers = new Lasers({ scene, world });   // yours (a portal clicked, V) and, with the together plugin, the others'
+const forming = new Forming({ scene, world }); // the portals round the clock whose plugins are still on their way
 const goo = new Goo({ scene, world, storeEl: $("gooStore"), muzzle: (camera) => lasers.muzzle(camera) }); // J: shot at the post looked at (see goo.js)
 // V (or the laser button on a touch screen): a shot straight ahead, into the dark
 function fireLaser() {
@@ -221,8 +223,8 @@ const back = new Back({ scene, world, textEl: $("irrlicht"), toOrigin: stored("i
   const where = realm === "void" ? "the void" : realmNames[realm] ?? realm;
   return room ? `${where} · ${room.label ?? room.key}` : where;
 } });
-// ---- plugins: optional local additions, in plugins/<name>/ beside cvoid (kept out of its repository) ----
-// The server says which there are (see server.js); each one's client.js default-exports install(cvoid),
+// ---- plugins: optional local additions, in plugins/<name>/ beside vvoid (kept out of its repository) ----
+// The server says which there are (see server.js); each one's client.js default-exports install(vvoid),
 // given the pieces of the game it may use (see the end of this file), and returns its hooks, all
 // optional: update(dt, camera) each frame of flight · idle(dt) before it starts · busy() something of
 // its own is open (flight and the keys wait) · key(e) / mouse(e) / rightClick() / wheel(e): true when
@@ -232,7 +234,7 @@ const back = new Back({ scene, world, textEl: $("irrlicht"), toOrigin: stored("i
 // its sectors · target(): what R turns you to · notice(): what you are with (for the void's voice) ·
 // leaveRealm / enterRealm(realm, camera): going there by the map · help: its keys, for the help line ·
 // interact(): the controller's interact button, true when it opened or entered something of its own ·
-// pad(pad): the controller each frame of flight, before cvoid's own buttons (its own actions: pad.addActions) ·
+// pad(pad): the controller each frame of flight, before vvoid's own buttons (its own actions: pad.addActions) ·
 // hold(): a reason, while it keeps you where you are (no portal, no way back, no jump by the map) ·
 // seat(): { at, title, keys, pad } while it holds you in a seat (at: where; the view still turns; its keys
 // stay on the screen) · level(): true when R turned you its own way · quiet(): true while the entity
@@ -311,9 +313,10 @@ const fadeEl = $("fade");
 let veil = 0; // the dark a jump happens in, lifting (see teleport)
 
 // Going somewhere at once, from the map: in the dark, into whichever dimension the place is in.
-// (Its ways in and out are not refused while it goes: see cvoid.held.)
+// (Its ways in and out are not refused while it goes: see vvoid.held.)
 let moving = false;
 function teleport(realm, x, y, z) {
+  pushed = null;
   for (const p of plugins) p.jump?.();
   if (world.realm !== realm) {
     moving = true;
@@ -334,6 +337,7 @@ function teleport(realm, x, y, z) {
 // there, facing as given. The way back's places carry their viewer, and are always put back in its room;
 // anyone else's (a group's leader's: see the together plugin) only when it is another room.
 function goTo(place) {
+  if (lockedOut(place.realm, () => goTo(place))) return; // (its password first)
   stopFlying();
   const from = back.where();
   if (from.viewer && from.realm !== place.realm && from.room) from.viewer.exitRoom(false);
@@ -364,10 +368,82 @@ function held(say = note) {
   if (why) say(why);
   return why;
 }
+// A portal into a plugin behind a password (see locks.js), asked by every way into one of its dimensions:
+// true when it does not take you yet. The password is put on the screen; given, `retry` takes you
+// through after all; turned away (Esc), you are put back before its ring in the hub, facing into it, past
+// its pull, pushed out of it slowly (see pushOut). Never while you are in one of its own dimensions
+// already, or being put somewhere.
+const realmOwner = {}; // dimension -> the plugin it is of
+// still, and nothing held: no keys (their letting go may never come: the gate takes them), no autofly,
+// no flight into a portal, no surge
+function becalm() {
+  stopFlying();
+  keys.clear();
+  hyper = false;
+  velocity.set(0, 0, 0);
+}
+const TURNED_AWAY = 1000; // how far before its ring a refused traveller is put (its pull reaches 900)
+const PUSHED_FOR = 1.6;   // s, the push out of it, easing to a stop
+let pushed = null;        // { from, to, t }: being pushed back out of a locked portal (see pushOut)
+function lockedOut(realm, retry, look = {}) {
+  const name = realmOwner[realm];
+  if (moving || !name || !locks.locked(name) || realmOwner[world.realm] === name) return false;
+  becalm();
+  if (locks.asking) return true;
+  if (map.open) map.toggle();
+  locks.ask(name, { title: realmNames[realm] ?? name, ...look }).then((opened) => {
+    becalm(); // (again: a key let go while the gate had the keys never reached the flight)
+    if (opened) retry?.();
+    else if (world.realm === "void" && portalNames().includes(name)) {
+      const slot = hubSlot(name), at = new THREE.Vector3(...slot.at);
+      if (camera.position.distanceTo(at) < 2500) pushed = { from: camera.position.clone(), to: at.addScaledVector(new THREE.Vector3(...slot.in), TURNED_AWAY), t: 0 };
+    }
+    lockPointer();
+  });
+  return true;
+}
+// A wrong password: the void answers it. Everything shudders, the dark closes a moment, its sound sags
+// under a knock, and it says so; then the gate closes and the ring pushes you out (as Esc does).
+const REFUSALS = ["no", "not you", "that is not the word", "it does not know you", "it stays shut", "try to remember"];
+const SHUDDER_FOR = 0.9; // s
+let shudder = 0; // s of it left
+function refused() {
+  shudder = SHUDDER_FOR;
+  veil = Math.max(veil, 0.55);
+  audio.refuse();
+  const line = voice.fresh(REFUSALS);
+  if (!voice.say(line)) note(line);
+}
+// how far the view is thrown this frame (pitch, yaw, roll), dying away
+function shaken(dt) {
+  if (shudder <= 0) return [0, 0, 0];
+  shudder = Math.max(0, shudder - dt);
+  const k = (shudder / SHUDDER_FOR) ** 2 * 0.03, t = performance.now() / 1000;
+  return [Math.sin(t * 61) * k, Math.sin(t * 47 + 1) * k * 0.6, Math.sin(t * 53 + 2) * k * 1.4];
+}
+// whose dimension you are in: left, a password not remembered is let go (asked again next time: see locks.js)
+let inOf = null;
+function leftLocked() {
+  const owner = realmOwner[world.realm] ?? null;
+  if (owner === inOf) return;
+  if (inOf) locks.left(inOf);
+  inOf = owner;
+}
+// each frame of it: the ring lets you go, backwards, still facing it, fast at first and slowing to a stop
+// (what you do meanwhile does not move you; the ring's dark lifts as you leave it)
+function pushOut(dt) {
+  if (!pushed) return;
+  if (world.realm !== "void") return void (pushed = null);
+  pushed.t = Math.min(1, pushed.t + dt / PUSHED_FOR);
+  camera.position.lerpVectors(pushed.from, pushed.to, 1 - (1 - pushed.t) ** 3);
+  velocity.set(0, 0, 0);
+  if (pushed.t === 1) pushed = null;
+}
 map.bind({
   spawn: spawnAt,
   onGo(realm, x, y, z) {
     if (held((why) => map.note(why))) return;
+    if (lockedOut(realm, () => this.onGo(realm, x, y, z))) return; // (its password first)
     if (realm === "void" && x === SPAWN[0] && y === SPAWN[1] && z === SPAWN[2]) spawnHere(); // (the origin: looking at the clock)
     else teleport(realm, x, y, z);
     if (map.open) map.toggle(); // and you see where you are
@@ -381,13 +457,13 @@ const HELP = {
   get pad() { return padMap.help("flight"); }, // (as the buttons are mapped: see pad.js)
 };
 let helpMode = "keys", noteTimer = 0, wakeTimer = 0;
-// The keys, in the Tab panel: cvoid's own (the keyboard's or the gamepad's, whichever was used last),
+// The keys, in the Tab panel: vvoid's own (the keyboard's or the gamepad's, whichever was used last),
 // then each plugin's ("in f0ck: e open · ..."), every one a key and what it does. Held in a plugin's
 // seat (a game: see the seat hook), its keys come first, and stay on the screen as well.
 function showHelp(mode = helpMode) {
   helpMode = mode;
   const theirs = mode === "keys" ? plugins.map((p) => p.help).filter(Boolean) : [];
-  const groups = [[mode === "pad" ? "gamepad" : "cvoid", HELP[mode]], ...theirs.map((help) => {
+  const groups = [[mode === "pad" ? "gamepad" : "vvoid", HELP[mode]], ...theirs.map((help) => {
     const [, of, keys] = help.match(/^in ([^:]+):\s*(.*)$/) ?? [null, "", help];
     return [of, keys];
   })];
@@ -401,7 +477,7 @@ function showHelp(mode = helpMode) {
     }
     return [title, list];
   });
-  // the first group (cvoid's own, or the seat's) a column of its own; the rest beside it
+  // the first group (vvoid's own, or the seat's) a column of its own; the rest beside it
   const column = () => Object.assign(document.createElement("div"), { className: "column" }), left = column(), right = column();
   left.append(...blocks[0]);
   right.append(...blocks.slice(1).flat());
@@ -632,6 +708,9 @@ document.addEventListener("mousemove", (e) => {
   look(e.movementX, e.movementY, MOUSE_LOOK * sensitivity * (camera.fov / 70)); // zoomed in, the view turns as much less
 });
 window.addEventListener("keydown", (e) => {
+  // Ctrl is down (descending) while flying: Ctrl+D, Ctrl+S, Ctrl+A... are the game's keys, not the
+  // browser's bookmark, save and select (Ctrl+W it won't give up, see below; the text fields stop their own keys)
+  if (started && (e.ctrlKey || e.metaKey) && /^(Key|Digit)/.test(e.code)) e.preventDefault();
   // the controller page waiting for a button: Esc stops waiting
   if (padMap.capturing && e.code === "Escape") return void padMap.cancel();
   // the map is open: Tab or Esc closes it, O goes back to the origin; flying goes on
@@ -727,10 +806,7 @@ for (const type of ["pointerdown", "keydown"]) window.addEventListener(type, () 
 // ---- gamepad (standard mapping, its buttons as the player has mapped them: see pad.js) ----
 
 const pad = { x: 0, y: 0, rise: 0, roll: 0, surge: false };
-const stick = (v) => {
-  const m = Math.abs(v);
-  return m < DEADZONE ? 0 : Math.sign(v) * ((m - DEADZONE) / (1 - DEADZONE));
-};
+const stick = (v) => v; // (the dead zone already taken out: see pad.js sticks)
 // The controller in use. With more than one connected (a PS3 controller left plugged in beside a
 // DualSense, say), the first in the browser's list is not necessarily the one in your hands: the one
 // used is kept until another has a button pressed or a stick pushed well over, and only then does
@@ -751,10 +827,10 @@ function pollPad(dt) {
   const gp = activePad();
   if (!gp) return;
   padMap.frame(gp);
-  if (padMap.now.size || gp.axes.slice(0, 4).some((v) => Math.abs(v) > DEADZONE)) stir();
+  const { move, aim } = padMap.sticks(gp); // (each past its dead zone, or nothing: a drifting stick is still)
+  if (padMap.now.size || [...move, ...aim].some((v) => v !== 0)) stir();
   if (padMap.waiting()) return; // (the controller page is waiting for a button to map)
   const hit = (id) => padMap.hit(id), down = (id) => padMap.down(id);
-  const { move, aim } = padMap.sticks(gp);
   if (!started) {
     if (padMap.newly.size) {
       start();
@@ -808,7 +884,7 @@ $("mPad").addEventListener("click", () => {
   if (!open) padMap.cancel();
   if (open && document.body.classList.contains("crediting")) $("mCredits").click(); // (one page in the keys' place at a time)
 });
-// the credits page of the Tab panel, in the keys' place like the controller's: what cvoid is made with
+// the credits page of the Tab panel, in the keys' place like the controller's: what vvoid is made with
 $("mCredits").addEventListener("click", () => {
   const open = document.body.classList.toggle("crediting");
   $("mCredits").classList.toggle("on", open);
@@ -826,7 +902,7 @@ const touches = new Map();
 let tapStart = null, lastTap = 0, tapLater = null, touchSurge = false, pressLater = null;
 // a flight a tap on a portal began: into that portal, and no further (see fly)
 let portalFlight = null; // { at, realm, nearest }
-// (cvoid's own flying by itself, stopped at once: not through the plugins, which, inside one of their
+// (vvoid's own flying by itself, stopped at once: not through the plugins, which, inside one of their
 // dimensions, take the asking for their tour and left it flying on)
 function stopFlying() {
   portalFlight = null;
@@ -836,11 +912,14 @@ function stopFlying() {
 // way out (a plugin's exit hook: { at, label, hole? }, or several, while you are in its dimension)
 // (what each is called, under the crosshair while it is on one: see showPortalName)
 const PORTAL_HOLES = { zone: 112 }; // (how wide a ring's dark sphere is, where it is not the usual)
-const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", player: "the player", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen", discord: "discord", bhop: "bhop", mania: "mania" };
+const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", player: "the player", files: "your files", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen", discord: "discord", bhop: "bhop", mania: "mania" };
 function portalAimedAt() {
   // (each with the size of its dark sphere: the crosshair on that, and nowhere round it; the way back
   // floating beside you, wherever you are)
-  const spots = back.ready ? [{ name: "back", label: back.label, at: back.position, hole: BACK_HOLE }] : [];
+  // (on foot, as in bhop, not when you have walked or hopped into it: it fills the view then, and the
+  // click is the knife's, not a way back; from a step away it is clicked as ever)
+  const intoIt = back.afoot && back.position.distanceTo(camera.position) < BACK_HOLE * 6;
+  const spots = back.ready && !intoIt ? [{ name: "back", label: back.label, at: back.position, hole: BACK_HOLE }] : [];
   if (world.realm === "void") spots.push(...portalNames().map((name) => ({ name, at: new THREE.Vector3(...hubSlot(name).at), hole: PORTAL_HOLES[name] ?? 104 })));
   else spots.push(...[].concat(hook("exit") ?? []).map((exit) => ({ name: "exit", hole: 104, ...exit })));
   const ahead = camera.getWorldDirection(new THREE.Vector3());
@@ -853,12 +932,16 @@ function portalAimedAt() {
   }
   return best;
 }
-// a portal, clicked or tapped (one in the hub, or a dimension's way out): turned to, and flown into (and no further: see fly)
-function flyIntoPortal(portal) {
+// a portal, clicked or tapped (one in the hub, or a dimension's way out): turned to, and flown into (and no
+// further: see fly); double clicked or double tapped (fast), in as fast as anything flies
+function flyIntoPortal(portal, fast = false) {
   if (held()) return;
+  if (forming.has(portal.name)) return note(`${PORTAL_NAMES[portal.name] ?? portal.name} · still forming`); // (its plugin not there yet: nothing to fly into)
   if (portal.name === "back" && !back.next) return note(back.toOrigin ? `${COMPANION} · you are at the origin` : `${COMPANION} · nowhere to go back to yet`); // (in the hub, before you have been anywhere: only company)
-  // clicked again at once (a double click) on the way into the same one: faster
-  if (portalFlight && portalFlight.at.distanceTo(portal.at) < 1 && performance.now() - portalFlight.since < 450) {
+  // clicked again at once (a double click) on the way into the same one: faster (the same by its name,
+  // not to the unit: a way through may sway, as somafm's favourites under their stations do)
+  const same = portalFlight && portalFlight.name === portal.name && portalFlight.label === portal.label && portalFlight.at.distanceTo(portal.at) < 400;
+  if (same && (fast || performance.now() - portalFlight.since < 450)) {
     portalFlight.fast = true;
     return note(`${portal.name === "exit" ? portal.label : `into ${portal.label ?? PORTAL_NAMES[portal.name] ?? portal.name}`} · faster`);
   }
@@ -866,24 +949,30 @@ function flyIntoPortal(portal) {
   const to = portal.at.clone().sub(camera.position), length = to.length() || 1;
   face(Math.atan2(-to.x, -to.z), Math.asin(Math.max(-1, Math.min(1, to.y / length))));
   autofly = true;
-  portalFlight = { at: portal.at, realm: world.realm, nearest: length, since: performance.now() };
+  portalFlight = { at: portal.at, realm: world.realm, nearest: length, since: performance.now(), name: portal.name, label: portal.label, fast };
   // a beam to it, as at a post, held while you fly it (Irrlicht, beside you: only a flash, gone at once)
   const flight = portalFlight;
   if (portal.name === "back") lasers.shoot({ from: lasers.muzzle(camera), to: portal.at, fade: 0.3 });
   else lasers.shoot({ from: lasers.muzzle(camera), to: portal.at, hold: () => portalFlight === flight });
-  note(`${portal.label ?? `into ${PORTAL_NAMES[portal.name] ?? portal.name}`} · ${matchMedia("(pointer: coarse)").matches ? "tap to stop" : "s to stop"}`);
+  note(`${portal.label ?? `into ${PORTAL_NAMES[portal.name] ?? portal.name}`}${fast ? " · faster" : ""} · ${matchMedia("(pointer: coarse)").matches ? "tap to stop" : "s to stop"}`);
 }
 // the portal the crosshair is on, named under it (as a post's portals are in f0ck's dimensions)
 // The Tab panel inside a dimension: its own window and the general ones (the map's, the keys, graphics,
 // the controller), not every other dimension's too; in the hub, where you choose where to go, all of them.
 // A plugin's window is known by its id (<name>Panel, or one named here) and the dimension it belongs to.
-const PANEL_REALMS = { f0ckPanel: "f0ck", chanPanel: "chan", tiktokPanel: "tiktok", redgifsPanel: "redgifs", shortsPanel: "shorts", z0rPanel: "z0r", somaPanel: "somafm" };
+const PANEL_REALMS = { f0ckPanel: "f0ck", chanPanel: "chan", tiktokPanel: "tiktok", redgifsPanel: "redgifs", shortsPanel: "shorts", z0rPanel: "z0r", somaPanel: "somafm", filesPanel: "files" };
+// whose each plugin's window is: one behind a password (see locks.js) shows only inside its own
+// dimensions, never in the hub (its settings are had in it, past its password)
+const PANEL_PLUGINS = { ...PANEL_REALMS, playerPanel: "player", bhopPanel: "bhop" };
 let panelsFor = null;
 function showPanelsFor() {
   const realm = world.realm;
   if (realm === panelsFor) return;
   panelsFor = realm;
-  for (const [id, owner] of Object.entries(PANEL_REALMS)) document.getElementById(id)?.classList.toggle("elsewhere", realm !== "void" && realm !== owner);
+  for (const [id, plugin] of Object.entries(PANEL_PLUGINS)) {
+    const own = PANEL_REALMS[id], away = (own && realm !== "void" && realm !== own) || (locks.has(plugin) && realmOwner[realm] !== plugin);
+    document.getElementById(id)?.classList.toggle("elsewhere", away);
+  }
 }
 let portalNameEl = null;
 function showPortalName() {
@@ -893,7 +982,7 @@ function showPortalName() {
     portalNameEl = Object.assign(document.body.appendChild(document.createElement("div")), { id: "hubPortalName" });
     Object.assign(portalNameEl.style, { position: "fixed", left: "50%", top: "calc(50% + 22px)", transform: "translateX(-50%)", zIndex: 3, pointerEvents: "none", padding: "3px 10px", background: "rgba(2, 3, 14, .62)", color: "#bfe6ff", font: '400 14px "Helvetica Neue", Helvetica, Arial, sans-serif', letterSpacing: ".1em", whiteSpace: "nowrap", transition: "opacity .15s ease", opacity: "0" });
   }
-  if (portal) portalNameEl.textContent = portal.label ?? PORTAL_NAMES[portal.name] ?? portal.name;
+  if (portal) portalNameEl.textContent = `${portal.label ?? PORTAL_NAMES[portal.name] ?? portal.name}${forming.has(portal.name) ? " · forming" : ""}`;
   portalNameEl.style.opacity = portal ? "1" : "0";
 }
 function tap() {
@@ -922,7 +1011,7 @@ function syncTouches(e) {
   for (const t of e.touches) if (!touches.has(t.identifier)) touches.set(t.identifier, [t.clientX, t.clientY]);
   touchThrust = e.touches.length > 1 && !map.open ? 1 : 0; // (the panel open: fingers are for it, not for flying)
 }
-// on the picture itself, every touch is cvoid's own: not a pinch to zoom the page, which a browser (Safari
+// on the picture itself, every touch is vvoid's own: not a pinch to zoom the page, which a browser (Safari
 // above all, which zooms whatever the page asks) starts at a second finger, taking both away from it
 const onPicture = (e) => e.target === canvas || e.target === document.body || e.target === document.documentElement || !!e.target.closest?.("#start");
 window.addEventListener("touchstart", (e) => {
@@ -958,8 +1047,13 @@ const touchEnd = (e) => {
       if (e.timeStamp - lastTap < 320) {
         clearTimeout(tapLater);
         lastTap = 0;
-        touchSurge = !touchSurge;
-        note(touchSurge ? "surge · double tap again to stop" : "surge off");
+        // on a portal: into it, fast (as a double click); anywhere else: surge, on or off
+        const portal = portalAimedAt();
+        if (portal) flyIntoPortal(portal, true);
+        else {
+          touchSurge = !touchSurge;
+          note(touchSurge ? "surge · double tap again to stop" : "surge off");
+        }
       } else {
         lastTap = e.timeStamp;
         tapLater = setTimeout(tap, 320);
@@ -988,7 +1082,8 @@ function fly(dt) {
     levelling -= dt;
     for (const p of plugins) if (p.roll) p.roll *= Math.exp(-8 * dt);
   }
-  camera.rotation.set(viewPitch, viewYaw, viewRoll + plugins.reduce((sum, p) => sum + (p.roll ?? 0), 0));
+  const [qx, qy, qz] = shaken(dt); // (refused at a locked portal: see locks.refused)
+  camera.rotation.set(viewPitch + qx, viewYaw + qy, viewRoll + qz + plugins.reduce((sum, p) => sum + (p.roll ?? 0), 0));
   const seat = hook("seat");
   if (seat) {
     // in a plugin's seat: it holds you, and only the view moves
@@ -1104,8 +1199,11 @@ function frame(now) {
   if (keys.size || rightHeld) stir(); // (a key held, flying, is not being still)
   $("crosshair").classList.toggle("still", started && performance.now() - stirred > STILL * 1000);
   back.touring = back.afoot = false; // (fly says so again, while a plugin flies you; a plugin moving you on foot, in its update: see back.js)
+  back.post = null; // (and a plugin keeping it at a place, in its update too)
   if (!started) { idle(elapsed); for (const p of plugins) p.idle?.(dt); } // (what they have in the hub moves behind the start screen too)
-  else if (!hook("busy")) fly(dt); // something of a plugin's is open (a piece, a game): stay where you are
+  else if (!locks.asking && !hook("busy")) fly(dt); // something of a plugin's is open (a piece, a game): stay where you are
+  pushOut(dt); // (turned away from a locked portal: see lockedOut)
+  leftLocked();
   const heard = audio.features(dt);
   world.G.uBass.value = heard.bass; world.G.uMid.value = heard.mid; world.G.uHigh.value = heard.high; world.G.uBeat.value = heard.beat;
   world.update(dt, camera);
@@ -1135,6 +1233,7 @@ function frame(now) {
     else audio.entityVoice(0, 0); // and its hum does not follow you out (left humming, it buzzed on in every other dimension)
     entity.meddle(dt); // (its ways with the sound reach everywhere)
   }
+  forming.update(dt, camera, started); // (after the plugins: their rings, come, open out where they stand this frame)
   veil = Math.max(0, veil - dt / 1.9);
   fadeEl.style.opacity = Math.max(Math.min(1, veil), back.fade, ...plugins.map((p) => p.fade ?? 0)).toFixed(3); // the dark at any door
   world.sky.render(renderer, camera);
@@ -1163,13 +1262,24 @@ function frame(now) {
 runFrames();
 
 // (viewers: the f0ck plugin's viewers, each registering itself as it is made: see back.js)
-window.cvoid = {
+window.vvoid = {
   world, camera, renderer, entity, back, voice, map, plugins, padMap, CELL, graphics: gfx, viewers: [], meteors, lasers, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; },
   // Held where you are (see held: a group's member, say), asked by every way into a dimension or a room (its
   // ring, a tag's portal, a search): they neither draw you nor take you, and with say, the reason is said.
   // Never while you are being put somewhere (the group taking you along, the way back, the map).
   held: (say = false) => (moving ? null : say ? held() : hook("hold")),
+  // Behind a password (see lockedOut), asked by every way into a dimension with its own name: true when
+  // it does not take you yet (the password is asked, and `retry` takes you through once it is given)
+  locked: (realm, retry, look) => lockedOut(realm, retry, look), // (look: the gate's { title, color }, if not its own)
+  // Still a while (the crosshair gone: see STILL), until the next look round, key or button
+  still: () => started && performance.now() - stirred > STILL * 1000,
 };
+
+// The plugins behind a password (see locks.js): known before any is installed, so each portal knows at once
+const locks = new Locks();
+const locksKnown = locks.load();
+locks.refused = refused; // (a wrong password: the void answers it)
+window.vvoid.locks = locks;
 
 // The plugins (see the top), installed once the game around them is ready: what they are given.
 const game = {
@@ -1179,13 +1289,14 @@ const game = {
   pad: padMap, // the controller's buttons, as mapped (see pad.js): a plugin may add actions of its own
   arrive, face, note, lockPointer, levelOut, showHelp: () => showHelp(),
   goTo,                                     // somewhere at once: { realm, room?, position, yaw, pitch } (see goTo)
+  locks,                                    // its password, if it has one: locked(name), ask(name) at its portal (see locks.js)
   lasers, fireLaser,                        // beams (see laser.js): a plugin may shoot, draw another's, or listen
   started: () => started,
   player: () => playerName,                 // the name the traveller gave on the start screen ("" if none)
   aiming,                                  // flying, the pointer held, no map open
   mapOpen: () => map.open,
   closeMap: (lock = true) => { if (map.open) map.toggle(); if (lock) lockPointer(); }, // (lock false: something else takes the screen)
-  // how the picture is finished while in a dimension of its own (null: as cvoid's own): tone mapped
+  // how the picture is finished while in a dimension of its own (null: as vvoid's own): tone mapped
   // or not (a page's colours shown as they are), and how much light glows
   finish(look) {
     renderer.toneMapping = look?.toneMapped === false ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
@@ -1194,19 +1305,27 @@ const game = {
   // a dimension of its own: its name, the letter its places are kept under, what it is called, and
   // what stands in each of its sectors
   addRealm(name, letter, title, spec) {
+    realmOwner[name] ??= this?.plugin; // (whose: see the plugins' own game, below)
     addRealm(name, `${letter}:`, spec);
     map.addRealm(name, letter, title);
     realmNames[name] = title;
   },
 };
-// the plugins this cvoid has: first, where their portals stand round the clock (evenly, see hubSlot), then each
-const pluginUrls = await fetch("/api/plugins").then((r) => (r.ok ? r.json() : [])).catch(() => []);
+// the plugins this vvoid has: first, where their portals stand round the clock (evenly, see hubSlot), then each
+const [pluginUrls] = await Promise.all([fetch("/api/plugins").then((r) => (r.ok ? r.json() : [])).catch(() => []), locksKnown]);
 setPortals(pluginUrls.map((url) => url.match(/\/plugins\/([^/]+)\//)?.[1]).filter(Boolean));
+forming.start(portalNames()); // (each forming in its place until its ring is there: see forming.js)
 for (const url of pluginUrls) {
+  const name = url.match(/\/plugins\/([^/]+)\//)?.[1];
   try {
-    plugins.push((await import(url)).default(game) ?? {});
+    // (each its own game, the same but for knowing whose it is: its dimensions are its, and so is its lock)
+    const own = Object.create(game, { plugin: { value: name } });
+    plugins.push((await import(url)).default(own) ?? {});
+    forming.done(name); // (forming on until its ring is there: see forming.js)
   } catch (err) {
-    console.warn(`[cvoid] the plugin ${url} could not be loaded:`, err);
+    console.warn(`[vvoid] the plugin ${url} could not be loaded:`, err);
+    forming.done(name, false);
   }
 }
+panelsFor = null; // (their windows are there now: which are shown where, worked out again)
 showHelp();
