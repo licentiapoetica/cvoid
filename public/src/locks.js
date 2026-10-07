@@ -12,6 +12,7 @@ export class Locks {
     this.open = new Map(); // plugin name -> whether this page has its session (only the locked ones)
     this.asking = null;    // the plugin whose password is on the screen
     this.refused = null;   // refused(name, why): a wrong password given (the void answers it: see main.js)
+    this.declined = null;  // declined(name): turned away with none given, Esc (the void answers that too: see main.js)
     this.looks = new Map(); // plugin name -> its gate's { title, color }, as it set them (wherever it is asked from)
     this.forget = new Set();  // the plugins whose password is not remembered: asked every time (VVOID_REMEMBER unset)
     this.leaving = new Map(); // plugin name -> what it does when its session is let go (see onLeave)
@@ -119,7 +120,12 @@ export class Locks {
     this.resolve = null;
   }
   async typed(e) {
-    if (e.key === "Escape") return this.done(false);
+    if (e.key === "Escape") {
+      const name = this.asking, given = this.trying; // (Esc while one is being tried, or refused: not declined)
+      this.done(false);
+      if (name && !given) this.declined?.(name);
+      return;
+    }
     if (e.key !== "Enter" || this.trying || !this.input.value || !this.asking) return;
     this.trying = true;
     const refused = await this.enter(this.asking, this.input.value);

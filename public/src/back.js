@@ -22,6 +22,10 @@
 // while to look at something (a portal, a way out, or only off into the dark) and back; annoyed, half lidded, looking sideways at you and rolling its eyes,
 // the longer the more often, when where you are takes a long while to materialize.
 //
+// While music plays (the player, a radio station, a song in mania: see audio.music), what breaks off its
+// edge is music notes instead of embers, rising and swaying, more of them on the beat. Stopped, they
+// stop (embers again); played again, they come back a moment after.
+//
 // Given a name on the start screen, it greets you by it as the flight begins: a few words beside it, in
 // its own cold blue, its eyes two happy arches while it says them.
 import * as THREE from "three";
@@ -46,6 +50,8 @@ const GREETINGS = [(n) => `hello, ${n}`, (n) => `oh, ${n}. there you are`, (n) =
 const LOOKS = [7, 16], LOOK_FOR = [1.8, 4.5]; // seconds between its looks away from you (calm), and how long it looks
 const TURNS = Math.PI; // how far it turns its face to look (radians: all the way, its back to you if need be; less, and its eyes do the rest)
 const SMOKE = 48, EMBERS = 16; // (a thin smoke: it smoulders, it does not billow)
+const NOTES = 24, NOTE_SIZE = 11; // music notes, while music plays (in place of the embers): how many at once, how large
+const NOTES_AFTER = 0.8; // s of music playing (again) before they come: stopped, they stop at once
 
 // the mouth: a disc of dark with a ragged edge that smoulders, embers crawling along it, charred round it
 const MOUTH_VERT = /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`;
@@ -117,6 +123,38 @@ void main(){
   gl_FragColor = vec4(c, a * smoothstep(0., .12, age) * vLife * .16 * uShow);
 }`;
 
+// the notes: four of them drawn on one picture (a crotchet, a quaver, two beamed, two beamed twice), each
+// point showing its own, tipped as it sways, fading as it rises
+const NOTE_VERT = /* glsl */ `attribute float aLife; attribute float aKind; attribute float aTilt; varying float vLife; varying float vKind; varying float vTilt;
+uniform float uScale;
+void main(){ vLife = aLife; vKind = aKind; vTilt = aTilt; vec4 mv = modelViewMatrix * vec4(position, 1.); gl_PointSize = ${NOTE_SIZE.toFixed(1)} * uScale / -mv.z; gl_Position = projectionMatrix * mv; }`;
+const NOTE_FRAG = /* glsl */ `uniform sampler2D uMap; uniform float uShow; varying float vLife; varying float vKind; varying float vTilt;
+void main(){
+  if (vLife <= 0.) discard;
+  vec2 q = gl_PointCoord - .5, r = vec2(cos(vTilt) * q.x - sin(vTilt) * q.y, sin(vTilt) * q.x + cos(vTilt) * q.y) + .5;
+  if (r.x < 0. || r.x > 1. || r.y < 0. || r.y > 1.) discard;
+  float a = texture2D(uMap, (r + vec2(mod(vKind, 2.), floor(vKind / 2.))) * .5).a;
+  float age = 1. - vLife;
+  gl_FragColor = vec4(mix(vec3(.75, .95, 1.), vec3(.35, .7, 1.), age), a * smoothstep(0., .1, age) * min(1., vLife * 2.) * uShow);
+}`;
+function notePicture() {
+  const canvas = Object.assign(document.createElement("canvas"), { width: 256, height: 256 }), ctx = canvas.getContext("2d");
+  ctx.fillStyle = ctx.strokeStyle = "#fff";
+  ctx.lineCap = "round";
+  const head = (x, y) => { ctx.beginPath(); ctx.ellipse(x, y, 15, 10.5, -0.45, 0, Math.PI * 2); ctx.fill(); };
+  const stem = (x, y) => { ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(x + 13, y - 3); ctx.lineTo(x + 13, y - 70); ctx.stroke(); };
+  const beam = (x0, x1, y) => { ctx.lineWidth = 9; ctx.lineCap = "butt"; ctx.beginPath(); ctx.moveTo(x0 + 11, y); ctx.lineTo(x1 + 15, y - 6); ctx.stroke(); ctx.lineCap = "round"; };
+  // (each in its own quarter, 128 square)
+  head(58, 96); stem(58, 96);
+  head(186, 96); stem(186, 96);
+  ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(199, 26); ctx.bezierCurveTo(222, 40, 230, 56, 214, 80); ctx.stroke();
+  head(34, 228); stem(34, 228); head(84, 220); stem(84, 220); beam(34, 84, 158 + 3);
+  head(162, 228); stem(162, 228); head(212, 220); stem(212, 220); beam(162, 212, 161); beam(162, 212, 179);
+  const map = new THREE.CanvasTexture(canvas);
+  map.flipY = false; // (its rows as gl_PointCoord counts them, from the top)
+  return map;
+}
+
 const ahead = new THREE.Vector3(), to = new THREE.Vector3(), spot = new THREE.Vector3(), yawOnly = new THREE.Euler(0, 0, 0, "YXZ");
 const seg = new THREE.Line3(), near = new THREE.Vector3(), drift = new THREE.Vector3();
 const QUIET = { bass: 0, mid: 0, high: 0, beat: 0 };
@@ -130,8 +168,8 @@ export class Back {
   // name(realm, room): what a place is called, for the name under the crosshair; textEl: where it speaks;
   // heading(): the way the view is turning to (it eases round: see main.js face); sights(): where the
   // things round you are (portals, ways out), for it to look at now and then
-  constructor({ scene, world, name, textEl, toOrigin, heading, sights }) {
-    Object.assign(this, { world, name, textEl, heading, sights });
+  constructor({ scene, world, name, textEl, toOrigin, heading, sights, music }) {
+    Object.assign(this, { world, name, textEl, heading, sights, music }); // (music(): whether music plays: its notes)
     this.gaze = new THREE.Vector3(); // what it looks at, looking away from you (see wonder)
     this.turned = 0;                 // 0 to 1: how far its face is turned to it
     this.greeting = null; // { text, at (when it is said; null till it has come), by (given up on after) } (see greet)
@@ -203,6 +241,21 @@ export class Back {
     this.embers.frustumCulled = false;
     this.embers.visible = false;
     scene.add(this.embers);
+
+    this.tunes = Array.from({ length: NOTES }, () => ({ life: 0, span: 1, v: new THREE.Vector3(), sway: 0, seed: 0 }));
+    this.noteAt = 0;
+    const notes = new THREE.BufferGeometry();
+    notes.setAttribute("position", new THREE.BufferAttribute(new Float32Array(NOTES * 3), 3));
+    notes.setAttribute("aLife", new THREE.BufferAttribute(new Float32Array(NOTES), 1));
+    notes.setAttribute("aKind", new THREE.BufferAttribute(new Float32Array(NOTES), 1));
+    notes.setAttribute("aTilt", new THREE.BufferAttribute(new Float32Array(NOTES), 1));
+    this.notes = new THREE.Points(notes, new THREE.ShaderMaterial({
+      uniforms: { uMap: { value: notePicture() }, uShow: { value: 0 }, uScale: { value: 1 } }, vertexShader: NOTE_VERT, fragmentShader: NOTE_FRAG,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    }));
+    this.notes.frustumCulled = false;
+    this.notes.visible = false;
+    scene.add(this.notes);
   }
 
   // where you are: the dimension, and the room of the viewer that dimension is (see the f0ck plugin)
@@ -306,7 +359,7 @@ export class Back {
     if (want && this.shown <= 0.01) this.place(camera, true); // (coming, it comes at your side, not from wherever it was last)
     this.shown += (want - this.shown) * Math.min(1, dt * 2.5);
     const visible = this.shown > 0.01;
-    this.mouth.visible = this.smoke.visible = this.embers.visible = visible;
+    this.mouth.visible = this.smoke.visible = this.embers.visible = this.notes.visible = visible;
     let through = false;
     if (visible) {
       // It floats towards its place at your side, unhurried. Never long in front of what you look at:
@@ -587,10 +640,11 @@ export class Back {
     this.smoke.material.uniforms.uScale.value = this.size * (this.world.renderer?.domElement.height ?? window.innerHeight) / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
     this.embers.material.size = 3.2 * this.size;
 
-    // embers: now and then one breaks off the edge and drifts up, dimming
-    const sparks = this.embers.geometry.attributes.position;
+    // embers: now and then one breaks off the edge and drifts up, dimming (while music plays, a note instead)
+    this.musicFor = this.music?.() ? (this.musicFor ?? 0) + dt : 0;
+    const sparks = this.embers.geometry.attributes.position, music = this.musicFor > NOTES_AFTER;
     this.sparkAt -= dt;
-    if (giving && this.sparkAt <= 0) {
+    if (giving && !music && this.sparkAt <= 0) {
       this.sparkAt = rand(0.08, 0.3);
       const i = this.sparks.findIndex((s) => s.life <= 0);
       if (i >= 0) {
@@ -609,11 +663,44 @@ export class Back {
     }
     sparks.needsUpdate = true;
     this.embers.material.opacity = this.shown * (0.7 + 0.3 * Math.sin(this.time * 9));
+
+    // notes: off the edge as embers are, but more often and on the beat, rising further, swaying as they go
+    const notes = this.notes.geometry.attributes, beat = this.world.G.uBeat?.value ?? 0;
+    this.noteAt -= dt * (1 + beat * 3);
+    if (giving && music && this.noteAt <= 0) {
+      this.noteAt = rand(0.18, 0.45);
+      const i = this.tunes.findIndex((n) => n.life <= 0);
+      if (i >= 0) {
+        const n = this.tunes[i], a = Math.random() * Math.PI * 2;
+        spot.set(Math.cos(a) * mouth, Math.sin(a) * mouth, 3).applyQuaternion(camera.quaternion).add(this.position);
+        notes.position.setXYZ(i, spot.x, spot.y, spot.z);
+        n.v.set(rand(-12, 12), rand(26, 48), rand(-12, 12)).add(spot.sub(this.position).multiplyScalar(0.3));
+        n.span = rand(1.8, 2.8);
+        n.life = 1;
+        n.sway = rand(0.3, 0.6) * (Math.random() < 0.5 ? -1 : 1);
+        n.seed = Math.random() * 10;
+        notes.aKind.setX(i, Math.floor(Math.random() * 4));
+      }
+    }
+    for (let i = 0; i < NOTES; i++) {
+      const n = this.tunes[i];
+      if (n.life <= 0) { notes.aLife.setX(i, 0); continue; }
+      n.life -= dt / n.span;
+      n.v.multiplyScalar(Math.exp(-0.4 * dt));
+      const wave = Math.sin(this.time * 3 + n.seed);
+      notes.position.setXYZ(i, notes.position.getX(i) + n.v.x * dt + wave * 10 * dt, notes.position.getY(i) + n.v.y * dt, notes.position.getZ(i) + n.v.z * dt);
+      notes.aLife.setX(i, Math.max(0, n.life));
+      notes.aTilt.setX(i, wave * n.sway);
+    }
+    notes.position.needsUpdate = notes.aLife.needsUpdate = notes.aKind.needsUpdate = notes.aTilt.needsUpdate = true;
+    this.notes.material.uniforms.uShow.value = this.shown;
+    this.notes.material.uniforms.uScale.value = this.smoke.material.uniforms.uScale.value;
   }
 
   clearSmoke() {
     for (const puff of this.puffs) puff.life = 0;
     for (const s of this.sparks) s.life = 0;
+    for (const n of this.tunes) n.life = 0;
   }
 
   // its place beside you (turned as you are, and tipped only as you look far up or down), at once or easing.

@@ -9,6 +9,12 @@ export const MODES = {
   pentatonic: [0, 2, 4, 7, 9, 12],
 };
 export const semis = (n) => 2 ** (n / 12);
+// whose media is music (setMedia's who): while one of these plays, Irrlicht gives off notes (see music)
+const MUSIC = new Set(["player", "somafm", "mania"]);
+// s: as the sound starts (the start screen left), what the picture hears eased in from nothing over this
+// long, as the master is (see start): measured against averages only just begun, a drone coming up
+// reads as a burst, and the whole sky flashed with it
+const WARM_IN = 5;
 
 export class VoidAudio {
   constructor() {
@@ -246,16 +252,20 @@ export class VoidAudio {
       return sum / ((b - a) * 255);
     };
     const raw = { bass: band(30, 160), mid: band(160, 2200), high: band(2200, 12000) };
+    // (the first time it is heard: the averages begin from it; and while it comes up, they keep up with it)
+    if (this.warm === undefined) { this.warm = 0; Object.assign(this.averages, raw); }
+    this.warm = Math.min(1, this.warm + dt / WARM_IN);
+    const warm = this.warm * this.warm * (3 - 2 * this.warm);
     for (const name of ["bass", "mid", "high"]) {
       // measured against its own recent average: a steady drone sits low, anything that moves stands out
-      const average = (this.averages[name] += (raw[name] - this.averages[name]) * Math.min(1, dt * 0.6));
-      const level = Math.min(1, Math.max(0, 0.18 + ((raw[name] - average) / Math.max(average, 0.05)) * 2.5));
+      const average = (this.averages[name] += (raw[name] - this.averages[name]) * Math.min(1, dt * (this.warm < 1 ? 3 : 0.6)));
+      const level = Math.min(1, Math.max(0, 0.18 + ((raw[name] - average) / Math.max(average, 0.05)) * 2.5)) * warm;
       out[name] += (level - out[name]) * Math.min(1, dt * (level > out[name] ? 30 : 5));
     }
     // the game knows exactly when its own heartbeat lands; the room has to be listened for
     const now = this.ctx.currentTime;
-    while (this.hits.length && this.hits[0].at <= now) out.beat = Math.max(out.beat, this.hits.shift().strength);
-    if ((this.mic || this.mediaOn || this.listening.some((heard) => heard())) && raw.bass > this.averages.bass + 0.035 && out.beat < 0.4) out.beat = 1;
+    while (this.hits.length && this.hits[0].at <= now) out.beat = Math.max(out.beat, this.hits.shift().strength * warm);
+    if (warm >= 1 && (this.mic || this.mediaOn || this.listening.some((heard) => heard())) && raw.bass > this.averages.bass + 0.035 && out.beat < 0.4) out.beat = 1;
     out.beat *= Math.exp(-dt * 5);
     return out;
   }
@@ -356,6 +366,10 @@ export class VoidAudio {
     this.droneLevel.gain.setTargetAtTime(on ? 0.3 : 1, this.ctx.currentTime, 1.5);
   }
 
+  // whether what plugins play now is music (the player, a station, a song in mania), not voices or
+  // posts: Irrlicht gives off notes then (see back.js)
+  get music() { return [...(this.mediaBy ?? [])].some((who) => MUSIC.has(who)); }
+
   // step back while something else has the stage (a Flash piece with its own sound)
   duck(on) {
     if (!this.ctx) return;
@@ -432,6 +446,42 @@ export class VoidAudio {
     }
     this.master.gain.setTargetAtTime(this.level * 0.45, now, 0.05);
     if (!this.ducked) this.master.gain.setTargetAtTime(this.level, now + 0.9, 0.6);
+  }
+
+  // declined (no password given at a locked portal, Esc): a long breath out, darkening, over one low
+  // tone that sags a fifth, the drone dipping a little while it sounds (milder than refuse: no knock)
+  sigh() {
+    if (!this.ctx || this.ctx.state !== "running") return;
+    const ctx = this.ctx, now = ctx.currentTime;
+    const source = ctx.createBufferSource(), band = ctx.createBiquadFilter(), breath = ctx.createGain();
+    source.buffer = this.noise;
+    source.loop = true;
+    band.type = "bandpass";
+    band.Q.value = 1.2;
+    band.frequency.setValueAtTime(1100, now);
+    band.frequency.exponentialRampToValueAtTime(180, now + 2);
+    breath.gain.setValueAtTime(0.0001, now);
+    breath.gain.exponentialRampToValueAtTime(0.18, now + 0.35);
+    breath.gain.exponentialRampToValueAtTime(0.0001, now + 2.2);
+    source.connect(band).connect(breath);
+    breath.connect(this.buses.void.dry);
+    breath.connect(this.buses.void.wet);
+    source.start(now);
+    source.stop(now + 2.3);
+    const osc = ctx.createOscillator(), tone = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(110, now);
+    osc.frequency.exponentialRampToValueAtTime(110 / 1.5, now + 2);
+    tone.gain.setValueAtTime(0.0001, now);
+    tone.gain.exponentialRampToValueAtTime(0.14, now + 0.4);
+    tone.gain.exponentialRampToValueAtTime(0.0001, now + 2.3);
+    osc.connect(tone);
+    tone.connect(this.buses.void.dry);
+    tone.connect(this.buses.void.wet);
+    osc.start(now);
+    osc.stop(now + 2.4);
+    this.master.gain.setTargetAtTime(this.level * 0.75, now, 0.2);
+    if (!this.ducked) this.master.gain.setTargetAtTime(this.level, now + 1.4, 0.8);
   }
 
   // everything stops; then one note

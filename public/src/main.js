@@ -219,7 +219,7 @@ function fireLaser() {
 }
 // the way back (see back.js): each place called by its dimension's name, and the room's in it
 // (and the things round you, for it to look at now and then: the portals round the clock, or a dimension's ways out)
-const back = new Back({ scene, world, textEl: $("irrlicht"), toOrigin: stored("irrlichtToOrigin", false), heading: () => yaw,
+const back = new Back({ scene, world, textEl: $("irrlicht"), toOrigin: stored("irrlichtToOrigin", false), heading: () => yaw, music: () => audio.music,
   sights: () => world.realm === "void" ? portalNames().map((name) => new THREE.Vector3(...hubSlot(name).at)) : [].concat(hook("exit") ?? []).map((exit) => exit.at).filter(Boolean), name: (realm, room) => {
   const where = realm === "void" ? "the void" : realmNames[realm] ?? realm;
   return room ? `${where} · ${room.label ?? room.key}` : where;
@@ -403,6 +403,9 @@ function becalm() {
 const TURNED_AWAY = 1000; // how far before its ring a refused traveller is put (its pull reaches 900)
 const PUSHED_FOR = 1.6;   // s, the push out of it, easing to a stop
 let pushed = null;        // { from, to, t }: being pushed back out of a locked portal (see pushOut)
+// The gate let go: the pointer is taken back at once, but a browser takes it only after a gesture, and Esc
+// is not one (Enter is). Turned away by Esc, the first key after it (or a click) gives you the view again.
+let relock = false;
 function lockedOut(realm, retry, look = {}) {
   const name = realmOwner[realm];
   if (moving || !name || !locks.locked(name) || realmOwner[world.realm] === name) return false;
@@ -411,6 +414,7 @@ function lockedOut(realm, retry, look = {}) {
   if (map.open) map.toggle();
   locks.ask(name, { title: realmNames[realm] ?? name, ...look }).then((opened) => {
     becalm(); // (again: a key let go while the gate had the keys never reached the flight)
+    relock = true;
     if (opened) retry?.();
     else if (world.realm === "void" && portalNames().includes(name)) {
       const slot = hubSlot(name), at = new THREE.Vector3(...slot.at);
@@ -432,12 +436,35 @@ function refused() {
   const line = voice.fresh(REFUSALS);
   if (!voice.say(line)) note(line);
 }
-// how far the view is thrown this frame (pitch, yaw, roll), dying away
+// No password given at all (Esc): the void answers that too, more quietly. It breathes out as the ring
+// lets you go, the dark dims a little, the view sways once, slowly, as if it turned from you, and it
+// says so (but not after a wrong password: that was answered already, see refused).
+const DECLINES = ["then not", "another time, perhaps", "it will keep", "as you like", "the door stays where it is", "noted. not today", "you did not say it", "it will ask again"];
+const SWAY_FOR = 2.4; // s
+let sway = 0; // s of it left
+function declined() {
+  sway = SWAY_FOR;
+  veil = Math.max(veil, 0.3);
+  audio.sigh();
+  const line = voice.fresh(DECLINES);
+  if (!voice.say(line)) note(line);
+}
+// how far the view is thrown this frame (pitch, yaw, roll), dying away: refused, a shudder; declined, one
+// slow sway
 function shaken(dt) {
-  if (shudder <= 0) return [0, 0, 0];
-  shudder = Math.max(0, shudder - dt);
-  const k = (shudder / SHUDDER_FOR) ** 2 * 0.03, t = performance.now() / 1000;
-  return [Math.sin(t * 61) * k, Math.sin(t * 47 + 1) * k * 0.6, Math.sin(t * 53 + 2) * k * 1.4];
+  let qx = 0, qy = 0, qz = 0;
+  const t = performance.now() / 1000;
+  if (shudder > 0) {
+    shudder = Math.max(0, shudder - dt);
+    const k = (shudder / SHUDDER_FOR) ** 2 * 0.03;
+    qx += Math.sin(t * 61) * k; qy += Math.sin(t * 47 + 1) * k * 0.6; qz += Math.sin(t * 53 + 2) * k * 1.4;
+  }
+  if (sway > 0) {
+    sway = Math.max(0, sway - dt);
+    const u = 1 - sway / SWAY_FOR, k = Math.sin(Math.PI * u) * 0.022; // (in and out once, smoothly)
+    qx -= k * 0.4; qz += Math.sin(u * Math.PI * 2) * k;
+  }
+  return [qx, qy, qz];
 }
 // whose dimension you are in: left, a password not remembered is let go (asked again next time: see locks.js)
 let inOf = null;
@@ -717,6 +744,7 @@ $("start").addEventListener("click", () => {
 canvas.addEventListener("click", lockPointer);
 document.addEventListener("pointerlockchange", () => {
   skipMoves = 2;
+  if (document.pointerLockElement === canvas) relock = false;
   // Esc (the browser takes it to let go of the pointer, and the page never hears it): a plugin's game
   // pauses, and taking the pointer again (a click) goes on
   for (const p of plugins) p.pointer?.(document.pointerLockElement === canvas);
@@ -770,6 +798,7 @@ window.addEventListener("keydown", (e) => {
     if (e.timeStamp - lastShift < DOUBLE_TAP && !hyper) { hyper = true; note("surge · faster"); }
     lastShift = e.timeStamp;
   }
+  if (relock && !map.open && !locks.asking && e.code !== "Escape") lockPointer(); // (turned away at a gate: see relock)
   keys.add(e.code);
 });
 window.addEventListener("keyup", (e) => {
@@ -1107,7 +1136,7 @@ function fly(dt) {
     levelling -= dt;
     for (const p of plugins) if (p.roll) p.roll *= Math.exp(-8 * dt);
   }
-  const [qx, qy, qz] = shaken(dt); // (refused at a locked portal: see locks.refused)
+  const [qx, qy, qz] = shaken(dt); // (refused or declined at a locked portal: see locks.refused, locks.declined)
   camera.rotation.set(viewPitch + qx, viewYaw + qy, viewRoll + qz + plugins.reduce((sum, p) => sum + (p.roll ?? 0), 0));
   const seat = hook("seat");
   if (seat) {
@@ -1307,6 +1336,7 @@ window.vvoid = {
 const locks = new Locks();
 const locksKnown = locks.load();
 locks.refused = refused; // (a wrong password: the void answers it)
+locks.declined = declined; // (none given, Esc: and that too, quietly)
 window.vvoid.locks = locks;
 
 // The plugins (see the top), installed once the game around them is ready: what they are given.
