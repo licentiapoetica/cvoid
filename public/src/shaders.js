@@ -167,7 +167,7 @@ void main(){
   float band = smoothstep(0.5 - w / vScale.x, 0.5, abs(fract(rows) - 0.5));
   edge = max(edge, band * step(0.5, uBands) * (1. - step(0.5, abs(vLocalNormal.y))));
 #endif
-  float fres = pow(1. - abs(dot(normalize(vNormal), normalize(vView))), 2.5);
+  float fres = pow(max(1. - abs(dot(normalize(vNormal), normalize(vView))), 0.), 2.5);
   vec3 tint = mix(uGlow, uAccent, vTint);
   // a rainbow place (or the whole void, taken over): every piece an LED on a running rainbow
   vec3 where = cameraPosition - vView;

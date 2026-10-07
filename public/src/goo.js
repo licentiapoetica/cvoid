@@ -93,7 +93,7 @@ void main() {
   // silver: what it mirrors, roughly a bright sky above and the dark below, a glint off the side
   vec3 env = mix(vec3(.16, .17, .19), vec3(.94, .95, .98), smoothstep(-.3, .4, r.y)) + vec3(.35) * smoothstep(.55, .95, r.x);
   float spec = pow(max(dot(r, normalize(vec3(-.45, .65, .6))), 0.), 60.) + .4 * pow(max(dot(r, normalize(vec3(.5, -.2, .8))), 0.), 20.);
-  float fresnel = pow(1. - n.z, 2.);
+  float fresnel = pow(max(1. - n.z, 0.), 2.);
   vec3 c = env * vec3(.84, .86, .9) * (.8 + .2 * dome) + vec3(.9, .93, 1.) * fresnel * .25 + vec3(1.) * spec;
   float alpha = (.8 + .15 * fresnel) * smoothstep(0., .08, h) + spec; // (a metal: the screen does not show through)
   gl_FragColor = vec4(c, clamp(alpha, 0., .95) * uShow);

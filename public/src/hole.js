@@ -28,7 +28,7 @@ void main(){
   // the glow at its edge breathes, awake, and two brighter bands of it race round it, one each way,
   // with a quick shimmer over all of it: open, and working
   float breathe = .5 + .5 * sin(uTime * 2.6 + vPhase);
-  float rim = pow(1. - abs(dot(normalize(vNormal), normalize(vView))), mix(6., 4., breathe));
+  float rim = pow(max(1. - abs(dot(normalize(vNormal), normalize(vView))), 0.), mix(6., 4., breathe));
   float a = atan(vPos.y, vPos.x);
   float sweep = pow(.5 + .5 * cos(a - uTime * 2.4 - vPhase), 6.) + .6 * pow(.5 + .5 * cos(2. * a + uTime * 1.7 + vPhase), 10.);
   float shimmer = .9 + .1 * sin(uTime * 9. + a * 3. + vPhase);

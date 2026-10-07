@@ -19,6 +19,8 @@ import { SPAWN, setPortals, hubSlot, portalNames } from "./constants.js";
 import { draggablePanels } from "./panels.js";
 import { Locks } from "./locks.js";
 import { Slots } from "./slots.js";
+import { Cinema, CINEMA_AFTER } from "./cinema.js";
+import { TouchButtons } from "./touch.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -175,6 +177,7 @@ const THRUST = 150, SURGE = 9, DRAG = 1.6;
 const ZOOM = 0.5, ZOOM_AFTER = 0.18; // right button held: the lens narrows to this (about 2× nearer), once held this many seconds
 let rightHeld = 0; // when the right button went down (0: it is up)
 let padZoom = false; // the controller's zoom button (see pad.js) held: zoomed in, as with the right button
+let touchZoom = false; // a finger held still on the picture: zoomed in, as with the right button (see the touch screen's, below)
 const AHEAD = 1.4; // flying forward (W) goes this much faster than sideways, back or up
 // Shift surges; tapped twice quickly and held, it surges harder still, until it is let go
 const HYPER = 3, DOUBLE_TAP = 300; // ms between the two taps
@@ -562,6 +565,28 @@ showHelp();
 const STILL = 3; // seconds
 let stirred = 0;
 function stir() { stirred = performance.now(); }
+// (still: nothing under the crosshair, gone, is lit or named either; a click still takes what is there)
+const stillNow = () => started && performance.now() - stirred > STILL * 1000;
+// Still longer: the idle camera, shots of where you are from outside (see cinema.js). In the void, of
+// Irrlicht by you and the portals round it; in a plugin's dimension, of what it gives (its cinema():
+// { star, size, facing, sights }; nothing, and it is never shot there).
+// The first key, button, wheel or touch only cuts back to you (a click is not a shot into whatever the
+// shot was looking at); a look round, too (see look)
+const cinema = new Cinema({ surround: (camera) => world.surround(camera) });
+const filming = () => started && performance.now() - stirred > CINEMA_AFTER * 1000
+  && !map.open && !locks.asking && !autofly && !portalFlight && velocity.length() < 40 && !hook("busy") && !hook("seat") && !hook("hold");
+const cinemaSubject = () => !filming() ? null
+  : world.realm === "void" ? (back.shown > 0.5 ? { star: back.position, sights: back.sights?.() ?? [] } : null)
+  : hook("cinema");
+for (const type of ["keydown", "mousedown", "wheel", "touchstart"]) {
+  window.addEventListener(type, (e) => {
+    if (!cinema.on) return;
+    e.stopPropagation();
+    if (e.cancelable) e.preventDefault();
+    cinema.cut();
+    stir();
+  }, { capture: true, passive: false });
+}
 for (const type of ["keydown", "mousedown", "wheel", "touchstart"]) window.addEventListener(type, stir, { passive: true });
 
 // Free look: nothing stops at straight up or straight down. Keep pulling back and you go over the
@@ -717,12 +742,14 @@ function start() {
   wakeHud(9); // where you begin, named a while (with the HUD's slow first reveal)
 }
 // the Tab panel, on a touch screen: its button opens it and closes it again
-$("laserButton").addEventListener("click", () => { if (started) fireLaser(); });
 $("menuButton").addEventListener("click", () => {
   map.toggle();
   $("menuButton").textContent = map.open ? "close" : "menu";
 });
-new MutationObserver(() => { $("menuButton").textContent = map.open ? "close" : "menu"; }).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+new MutationObserver(() => {
+  $("menuButton").textContent = map.open ? "close" : "menu";
+  if (map.open) touchButtons.release(); // (the buttons gone under the panel: none left held down)
+}).observe(document.body, { attributes: true, attributeFilter: ["class"] });
 
 // Raw mouse input where the browser offers it: the OS pointer acceleration curve
 // is what makes locked-pointer look feel slippery.
@@ -750,12 +777,21 @@ document.addEventListener("pointerlockchange", () => {
   for (const p of plugins) p.pointer?.(document.pointerLockElement === canvas);
 });
 let skipMoves = 0;
-document.addEventListener("mousemove", (e) => {
-  if (document.pointerLockElement !== canvas) return;
+// A fast mouse (1000 Hz) sends more moves than there are frames, and the browser folds them into one
+// event. Its movement should be the sum of all of them, but it is not always (Firefox): the folded-in
+// moves are added up here, and whichever is larger, that sum or the event's own, is taken.
+const moved = (e, axis) => {
+  const own = e[axis], each = e.getCoalescedEvents?.() ?? [];
+  const sum = each.length > 1 ? each.reduce((total, c) => total + c[axis], 0) : own;
+  return Math.abs(sum) > Math.abs(own) ? sum : own;
+};
+document.addEventListener("pointermove", (e) => {
+  if (document.pointerLockElement !== canvas || e.pointerType !== "mouse") return;
   // the first events after locking, and occasional huge deltas some browsers emit, would snap the view
   if (skipMoves > 0) return void skipMoves--;
-  if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return;
-  look(e.movementX, e.movementY, MOUSE_LOOK * sensitivity * (camera.fov / baseFov())); // zoomed in, the view turns as much less
+  const dx = moved(e, "movementX"), dy = moved(e, "movementY");
+  if (Math.abs(dx) > 400 || Math.abs(dy) > 400) return;
+  look(dx, dy, MOUSE_LOOK * sensitivity * (camera.fov / baseFov())); // zoomed in, the view turns as much less
 });
 window.addEventListener("keydown", (e) => {
   // Ctrl is down (descending) while flying: Ctrl+D, Ctrl+S, Ctrl+A... are the game's keys, not the
@@ -850,7 +886,7 @@ document.addEventListener("contextmenu", (e) => { if (document.pointerLockElemen
 window.addEventListener("wheel", (e) => {
   if (started && !map.open && hook("wheel", e)) e.preventDefault();
 }, { passive: false });
-window.addEventListener("blur", () => { keys.clear(); hyper = false; });
+window.addEventListener("blur", () => { keys.clear(); hyper = false; touchButtons.release(); });
 // a gamepad press can't unlock audio on its own; any later click or key does
 for (const type of ["pointerdown", "keydown"]) window.addEventListener(type, () => audio.ctx?.resume());
 
@@ -946,11 +982,15 @@ window.addEventListener("gamepadconnected", () => {
   if (!started) $("prompt").textContent = "click or press any button to materialize";
 });
 
-// Touch: drag to look, hold a second finger to fly forward. A tap (one finger, short, hardly moved) with
-// the crosshair on a portal flies you into it, and on anything else is a click (a post in f0ck and the
-// like: listened to and flown to); a double tap surges, as Shift does, until the next double tap.
+// Touch: drag to look, hold a second finger to fly forward, hold one still to zoom in (until it is
+// lifted: it still looks round). A tap (one finger, short, hardly moved) with the crosshair on a portal
+// flies you into it, and on anything else is a click (a post in f0ck and the like: listened to and flown
+// to); a double tap flies you on ahead, fast (into a portal under the crosshair, fast), until a tap.
+// The buttons (see touch.js) do what keys do: the stick walks or flies, and jump, duck, use, let go.
 const touches = new Map();
-let tapStart = null, lastTap = 0, tapLater = null, touchSurge = false, pressLater = null;
+let tapStart = null, lastTap = 0, tapLater = null, touchSurge = false, pressLater = null, zoomTouch = null;
+const TOUCH_LOOK = 0.005; // radians per pixel a finger moves
+const ZOOM_HOLD = 320;    // ms a finger is held still before the view zooms in (a tap is shorter: see touchEnd)
 // a flight a tap on a portal began: into that portal, and no further (see fly)
 let portalFlight = null; // { at, realm, nearest }
 // (vvoid's own flying by itself, stopped at once: not through the plugins, which, inside one of their
@@ -958,12 +998,13 @@ let portalFlight = null; // { at, realm, nearest }
 function stopFlying() {
   portalFlight = null;
   autofly = false;
+  touchSurge = false; // (a double tap's fast flight, over with it)
 }
 // the portal the crosshair is on, if any: in the hub, one round the clock; in a plugin's dimension, its
 // way out (a plugin's exit hook: { at, label, hole? }, or several, while you are in its dimension)
 // (what each is called, under the crosshair while it is on one: see showPortalName)
 const PORTAL_HOLES = { zone: 112, pt: 220 }; // (how wide a ring's dark sphere is, where it is not the usual)
-const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", player: "the player", files: "your files", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen", discord: "discord", watch: "watch together", bhop: "bhop", mania: "mania", pt: "p.t." };
+const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", player: "the player", files: "your files", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen", discord: "discord", watch: "watch together", bhop: "bhop", mania: "mania", edge: "the edge", pt: "p.t." };
 function portalAimedAt() {
   // (each with the size of its dark sphere: the crosshair on that, and nowhere round it; the way back
   // floating beside you, wherever you are)
@@ -1014,7 +1055,7 @@ function flyIntoPortal(portal, fast = false) {
 const PANEL_REALMS = { f0ckPanel: "f0ck", chanPanel: "chan", tiktokPanel: "tiktok", redgifsPanel: "redgifs", shortsPanel: "shorts", z0rPanel: "z0r", somaPanel: "somafm", filesPanel: "files" };
 // whose each plugin's window is: one behind a password (see locks.js) shows only inside its own
 // dimensions, never in the hub (its settings are had in it, past its password)
-const PANEL_PLUGINS = { ...PANEL_REALMS, playerPanel: "player", bhopPanel: "bhop" };
+const PANEL_PLUGINS = { ...PANEL_REALMS, playerPanel: "player", bhopPanel: "bhop", edgePanel: "edge" };
 let panelsFor = null;
 function showPanelsFor() {
   const realm = world.realm;
@@ -1029,7 +1070,7 @@ let portalNameEl = null;
 // (portals that are not named under the crosshair: p.t.'s is only a door, and says nothing)
 const PORTAL_UNNAMED = new Set(["pt"]);
 function showPortalName() {
-  const aimed = started && !map.open && !portalFlight ? portalAimedAt() : null;
+  const aimed = started && !map.open && !portalFlight && !stillNow() ? portalAimedAt() : null;
   const portal = aimed && !PORTAL_UNNAMED.has(aimed.name) ? aimed : null;
   if (!portalNameEl && !portal) return;
   if (!portalNameEl) {
@@ -1040,30 +1081,51 @@ function showPortalName() {
   portalNameEl.style.opacity = portal ? "1" : "0";
 }
 function tap() {
-  // flying by itself (a portal tapped, or autofly): a tap stops it
-  if (autofly || portalFlight) {
+  // flying by itself (a portal tapped, autofly, a double tap's fast flight, a tour it began): a tap stops it
+  if (autofly || portalFlight || touchSurge) {
+    const tour = touchSurge && !autofly;
     stopFlying();
+    if (tour) hook("autofly", false);
     return note("stopped");
   }
   const portal = portalAimedAt();
   if (portal) return flyIntoPortal(portal);
   hook("mouse", { button: 0, touch: true });
 }
-// a long press (a finger held still): as a right click is, letting go of what you picked or calling off a
-// tour; and any flight by itself stops
-function longPress() {
+// a double tap with no portal under the crosshair: on ahead, fast, as autofly with Shift held (a plugin
+// may fly you its own way: a tour, hurried); again, or a tap, and it stops
+function fastFly() {
+  if (touchSurge) {
+    const tour = !autofly;
+    stopFlying();
+    if (tour) hook("autofly", false);
+    return note("stopped");
+  }
+  touchSurge = true;
+  const taken = hook("autofly", true);
+  if (taken) return void note(typeof taken === "string" ? taken : "fast · tap to stop");
+  autofly = true;
+  note("flying fast · tap to stop");
+}
+// the let go button: as a right click is, letting go of what you picked or calling off a tour (on
+// Irrlicht, turning where it takes you); and any flight by itself stops
+function letGo() {
   if (!portalFlight && portalAimedAt()?.name === "back") return turnBack(); // (on Irrlicht: as a right click)
   if (autofly || portalFlight) { stopFlying(); }
   hook("rightClick");
   note("let go");
 }
-// the fingers on the screen, as the browser has them now (never a count kept along the way: a lift it
-// missed, the start screen going from under a finger, left one behind, and two fingers counted as one)
+// the fingers on the picture, as the browser has them now (never a count kept along the way: a lift it
+// missed, the start screen going from under a finger, left one behind, and two fingers counted as one);
+// a thumb on a button (see touch.js) is the button's, not the picture's
+const onButtons = (t) => !!t.target?.closest?.("#touchButtons, #touchArrange");
+const onPictureNow = (e) => [...e.touches].filter((t) => !onButtons(t));
 function syncTouches(e) {
-  const now = new Set([...e.touches].map((t) => t.identifier));
-  for (const id of touches.keys()) if (!now.has(id)) touches.delete(id);
-  for (const t of e.touches) if (!touches.has(t.identifier)) touches.set(t.identifier, [t.clientX, t.clientY]);
-  touchThrust = e.touches.length > 1 && !map.open ? 1 : 0; // (the panel open: fingers are for it, not for flying)
+  const now = onPictureNow(e), ids = new Set(now.map((t) => t.identifier));
+  for (const id of touches.keys()) if (!ids.has(id)) touches.delete(id);
+  for (const t of now) if (!touches.has(t.identifier)) touches.set(t.identifier, [t.clientX, t.clientY]);
+  touchThrust = now.length > 1 && !map.open ? 1 : 0; // (the panel open: fingers are for it, not for flying)
+  if (zoomTouch !== null && !ids.has(zoomTouch)) touchZoom = !!(zoomTouch = null); // (the finger held is lifted: back out)
 }
 // on the picture itself, every touch is vvoid's own: not a pinch to zoom the page, which a browser (Safari
 // above all, which zooms whatever the page asks) starts at a second finger, taking both away from it
@@ -1074,52 +1136,113 @@ window.addEventListener("touchstart", (e) => {
   if (!started) { start(); syncTouches(e); return; }
   syncTouches(e);
   const t = e.changedTouches[0];
-  tapStart = e.touches.length === 1 ? { id: t.identifier, x: t.clientX, y: t.clientY, at: e.timeStamp } : null;
+  if (onButtons(t) || touchButtons.arranging) return;
+  tapStart = onPictureNow(e).length === 1 ? { id: t.identifier, x: t.clientX, y: t.clientY, at: e.timeStamp } : null;
   clearTimeout(pressLater);
   if (tapStart && !map.open) {
+    // held still a moment: zoomed in, until it is lifted
     const held = tapStart;
-    pressLater = setTimeout(() => { if (tapStart === held) { tapStart = null; longPress(); } }, 600);
+    pressLater = setTimeout(() => {
+      if (tapStart !== held) return;
+      tapStart = null;
+      zoomTouch = held.id;
+      touchZoom = true;
+    }, ZOOM_HOLD);
   }
 }, { passive: false });
 window.addEventListener("touchmove", (e) => {
   if (onPicture(e) && e.cancelable) e.preventDefault();
-  const t = e.changedTouches[0], last = touches.get(t.identifier);
-  if (last && !map.open) look(t.clientX - last[0], t.clientY - last[1], 0.005 * sensitivity);
-  if (tapStart && tapStart.id === t.identifier && Math.hypot(t.clientX - tapStart.x, t.clientY - tapStart.y) > 12) { tapStart = null; clearTimeout(pressLater); } // (moved: a drag, not a tap nor a press)
-  for (const c of e.changedTouches) touches.set(c.identifier, [c.clientX, c.clientY]);
+  // (one finger on the picture turns the view: two moving together would turn it twice over)
+  const t = [...e.changedTouches].find((c) => touches.has(c.identifier)), last = t && touches.get(t.identifier);
+  if (last && !map.open) look(t.clientX - last[0], t.clientY - last[1], TOUCH_LOOK * sensitivity * (camera.fov / baseFov())); // (zoomed in, turning less, as the mouse does)
+  if (t && tapStart && tapStart.id === t.identifier && Math.hypot(t.clientX - tapStart.x, t.clientY - tapStart.y) > 12) { tapStart = null; clearTimeout(pressLater); } // (moved: a drag, not a tap nor a hold)
+  for (const c of e.changedTouches) if (touches.has(c.identifier)) touches.set(c.identifier, [c.clientX, c.clientY]);
 }, { passive: false });
 for (const type of ["gesturestart", "gesturechange"]) document.addEventListener(type, (e) => e.preventDefault()); // (Safari's own pinch)
 const touchEnd = (e) => {
-  clearTimeout(pressLater);
   // (a finger lifted is what a browser lets sound begin on: a touch put down is not, and the start
   // screen's touch is taken whole, so no click follows it)
   if (audio.ctx?.state === "suspended") audio.ctx.resume().catch(() => {});
   for (const t of e.changedTouches) {
     const moved = tapStart && tapStart.id === t.identifier ? Math.hypot(t.clientX - tapStart.x, t.clientY - tapStart.y) : Infinity;
     if (e.type === "touchend" && moved < 12 && e.timeStamp - tapStart.at < 300 && !map.open) {
+      clearTimeout(pressLater);
       // a tap: a second one soon after makes it a double tap (and the first is no tap of its own)
       if (e.timeStamp - lastTap < 320) {
         clearTimeout(tapLater);
         lastTap = 0;
-        // on a portal: into it, fast (as a double click); anywhere else: surge, on or off
+        // on a portal: into it, fast (as a double click); anywhere else: on ahead, fast (on foot: nothing to fly)
         const portal = portalAimedAt();
         if (portal) flyIntoPortal(portal, true);
-        else {
-          touchSurge = !touchSurge;
-          note(touchSurge ? "surge · double tap again to stop" : "surge off");
-        }
+        else if (!back.afoot) fastFly();
       } else {
         lastTap = e.timeStamp;
         tapLater = setTimeout(tap, 320);
       }
     }
-    if (tapStart?.id === t.identifier) tapStart = null;
+    if (tapStart?.id === t.identifier) { tapStart = null; clearTimeout(pressLater); }
   }
   syncTouches(e);
 };
 window.addEventListener("touchend", touchEnd);
 window.addEventListener("touchcancel", touchEnd);
-if (matchMedia("(pointer: coarse)").matches) $("prompt").textContent = "tap to materialize · drag to look · two fingers to fly · tap a portal to fly into it · double tap to surge";
+if (matchMedia("(pointer: coarse)").matches) $("prompt").textContent = "tap to materialize · drag to look · hold to zoom · double tap to fly fast · tap a portal to fly into it";
+
+// A touch button's key, as if it were pressed (see touch.js): to the plugins first, as a key is (bhop's
+// space, the edge's c), and else held for flying, as vvoid's own keys are. True when a plugin took it.
+function virtualKey(code, down) {
+  const e = {
+    type: down ? "keydown" : "keyup", code, key: code === "Space" ? " " : code.replace(/^Key/, "").toLowerCase(), repeat: false, touch: true,
+    timeStamp: performance.now(), target: document.body, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, preventDefault() {}, stopPropagation() {},
+  };
+  if (!down) {
+    keys.delete(code);
+    for (const p of plugins) p.keyUp?.(e);
+    return false;
+  }
+  stir();
+  if (hook("key", e)) return true;
+  if (code === "KeyS") toggleAutofly(false); // (the stick pulled back: as S, autofly stops)
+  keys.add(code);
+  return false;
+}
+// the stick: as w a s d, each held while it leans that way (pressed and not leaned: ahead)
+const STICK_KEYS = [["KeyW", (x, y) => y > 0.38], ["KeyS", (x, y) => y < -0.38], ["KeyD", (x) => x > 0.38], ["KeyA", (x) => x < -0.38]];
+const stickHeld = new Set();
+function touchStick(x, y) {
+  for (const [code, leans] of STICK_KEYS) {
+    if (leans(x, y) === stickHeld.has(code)) continue;
+    if (leans(x, y)) stickHeld.add(code); else stickHeld.delete(code);
+    virtualKey(code, stickHeld.has(code));
+  }
+}
+// the use button: a portal under the crosshair flown into (as a tap); else what you are with opened (as the
+// controller's interact); on foot, the game's e (bhop's: a map's buttons); with nothing there, recentred
+function useTouch() {
+  const portal = portalAimedAt();
+  if (portal) return flyIntoPortal(portal);
+  if (hook("interact")) return;
+  if (back.afoot) return void (virtualKey("KeyE", true), virtualKey("KeyE", false));
+  levelOut();
+}
+const touchButtons = new TouchButtons({
+  stored, store,
+  stick: touchStick,
+  look: (dx, dy) => look(dx, dy, TOUCH_LOOK * sensitivity * (camera.fov / baseFov())),
+  press(id, down) {
+    if (!started) return;
+    if (id === "jump") virtualKey("Space", down);
+    if (id === "duck") virtualKey("KeyC", down);
+    if (!down) return id === "reset" && virtualKey("KeyR", false);
+    if (id === "use") useTouch();
+    if (id === "letGo") letGo();
+    if (id === "laser") fireLaser();
+    if (id === "reset" && !virtualKey("KeyR", true)) levelOut(); // (on foot, back to the checkpoint: r; flying, level out)
+  },
+  // arranging them: the panel closed, to see them over the picture
+  arranged: (on) => { if (on && map.open) map.toggle(); },
+});
+$("arrangeButton").addEventListener("click", () => touchButtons.arrange(true)); // (the menu's: beside close, always on the screen)
 
 const RISE = 2;        // rising and sinking go this much faster than sideways
 const RISE_RAMP = 1.2; // seconds of holding rise or sink to reach the full faster climb (or fall)
@@ -1251,7 +1374,7 @@ function frame(now) {
   elapsed += dt;
   pollPad(dt);
   if (keys.size || rightHeld) stir(); // (a key held, flying, is not being still)
-  $("crosshair").classList.toggle("still", started && performance.now() - stirred > STILL * 1000);
+  $("crosshair").classList.toggle("still", stillNow());
   back.touring = back.afoot = false; // (fly says so again, while a plugin flies you; a plugin moving you on foot, in its update: see back.js)
   back.post = null; // (and a plugin keeping it at a place, in its update too)
   back.terrified = false; // (and a plugin frightening it: see back.js's feel)
@@ -1279,6 +1402,7 @@ function frame(now) {
     if (back.update(dt, camera, started && !hook("hold"))) goBack(); // (held where you are, it keeps away; the Tab panel open, it stays)
     voice.update(dt, velocity.length(), $("entity").classList.contains("show"));
     const seated = !!hook("seat");
+    touchButtons.update({ afoot: back.afoot, seated }); // (a plugin moving you on foot has said so by now: see back.afoot)
     if (seated !== seatedBefore) {
       seatedBefore = seated;
       document.body.classList.toggle("seated", seated);
@@ -1292,18 +1416,22 @@ function frame(now) {
   forming.update(dt, camera, started); // (after the plugins: their rings, come, open out where they stand this frame)
   veil = Math.max(0, veil - dt / 1.9);
   fadeEl.style.opacity = Math.max(Math.min(1, veil), back.fade, ...plugins.map((p) => p.fade ?? 0)).toFixed(3); // the dark at any door
+  cinema.update(dt, cinemaSubject(), camera.position);
+  document.body.classList.toggle("cinema", cinema.on);
+  const shooting = cinema.shoot(camera, back); // (the camera at the shot for the picture, and given back after it)
   world.sky.render(renderer, camera);
   if (document.visibilityState === "visible") adaptResolution(dt);
   audio.setSpeed(velocity.length());
   // the lens widens a little at speed, and narrows (zooms in) while the right button (or the controller's zoom) is held
-  const zooming = padZoom || (rightHeld && performance.now() - rightHeld > ZOOM_AFTER * 1000);
+  const zooming = padZoom || touchZoom || (rightHeld && performance.now() - rightHeld > ZOOM_AFTER * 1000);
   const fov = baseFov() * (1 + Math.min(velocity.length() / 500, 1) * (18 / OWN_TALL)) * (zooming ? ZOOM : 1); // (from the field of view chosen: see baseFov)
-  if (Math.abs(fov - camera.fov) > 0.05) {
+  if (!shooting && Math.abs(fov - camera.fov) > 0.05) {
     camera.fov += (fov - camera.fov) * Math.min(1, dt * 4);
     camera.updateProjectionMatrix();
   }
   screen.update(dt);
   composer.render(dt);
+  if (shooting) cinema.restore(camera, back);
   if (map.open) map.draw(camera, viewYaw, world.realm);
   showPortalName();
   showPanelsFor();
@@ -1329,7 +1457,7 @@ window.vvoid = {
   // it does not take you yet (the password is asked, and `retry` takes you through once it is given)
   locked: (realm, retry, look) => lockedOut(realm, retry, look), // (look: the gate's { title, color }, if not its own)
   // Still a while (the crosshair gone: see STILL), until the next look round, key or button
-  still: () => started && performance.now() - stirred > STILL * 1000,
+  still: stillNow,
 };
 
 // The plugins behind a password (see locks.js): known before any is installed, so each portal knows at once
@@ -1345,6 +1473,8 @@ const game = {
   surging: () => keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge, // Shift (or the controller's surge) held
   helpMode: () => helpMode,                 // "keys" or "pad": whichever was used last
   pad: padMap, // the controller's buttons, as mapped (see pad.js): a plugin may add actions of its own
+  // a touch screen's buttons: a plugin may add its own, and have them arranged from its own window (see touch.js)
+  touch: { add: (group, list, how) => touchButtons.add(group, list, how), arrange: (layer) => touchButtons.arrange(true, layer) },
   arrive, face, note, lockPointer, levelOut, showHelp: () => showHelp(),
   goTo,                                     // somewhere at once: { realm, room?, position, yaw, pitch } (see goTo)
   locks,                                    // its password, if it has one: locked(name), ask(name) at its portal (see locks.js)
@@ -1369,6 +1499,23 @@ const game = {
     realmNames[name] = title;
   },
 };
+// A plugin's stylesheet, added as it is installed, never holds the page back: what it puts on the page is
+// drawn bare until that sheet is in, and then eases from there (a HUD faded out over the start screen). So
+// what it adds is kept hidden, and still (no transitions), until the sheets it added are in, and only then
+// shown, as they say (see [data-unstyled] in index.html).
+function installStyled(install) {
+  const before = new Set(document.body.children), sheetsBefore = new Set(document.querySelectorAll("link[rel=stylesheet]"));
+  const result = install();
+  const coming = [...document.querySelectorAll("link[rel=stylesheet]")].filter((link) => !sheetsBefore.has(link) && !link.sheet);
+  const added = [...document.body.children].filter((el) => !before.has(el));
+  if (!coming.length || !added.length) return result;
+  for (const el of added) el.dataset.unstyled = "";
+  Promise.all(coming.map((link) => new Promise((done) => { link.addEventListener("load", done, { once: true }); link.addEventListener("error", done, { once: true }); }))).then(() => {
+    for (const el of added) getComputedStyle(el).opacity; // (its own look taken, still hidden and still: nothing eases from the bare one)
+    for (const el of added) delete el.dataset.unstyled;
+  });
+  return result;
+}
 // the plugins this vvoid has: first, where their portals stand round the clock (evenly, see hubSlot), then each
 const [pluginUrls] = await Promise.all([fetch("/api/plugins").then((r) => (r.ok ? r.json() : [])).catch(() => []), locksKnown]);
 setPortals(pluginUrls.map((url) => url.match(/\/plugins\/([^/]+)\//)?.[1]).filter(Boolean));
@@ -1378,7 +1525,8 @@ for (const url of pluginUrls) {
   try {
     // (each its own game, the same but for knowing whose it is: its dimensions are its, and so is its lock)
     const own = Object.create(game, { plugin: { value: name } });
-    plugins.push((await import(url)).default(own) ?? {});
+    const install = (await import(url)).default;
+    plugins.push(installStyled(() => install(own)) ?? {});
     forming.done(name); // (forming on until its ring is there: see forming.js)
   } catch (err) {
     console.warn(`[vvoid] the plugin ${url} could not be loaded:`, err);

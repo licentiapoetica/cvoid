@@ -161,7 +161,7 @@ const QUIET = { bass: 0, mid: 0, high: 0, beat: 0 };
 const ZERO = new THREE.Vector2(), DOWN = new THREE.Vector2(0, -0.035), side = new THREE.Vector2(), shake = new THREE.Vector3();
 const words = new THREE.Vector3(), up = new THREE.Vector3();
 const pullV = new THREE.Vector3(), moved = new THREE.Vector3(), step = new THREE.Vector3(), toIt = new THREE.Vector3();
-const gazer = new THREE.Object3D(), turnedQ = new THREE.Quaternion(), faceQ = new THREE.Quaternion(), faceM = new THREE.Matrix4(), local = new THREE.Vector3(), fromYou = new THREE.Vector3();
+const gazer = new THREE.Object3D(), turnedQ = new THREE.Quaternion(), faceQ = new THREE.Quaternion(), seenQ = new THREE.Quaternion(), faceM = new THREE.Matrix4(), local = new THREE.Vector3(), fromYou = new THREE.Vector3();
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 
 export class Back {
@@ -331,6 +331,14 @@ export class Back {
   }
 
   // Each frame: a jump noticed, and the companion floated along. True when you have flown into it.
+  // drawn for a view: its disc facing that camera, its face turned as it faces (yours; or the idle
+  // camera's, which shoots it from elsewhere: see cinema.js)
+  viewFrom(camera) {
+    this.mouth.quaternion.copy(camera.quaternion);
+    faceM.makeRotationFromQuaternion(seenQ.copy(faceQ).invert().multiply(camera.quaternion)); // (as it is seen, to as its face is)
+    this.mouth.material.uniforms.uFace.value.setFromMatrix4(faceM);
+  }
+
   update(dt, camera, started) {
     this.time += dt;
     const here = this.where(), last = this.recent.at(-1);
@@ -458,15 +466,13 @@ export class Back {
       this.mouth.position.copy(this.position);
       if (this.terrified > 1) this.mouth.position.add(shake.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(5 * this.size)); // (frantic: shaking)
       // (a ball looks round from anywhere: drawn facing you, and its face turned on it, see wonder)
-      this.mouth.quaternion.copy(camera.quaternion);
       faceQ.copy(camera.quaternion);
       if (this.turned > 0.001) {
         gazer.position.copy(this.position);
         gazer.lookAt(this.gaze);
         faceQ.slerp(turnedQ.copy(camera.quaternion).rotateTowards(gazer.quaternion, TURNS), this.turned);
       }
-      faceM.makeRotationFromQuaternion(faceQ.invert().multiply(camera.quaternion)); // (as you see it, to as its face is)
-      this.mouth.material.uniforms.uFace.value.setFromMatrix4(faceM);
+      this.viewFrom(camera);
       this.mouth.scale.setScalar((0.25 + 0.75 * this.shown) * (1 + OPENS * this.open) * this.size);
       this.mouth.material.uniforms.uShow.value = this.shown;
       this.mouth.material.uniforms.uOpen.value = this.open;

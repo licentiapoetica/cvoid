@@ -639,6 +639,14 @@ export class World {
     this.onSector(spec, s, this.currentKey);
   }
 
+  // What is drawn round the eye, the sky and the dust, put round this camera for the picture: the idle
+  // camera shoots from elsewhere, and the void is all round it there too (see cinema.js; the next
+  // update puts them round you again). The nebula is the same one: it is seen from where you have flown.
+  surround(camera) {
+    for (const mesh of [this.sky.current, ...this.sky.fading]) mesh?.position.copy(camera.position);
+    this.dust.material.uniforms.uCam.value.copy(camera.position);
+  }
+
   update(dt, camera) {
     const G = this.G;
     G.uTime.value += dt;

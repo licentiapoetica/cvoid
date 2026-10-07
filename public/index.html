@@ -120,20 +120,69 @@
   #crosshair.woken { transition: opacity .2s ease; }                  /* (and back at once, after being still) */
   #crosshair.still { opacity: 0; transition: opacity 1.2s ease; }     /* you still a while: gone (see STILL in main.js) */
   .mapping #crosshair { opacity: 0; transition: opacity .25s ease; }
+  /* the idle camera (see cinema.js): bars above and below, coming in slowly, gone at once as you stir; and
+     what is drawn over the view gone with it (Irrlicht's words are placed for your view, not the shot's) */
+  #letterbox i { position: fixed; left: 0; right: 0; height: 11vh; background: #000; z-index: 2; pointer-events: none; transform: scaleY(0); }
+  #letterbox i:first-child { top: 0; transform-origin: top; }
+  #letterbox i:last-child { bottom: 0; transform-origin: bottom; }
+  .cinema #letterbox i { transform: scaleY(1); transition: transform 2s ease; }
+  .cinema :is(#crosshair, #hubPortalName, .portal-name, #irrlicht, #note, #hud, #sector, #meta, #name, #inscription, #coords, #help, #hint, #waits, #gooStore, #actButtons, #menuButton, #touchButtons) { opacity: 0 !important; transition: opacity .6s ease !important; }
   /* the password asked (see locks.js): the crosshair, and the portal's name under it, gone at once */
   .asking #crosshair, .asking #hubPortalName { opacity: 0 !important; transition: none !important; }
+  /* what a plugin puts on the page, until its stylesheet is in: unseen, and nothing in it easing (see installStyled in main.js) */
+  [data-unstyled], [data-unstyled] * { visibility: hidden !important; transition: none !important; }
   /* on a touch screen, the Tab panel's way in (there is no Tab key): a small button, top right, once
      you have materialized; it reads "close" while the panel is open */
-  #menuButton {
+  #menuButton, #arrangeButton {
     position: fixed; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); z-index: 6; display: none;
     padding: 8px 12px; background: rgba(2, 3, 14, .7); border: 1px solid rgba(143, 211, 255, .55); color: #cfeaff;
     font: 300 12px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .14em; text-transform: lowercase; cursor: pointer;
   }
   @media (pointer: coarse) { body.started #menuButton { display: block; } }
-  /* a touch screen's own buttons for what keys do (the laser; the together plugin adds its own here) */
+  /* a touch screen's own buttons for the plugins' acts (the together plugin adds its own here) */
   #actButtons { position: fixed; right: max(12px, env(safe-area-inset-right)); top: calc(max(12px, env(safe-area-inset-top)) + 44px); z-index: 6; display: none; flex-direction: column; gap: 6px; }
   #actButtons button { padding: 7px 10px; background: rgba(2, 3, 14, .6); border: 1px solid rgba(143, 211, 255, .4); color: #cfeaff; font: 300 11px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .14em; text-transform: lowercase; cursor: pointer; }
   @media (pointer: coarse) { body.started:not(.mapping) #actButtons { display: flex; } }
+  /* and for what keys do (see touch.js): a stick and round buttons, each where the player put it, a thumb's
+     press lighting it (their size set there); hidden under the Tab panel, and vvoid's own in a plugin's seat */
+  #touchButtons { display: none; }
+  @media (pointer: coarse) { body.started:not(.mapping) #touchButtons { display: block; } }
+  body.arranging #touchButtons { display: block !important; }
+  #touchButtons > div {
+    position: fixed; z-index: 6; transform: translate(-50%, -50%); border-radius: 50%; box-sizing: border-box; /* (as wide as it is said to be, border and all: fitted to the field exactly) */
+    display: flex; align-items: center; justify-content: center; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+    background: rgba(2, 3, 14, .42); border: 1px solid rgba(143, 211, 255, .38); color: #cfeaff;
+    font: 300 11px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .12em; text-transform: lowercase;
+  }
+  #touchButtons > div[hidden] { display: none; }
+  .arranging #touchButtons > div.faint { opacity: .35; border-style: dotted; } /* (hidden: to be tapped back) */
+  #touchButtons > div.down { background: rgba(95, 140, 255, .34); border-color: #9fd8ff; box-shadow: 0 0 10px rgba(143, 211, 255, .4); }
+  #touchButtons > div span { pointer-events: none; opacity: .85; }
+  #touchButtons > .stick { background: rgba(2, 3, 14, .28); }
+  #touchButtons > div[data-id^="mania:"] span { font-size: 22px; letter-spacing: 0; } /* (mania's lanes: arrows) */
+  #touchButtons > .stick span { position: absolute; bottom: -1.6em; opacity: .55; }
+  #touchButtons .knob {
+    width: 42%; height: 42%; border-radius: 50%; pointer-events: none;
+    background: rgba(143, 211, 255, .18); border: 1px solid rgba(143, 211, 255, .5);
+  }
+  .arranging #touchButtons > div { border-style: dashed; border-color: #9fd8ff; background: rgba(95, 140, 255, .2); }
+  .arranging :is(#menuButton, #actButtons) { display: none !important; }
+  #touchArrange {
+    position: fixed; top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 7; display: none;
+    align-items: center; gap: 10px; padding: 6px 8px 6px 12px; background: rgba(2, 3, 14, .8); border: 1px solid rgba(143, 211, 255, .4);
+    color: #cfeaff; font: 300 11px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .1em; text-transform: lowercase; white-space: nowrap;
+  }
+  .arranging #touchArrange { display: flex; }
+  #touchArrange { flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 24px); white-space: normal; }
+  #touchArrange .sizes { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px 12px; }
+  #touchArrange .slide { display: flex; align-items: center; gap: 6px; }
+  #touchArrange .slide input { width: 110px; accent-color: #9fb8ff; }
+  #touchArrange .slide output { width: 5ch; text-align: right; font-variant-numeric: tabular-nums; opacity: .8; }
+  #touchArrange button { padding: 6px 10px; background: rgba(140, 160, 220, .12); border: 1px solid rgba(140, 160, 220, .4); color: #cfeaff; font: inherit; letter-spacing: .12em; cursor: pointer; }
+  #touchArrange button.on, #touchArrange button.done { background: rgba(95, 140, 255, .32); border-color: #9fb8ff; }
+  /* the menu open, beside close: the buttons arranged (on a screen of any size, never scrolled away) */
+  #arrangeButton { display: none; right: calc(max(12px, env(safe-area-inset-right)) + 74px); }
+  @media (pointer: coarse) { body.started.mapping #arrangeButton { display: block; } }
   /* inside a dimension, the Tab panel shows its own window and the general ones only (see main.js) */
   body.mapping > .elsewhere { display: none !important; }
   /* a narrow screen: the Tab panel's windows one under another, scrolled through, not laid over each
@@ -410,8 +459,10 @@ try {
   </div>
 </div>
 <div id="crosshair"></div>
+<div id="letterbox"><i></i><i></i></div>
 <button id="menuButton" type="button" aria-label="menu">menu</button>
-<div id="actButtons"><button id="laserButton" type="button">laser</button></div>
+<button id="arrangeButton" type="button">buttons</button>
+<div id="actButtons"></div>
 <div id="note"></div>
 <div id="hud">
   <div id="sector"><div id="name"></div><div id="inscription"></div></div>

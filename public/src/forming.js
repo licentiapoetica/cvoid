@@ -85,7 +85,7 @@ void main(){
   float n = noise(p + vec3(0., 0., uTime * .15)) * .65 + noise(p * 2.1 - uTime * .1) * .35;
   float cloud = smoothstep(.62 - .3 * uGrow, .9, n);
   float breathe = .5 + .5 * sin(uTime * 1.1 + uPhase);
-  float rim = pow(1. - abs(dot(normalize(vNormal), normalize(vView))), 4.);
+  float rim = pow(max(1. - abs(dot(normalize(vNormal), normalize(vView))), 0.), 4.);
   float a = (cloud * .3 + rim * (.18 + .14 * breathe)) * (.35 + .65 * uGrow) * uShow * (1. - smoothstep(0., .7, uEnd));
   gl_FragColor = vec4(vec3(.4, .2, 1.) * a, 1.);
 }`;

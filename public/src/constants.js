@@ -25,7 +25,7 @@ export const PORTAL_FORMS_ITSELF = new Set(["pt"]);
 // Who stands where on that circle: these, in this order round it (f0ck's straight ahead), each the same
 // way from the next, as many as there are (setPortals: the plugins this vvoid has), so the circle is
 // always evenly kept, however many there are. hubSlot(name): where that one stands.
-export const PORTAL_ORDER = ["f0ck", "z0r", "gumo", "somafm", "player", "files", "marderchen", "chan", "shorts", "tiktok", "redgifs", "discord", "watch", "zone", "bhop", "mania", "pt"];
+export const PORTAL_ORDER = ["f0ck", "z0r", "gumo", "somafm", "player", "files", "marderchen", "chan", "shorts", "tiktok", "redgifs", "discord", "watch", "zone", "bhop", "mania", "edge", "pt"];
 let portals = PORTAL_ORDER;
 export function setPortals(plugins) {
   portals = PORTAL_ORDER.filter((name) => plugins.includes(name));
