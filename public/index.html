@@ -100,17 +100,17 @@
   }
   #irrlicht.show { opacity: .95; filter: blur(0); transition: opacity .7s ease, filter .7s ease; }
   .mapping #irrlicht { opacity: 0; }
-  /* J's goo: what is left of it, a slim bar under the crosshair while it is used and gathers again (see goo.js);
-     notches for each fair shot; dim while less than one is left; a glow as it is full again */
+  /* J's goo: what is left of it, a slim silver bar in the bottom right corner while it is used and gathers
+     again (see goo.js); notches for each fair shot; dim while less than one is left; a glow as it is full again */
   #gooStore {
-    position: fixed; left: 50%; top: calc(50% + 16px); width: 64px; height: 3px; transform: translateX(-50%);
+    position: fixed; right: 6vw; bottom: 5.5vh; width: 96px; height: 3px;
     background: rgba(2, 3, 14, .55); box-shadow: 0 0 0 1px rgba(2, 3, 14, .45); border-radius: 2px;
     pointer-events: none; z-index: 1; opacity: 0; transition: opacity 1s ease;
   }
   #gooStore.show { opacity: .9; transition: opacity .2s ease; }
-  #gooStore .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: #9dffbe; box-shadow: 0 0 6px rgba(140, 255, 180, .6); }
-  #gooStore.low .fill { background: #4f7f62; box-shadow: none; }
-  #gooStore.full .fill { box-shadow: 0 0 10px 2px rgba(160, 255, 195, .95); }
+  #gooStore .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: linear-gradient(#f4f6fa, #a9afba); box-shadow: 0 0 6px rgba(220, 228, 245, .55); }
+  #gooStore.low .fill { background: #5d626c; box-shadow: none; }
+  #gooStore.full .fill { box-shadow: 0 0 10px 2px rgba(230, 236, 250, .9); }
   #gooStore .notch { position: absolute; top: -1px; bottom: -1px; width: 1px; background: rgba(2, 3, 14, .85); }
   .mapping #gooStore, .seated #gooStore { opacity: 0; }
   /* the middle of the view: a small hollow square, there if you look for it */

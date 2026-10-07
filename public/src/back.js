@@ -120,7 +120,7 @@ void main(){
 const ahead = new THREE.Vector3(), to = new THREE.Vector3(), spot = new THREE.Vector3(), yawOnly = new THREE.Euler(0, 0, 0, "YXZ");
 const seg = new THREE.Line3(), near = new THREE.Vector3(), drift = new THREE.Vector3();
 const QUIET = { bass: 0, mid: 0, high: 0, beat: 0 };
-const ZERO = new THREE.Vector2(), DOWN = new THREE.Vector2(0, -0.035), side = new THREE.Vector2();
+const ZERO = new THREE.Vector2(), DOWN = new THREE.Vector2(0, -0.035), side = new THREE.Vector2(), shake = new THREE.Vector3();
 const words = new THREE.Vector3(), up = new THREE.Vector3();
 const pullV = new THREE.Vector3(), moved = new THREE.Vector3(), step = new THREE.Vector3(), toIt = new THREE.Vector3();
 const gazer = new THREE.Object3D(), turnedQ = new THREE.Quaternion(), faceQ = new THREE.Quaternion(), faceM = new THREE.Matrix4(), local = new THREE.Vector3(), fromYou = new THREE.Vector3();
@@ -149,6 +149,9 @@ export class Back {
     this.fade = 0;    // the dark as you go in (main.js draws it)
     this.home = new THREE.Vector3();     // where it would float (eased towards you)
     this.post = null;                    // a place it waits at instead, not following you (a plugin's, set each frame: bhop's stage)
+    this.terrified = false;              // a plugin's say, set each frame: it is afraid (p.t.'s house), its eyes wide and darting; 2, frantic
+    this.pin = null;                     // a plugin's: exactly where it is this frame (it does not travel there: p.t.'s, at the side of your view, never through a wall)
+    this.size = 1;                       // a plugin's: how big it is (and its smoke, its embers, the dark you click), set each frame
     this.speed = new THREE.Vector3();    // and how it is going, beside you (see place)
     this.keen = 1.7;
     this.carry = 1;
@@ -367,6 +370,11 @@ export class Back {
       // bobbing as it hovers, a slow small circling with it
       // (less while it waits for you: it is easier to fly into)
       this.position.copy(this.home).add(drift.set(Math.sin(this.time * 0.7) * 9, Math.sin(this.time * 1.3) * 11, Math.cos(this.time * 0.9) * 7).multiplyScalar(0.3 + 0.7 * follow));
+      // pinned (a plugin's: see pin), it is there, only bobbing a little, as small as it is
+      if (this.pin && !this.held) {
+        this.home.copy(this.pin);
+        this.position.copy(this.pin).add(drift.multiplyScalar(0.25 * this.size));
+      }
 
       // coming at it (how fast you near it, in the world: see waits)
       const towards = this.lastCam && dt > 0 ? ahead.copy(camera.position).sub(this.lastCam).dot(to) / dt : 0; // (to: the way to it, from you)
@@ -395,6 +403,7 @@ export class Back {
       const closing = this.into;
       this.feel(dt, camera, { distance, onIt, closing });
       this.mouth.position.copy(this.position);
+      if (this.terrified > 1) this.mouth.position.add(shake.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(5 * this.size)); // (frantic: shaking)
       // (a ball looks round from anywhere: drawn facing you, and its face turned on it, see wonder)
       this.mouth.quaternion.copy(camera.quaternion);
       faceQ.copy(camera.quaternion);
@@ -405,7 +414,7 @@ export class Back {
       }
       faceM.makeRotationFromQuaternion(faceQ.invert().multiply(camera.quaternion)); // (as you see it, to as its face is)
       this.mouth.material.uniforms.uFace.value.setFromMatrix4(faceM);
-      this.mouth.scale.setScalar((0.25 + 0.75 * this.shown) * (1 + OPENS * this.open));
+      this.mouth.scale.setScalar((0.25 + 0.75 * this.shown) * (1 + OPENS * this.open) * this.size);
       this.mouth.material.uniforms.uShow.value = this.shown;
       this.mouth.material.uniforms.uOpen.value = this.open;
 
@@ -440,7 +449,26 @@ export class Back {
     const ahead2 = spot.copy(this.position).project(camera); // (where it is on the screen: the way to the middle is the way you go)
     const towardYou = new THREE.Vector2(-ahead2.x, -ahead2.y).normalize().multiplyScalar(0.05);
     let lid = 0.18, wide = 1, smile = 0, look = m.glance, mood = "calm";
-    if (closing > 0.4 || this.open > 0.3) { mood = "happy"; lid = 0; wide = 1.1; smile = 1; look = ZERO; }
+    if (this.terrified && !(closing > 0.4 || this.open > 0.3)) {
+      // terrified (a plugin's say: p.t.'s house): its eyes as wide as they go, darting about, back to you,
+      // away again, never still, trembling. Frantic (terrified 2: something is right behind you): flipping
+      // between terror and fury, wide and then narrowed to a glare, darting several times as fast, shaking
+      const frantic = this.terrified > 1;
+      mood = frantic ? "frantic" : "terrified"; lid = 0; wide = 1.5;
+      if (frantic) {
+        if ((m.furyIn = (m.furyIn ?? 0) - dt) <= 0) { m.furyIn = THREE.MathUtils.randFloat(0.25, 0.8); m.fury = !m.fury; }
+        lid = m.fury ? 0.4 + 0.06 * Math.sin(this.time * 31) : 0;
+        wide = m.fury ? 1.25 : 1.75;
+      }
+      if ((m.dartIn = (m.dartIn ?? 0) - dt) <= 0) {
+        m.dartIn = frantic ? THREE.MathUtils.randFloat(0.05, 0.2) : THREE.MathUtils.randFloat(0.12, 0.6);
+        m.dart = Math.random() < 0.4 ? towardYou.clone().multiplyScalar(0.6) : new THREE.Vector2(THREE.MathUtils.randFloat(-0.06, 0.06), THREE.MathUtils.randFloat(-0.04, 0.04));
+      }
+      const tremble = frantic ? 0.016 : 0.006;
+      look = side.copy(m.dart ?? ZERO).add(new THREE.Vector2(Math.sin(this.time * 37) * tremble, Math.cos(this.time * 43) * tremble * 0.85));
+      if (m.blinkIn < 4) m.blinkIn = 4 + Math.random() * 4; // (it hardly dares blink)
+    }
+    else if (closing > 0.4 || this.open > 0.3) { mood = "happy"; lid = 0; wide = 1.1; smile = 1; look = ZERO; }
     else if (this.greeting?.at != null && this.time >= this.greeting.at) { mood = "greeting"; lid = 0; wide = 1.15; smile = 1; look = towardYou.multiplyScalar(0.4); }
     else if (this.watching) {
       // on a tour, at a post: watching it with you (a test: see watch.js)
@@ -475,7 +503,7 @@ export class Back {
     m.lid += (lid - m.lid) * ease;
     m.wide += (wide - m.wide) * ease;
     m.smile += (smile - m.smile) * Math.min(1, dt * 7);
-    m.look.lerp(look, Math.min(1, dt * (mood === "new" ? 10 : 6)));
+    m.look.lerp(look, Math.min(1, dt * (mood === "new" ? 10 : mood === "frantic" ? 28 : mood === "terrified" ? 16 : 6)));
     // blinking: now and then, sometimes twice; slowly, when drowsy
     if ((m.blinkIn -= dt) <= 0) {
       m.blink = mood === "drowsy" ? 0.5 : 0.15;
@@ -556,7 +584,8 @@ export class Back {
     }
     puffs.position.needsUpdate = puffs.aSize.needsUpdate = puffs.aLife.needsUpdate = true;
     this.smoke.material.uniforms.uShow.value = this.shown;
-    this.smoke.material.uniforms.uScale.value = (this.world.renderer?.domElement.height ?? window.innerHeight) / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
+    this.smoke.material.uniforms.uScale.value = this.size * (this.world.renderer?.domElement.height ?? window.innerHeight) / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
+    this.embers.material.size = 3.2 * this.size;
 
     // embers: now and then one breaks off the edge and drifts up, dimming
     const sparks = this.embers.geometry.attributes.position;

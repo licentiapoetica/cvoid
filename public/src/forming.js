@@ -8,7 +8,7 @@
 // plugin could not be loaded, or long after it was, still no ring) eases apart instead: its motes drift
 // off outwards and fade.
 import * as THREE from "three";
-import { hubSlot } from "./constants.js";
+import { hubSlot, PORTAL_FORMS_ITSELF } from "./constants.js";
 
 const RING = 120, HOLE = 104;  // as the plugins' own rings (see theirs)
 const MOTES = 140;             // drawn in to each
@@ -114,6 +114,7 @@ export class Forming {
     geometry.setAttribute("aSeed", new THREE.BufferAttribute(seeds, 1));
     const arc = new THREE.TorusGeometry(RING, 2, 6, 160), hole = new THREE.SphereGeometry(HOLE, 40, 24);
     for (const name of names) {
+      if (PORTAL_FORMS_ITSELF.has(name)) continue; // (its own way: see constants.js)
       const uniforms = {
         uTime: G.uTime, uPx: G.uPx, uPhase: { value: Math.random() * 10 },
         uShow: { value: 0 }, uGrow: { value: 0 }, uEnd: { value: 0 }, uOk: { value: 1 },

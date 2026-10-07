@@ -1,90 +1,118 @@
-// J: a gob of something not of this world, shot at the post you are looking at (any post: f0ck's, and
-// the dimensions built on it). It flies wobbling, lands with a splat, silently, and clings to the screen: a
-// glistening jelly, almost clear, faintly green where it is thick, catching the light, that jiggles a
-// while and slowly runs down the screen in a few drips, each with a bead at its end, as far as the
-// bottom edge. After a while it dries away. Missing every post, it arcs off and is gone.
+// J: a string of something not of this world, shot at the post you are looking at (any post: f0ck's, and
+// the dimensions built on it). It flies as a thin wobbling thread, lands silently, and clings to the screen
+// as a strand flung out from where it struck: liquid silver, mirror-bright, beading here and there along
+// its length as a thread of it does. Then it flows down the screen, each part of it at its own pace, a
+// faint trail left behind, drips running on ahead with beads at their ends, never past the bottom edge
+// (there it pools). After a while it dries away. Missing every post, it arcs off and is gone.
 //
 // It clings to the screen, not to the place: a post drifting, or opened wide, takes its goo along.
 //
-// Never the same amount twice: mostly a fair gob, now and then a great one, coming out in two or three
-// spurts. It comes from a store that runs low: four or five shots empty it, the last ones less and less,
-// and then nothing comes until it has gathered again, slowly, after a rest.
+// One shot, one strand, never quite the same. It comes from a store that runs low: ten or so shots empty
+// it, the last ones less and less, and then nothing comes until it has gathered again, slowly, after a rest.
 import * as THREE from "three";
 
-const SPEED = 2200;        // the gob's flight, units a second
+const SPEED = 2200;        // the shot's flight, units a second
 const REACH = 9000;        // as far as it can be shot at a post
 const STAYS = 32, DRIES = 7; // seconds it clings, then dries away
-const MOST = 24;           // splats at once (the oldest goes first)
-const SIZE = 0.3;          // a splat's width, against its post's
+const MOST = 40;           // strands at once (the oldest goes first)
+const LENGTH = 0.13;       // a strand's length, against its post's width
+const THICK = 0.007;       // and its thickness
 const OFF = 0.8;           // how far in front of the screen it lies (it is on it, not in it)
-const COST = 0.27;         // of a full store, what a fair shot (amount 1) takes
+const COST = 0.1;          // of a full store, what a fair shot (amount 1) takes
 const REFILL = 40, REST = 2.5; // seconds to gather a full store again, once it has rested this long
 
 const JELLY = /* glsl */ `
-// the goo itself, in the splat's own units: a lobed blob, droplets round it, drips running down
-uniform float uTime, uAge, uR, uShow, uDripMax;
-uniform vec4 uLobes;                   // phases of its edge's lobes, and a seed
-uniform vec4 uDrops[8];                // the droplets: x, y, radius, -
-uniform vec4 uDrips[4];                // the drips: x, how far at most, how wide, how slow
-uniform int uDropN, uDripN;            // how many of each (more goo, more of them)
+// the goo itself, in the strand's own units (where it struck at 0): a thin thread flung out along uAngle,
+// thicker where it struck, bending a little, beads along it, flowing down, drips running on from it
+uniform float uAge, uW, uL, uBend, uAngle, uSeed, uShow;
+uniform float uFlow, uSlow;            // how far it flows down at most, and how slowly
+uniform vec4 uRect;                    // the screen's edges about where it struck: left, right, bottom, top
+uniform vec4 uBeads[4];                // the beads: where along it (0 to 1), how big (of its thickness), -, -
+uniform vec4 uDrips[2];                // the drips: where along it they hang from, how far at most, how slow, -
+uniform int uBeadN, uDripN;            // how many of each
 varying vec2 vP;
 float smin(float a, float b, float k) { float h = clamp(.5 + .5 * (b - a) / k, 0., 1.); return mix(b, a, h) - k * h * (1. - h); }
-float seg(vec2 p, vec2 a, vec2 b, float r) { vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0., 1.); return length(pa - ba * h) - r; }
+float seg(vec2 p, vec2 a, vec2 b, float r) { vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0., 1.); return length(pa - ba * h) - r; }
+// a point on the strand, f of the way along it, as far as it has been flung out yet: where it was laid
+vec2 laid(float f, float ext) {
+  float wobble = exp(-uAge * 2.5) * .05 * sin(uAge * 19. + f * 7.) * sin(3.14159 * f);
+  float y = (uBend * sin(3.14159 * f) + .03 * sin(f * 9. + uSeed * 6.) + wobble) * uL;
+  vec2 q = vec2(mix(-.1, 1., f) * uL, y) * ext;
+  float c = cos(uAngle), s = sin(uAngle);
+  return vec2(c * q.x - s * q.y, s * q.x + c * q.y);
+}
+// and where it is now, flowed down: each part at its own pace, gathering, running, slowing; at the
+// screen's bottom edge it stops
+vec2 along(float f, float ext) {
+  vec2 q = laid(f, ext);
+  float fall = uFlow * (1. - exp(-max(uAge - .6, 0.) / uSlow)) * (.55 + .45 * sin(f * 4.7 + uSeed * 11.));
+  q.y = max(q.y - fall, min(q.y, uRect.z + uW * 1.5));
+  return q;
+}
 float goo(vec2 p) {
-  float t = uTime, age = uAge;
-  // it lands with a pop, and goes on jiggling, less and less
-  float pop = 1. - exp(-age * 14.) * cos(age * 22.);
-  float jiggle = exp(-age * 1.2) * .1 * sin(age * 17.) + .025 * sin(t * 3.1 + uLobes.w * 6.);
-  float r = uR * (.4 + .6 * pop) * (1. + jiggle);
-  float a = atan(p.y, p.x);
-  float edge = r * (1. + .13 * sin(3. * a + uLobes.x) + .08 * sin(5. * a + uLobes.y) + .05 * sin(9. * a + uLobes.z + t * .7));
-  float d = length(p * vec2(1. - jiggle * .5, 1. + jiggle * .5)) - edge;
-  for (int i = 0; i < 8; i++) if (i < uDropN) d = smin(d, length(p - uDrops[i].xy * pop) - uDrops[i].z * (1. + jiggle), uR * .12);
-  // drips: they gather, run, and slow, beads at their ends; none further than the screen goes
+  float ext = 1. - exp(-uAge * 16.); // (it strikes, and is flung out in a blink)
+  const float STRUCK = .0909;        // (where along it it struck: its 0)
+  float d = length(p - along(STRUCK, ext)) - uW * (1. + .5 * ext); // where it struck: a little more of it there
+  d = smin(d, seg(p, laid(STRUCK, ext), along(STRUCK, ext), uW * .18), uW * .3); // (and the trail it leaves, flowing)
+  vec2 a = along(0., ext);
+  for (int i = 1; i <= 6; i++) {
+    float f = float(i) / 6.;
+    vec2 b = along(f, ext);
+    d = smin(d, seg(p, a, b, uW * mix(.9, .4, f)), uW * .5); // (thinning towards its end)
+    a = b;
+  }
   for (int i = 0; i < 4; i++) {
+    if (i >= uBeadN) break;
+    float f = uBeads[i].x;
+    d = smin(d, length(p - along(f, ext)) - uW * uBeads[i].y * ext, uW * .6);
+    d = smin(d, seg(p, laid(f, ext), along(f, ext), uW * .15), uW * .3);
+  }
+  // drips: they gather, run, and slow, beads at their ends; none further than the screen goes
+  for (int i = 0; i < 2; i++) {
     if (i >= uDripN) break;
     vec4 q = uDrips[i];
-    float run = min(q.y * (1. - exp(-max(age - .4, 0.) / q.w)), uDripMax);
-    vec2 from = vec2(q.x, -uR * .5), to = vec2(q.x + .08 * uR * sin(run / uR * 2.3 + q.w), -uR * .5 - run);
-    float w = q.z * (1. + .15 * sin(t * 4. + q.w * 3.));
-    d = smin(d, seg(p, from, to, w * .6), uR * .18);
-    d = smin(d, length(p - to) - w * (1. + .5 * smoothstep(0., uR, run)), uR * .1);
+    vec2 from = along(q.x, ext);
+    float run = min(q.y * (1. - exp(-max(uAge - .5, 0.) / q.z)), max(from.y - uRect.z - uW * 2., 0.));
+    vec2 to = from + vec2(.15 * uW * sin(run / uW * .4 + q.z), -run);
+    d = smin(d, seg(p, from, to, uW * .35), uW * .5);
+    d = smin(d, length(p - to) - uW * (.4 + .5 * smoothstep(0., uW * 6., run)), uW * .4);
   }
   return d;
 }
 void main() {
+  if (vP.x < uRect.x || vP.x > uRect.y || vP.y < uRect.z || vP.y > uRect.w) discard; // (only on the screen)
   float d = goo(vP);
-  float h = clamp(-d / (uR * .32), 0., 1.);    // how thick: a dome, thin at its edge
+  float h = clamp(-d / (uW * .7), 0., 1.);    // how thick: rounded, thin at its edge
   if (h <= 0.) discard;
   float dome = sqrt(h);
-  // its surface, for the light on it: rounding off towards its edges, as a bead of jelly does
-  float e = uR * .04;
+  // its surface: a rounded thread, upright along its middle, turning away towards its edges
+  float e = uW * .12;
   vec2 grad = vec2(goo(vP + vec2(e, 0.)) - goo(vP - vec2(e, 0.)), goo(vP + vec2(0., e)) - goo(vP - vec2(0., e))) / (2. * e);
-  vec3 n = normalize(vec3(grad * .9 * (1. - smoothstep(.3, .85, h)) / max(dome * 2.2, .25), 1.)); // (its thick middle lies flat)
-  vec3 l = normalize(vec3(-.45, .65, .6)), v = vec3(0., 0., 1.);
-  float spec = pow(max(dot(reflect(-l, n), v), 0.), 48.) + .35 * pow(max(dot(reflect(-normalize(vec3(.5, -.2, .8)), n), v), 0.), 18.);
-  float rim = smoothstep(0., .12, h) * (1. - smoothstep(.12, .45, h)); // its meniscus, where it thins out
+  vec3 n = normalize(vec3(grad * sqrt(max(1. - h * h, 0.)), h + .05));
+  vec3 v = vec3(0., 0., 1.), r = reflect(-v, n);
+  // silver: what it mirrors, roughly a bright sky above and the dark below, a glint off the side
+  vec3 env = mix(vec3(.16, .17, .19), vec3(.94, .95, .98), smoothstep(-.3, .4, r.y)) + vec3(.35) * smoothstep(.55, .95, r.x);
+  float spec = pow(max(dot(r, normalize(vec3(-.45, .65, .6))), 0.), 60.) + .4 * pow(max(dot(r, normalize(vec3(.5, -.2, .8))), 0.), 20.);
   float fresnel = pow(1. - n.z, 2.);
-  vec3 tint = mix(vec3(.78, 1., .86), vec3(.5, .95, .62), dome);       // clear, greening where it is thick
-  vec3 c = tint * (.35 + .4 * dome) + vec3(.7, 1., .9) * fresnel * .6 + vec3(1.) * spec;
-  float alpha = (.05 + .13 * dome + .22 * rim + .45 * fresnel) * smoothstep(0., .04, h) + spec * .9; // (almost clear: the screen shows through)
+  vec3 c = env * vec3(.84, .86, .9) * (.8 + .2 * dome) + vec3(.9, .93, 1.) * fresnel * .25 + vec3(1.) * spec;
+  float alpha = (.8 + .15 * fresnel) * smoothstep(0., .08, h) + spec; // (a metal: the screen does not show through)
   gl_FragColor = vec4(c, clamp(alpha, 0., .95) * uShow);
 }`;
 const JELLY_VERT = /* glsl */ `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`;
 
-// the gob in flight: a wobbling bead of the same jelly
+// the shot in flight: a thread of the same silver, drawn out along its way
 const GOB_VERT = /* glsl */ `varying vec3 vN, vV; void main(){ vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position, 1.); vV = -mv.xyz; gl_Position = projectionMatrix * mv; }`;
 const GOB_FRAG = /* glsl */ `uniform float uShow; varying vec3 vN, vV;
 void main(){
-  vec3 n = normalize(vN), v = normalize(vV);
-  float fresnel = pow(1. - max(dot(n, v), 0.), 2.5);
-  float spec = pow(max(dot(reflect(-normalize(vec3(-.4, .7, .6)), n), v), 0.), 40.);
-  gl_FragColor = vec4(vec3(.62, 1., .74) * (.3 + .7 * fresnel) + spec, (.22 + .6 * fresnel + spec) * uShow);
+  vec3 n = normalize(vN), v = normalize(vV), r = reflect(-v, n);
+  vec3 env = mix(vec3(.16, .17, .19), vec3(.94, .95, .98), smoothstep(-.3, .4, r.y));
+  float spec = pow(max(dot(r, normalize(vec3(-.4, .7, .6))), 0.), 40.);
+  gl_FragColor = vec4(env * vec3(.84, .86, .9) + spec, .95 * uShow);
 }`;
 
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 const ray = new THREE.Raycaster(), CENTRE = new THREE.Vector2();
-const tmp = new THREE.Vector3(), normal = new THREE.Vector3(), xAxis = new THREE.Vector3(), yAxis = new THREE.Vector3(), basis = new THREE.Matrix4(), normals = new THREE.Matrix3();
+const tmp = new THREE.Vector3(), ahead = new THREE.Vector3(), turn = new THREE.Quaternion(), normal = new THREE.Vector3(), xAxis = new THREE.Vector3(), yAxis = new THREE.Vector3(), basis = new THREE.Matrix4(), normals = new THREE.Matrix3();
 const UP = new THREE.Vector3(0, 1, 0), GRAVITY = new THREE.Vector3(0, -900, 0);
 
 export class Goo {
@@ -93,7 +121,7 @@ export class Goo {
     Object.assign(this, { scene, world, muzzle, storeEl });
     this.gobs = [];   // in flight
     this.splats = []; // clinging
-    this.gobGeometry = new THREE.IcosahedronGeometry(7, 3);
+    this.gobGeometry = new THREE.IcosahedronGeometry(3, 2);
     this.store = 1;   // 0 to 1: what there is to shoot
     this.rested = 0;  // seconds since the last shot
     this.fullFor = Infinity; // seconds it has been full (the bar shown a moment more, then gone)
@@ -117,12 +145,11 @@ export class Goo {
     el.classList.toggle("low", this.store < COST); // (less than a fair shot left)
   }
 
-  // Shot from you at what the crosshair is on: a post's screen, if any is. How much comes: never the
-  // same, now and then a great deal, and less as the store runs low. Its amount (1 a fair one), or 0:
-  // nothing left.
+  // Shot from you at what the crosshair is on: a post's screen, if any is. How much comes: never quite
+  // the same, and less as the store runs low. Its amount (1 a fair one), or 0: nothing left.
   shoot(camera) {
-    if (this.store < 0.04) return 0;
-    let amount = rand(0.5, 1.25) * (Math.random() < 0.2 ? rand(1.5, 1.9) : 1);
+    if (this.store < 0.02) return 0;
+    let amount = rand(0.75, 1.2);
     amount = Math.min(amount * (0.7 + 0.3 * this.store), this.store / COST); // (running low: less, the last of it all there is)
     this.store = Math.max(0, this.store - amount * COST);
     this.rested = 0;
@@ -139,31 +166,19 @@ export class Goo {
       const side = normal.copy(hit.face.normal).applyMatrix3(normals).dot(tmp.copy(camera.position).sub(hit.point)) > 0 ? 1 : -1;
       target = { mesh: hit.object, at: hit.object.worldToLocal(hit.point.clone()), normal: hit.face.normal.clone(), side };
     }
-    // a great one comes in spurts, one after another, each landing a little off the first
-    const spurts = amount > 1.6 ? 3 : amount > 1.15 ? 2 : 1;
-    const shares = spurts === 1 ? [1] : spurts === 2 ? [0.7, 0.3] : [0.55, 0.28, 0.17];
-    let delay = 0;
-    shares.forEach((share, i) => {
-      const gob = { amount: amount * share, delay, age: 0, spin: rand(0, 6), camera };
-      if (target) {
-        gob.target = i === 0 ? target : { ...target, at: target.at.clone().add(tmp.set(rand(-0.06, 0.06), rand(-0.06, 0.03), 0)) };
-        gob.target.at.x = THREE.MathUtils.clamp(gob.target.at.x, -0.47, 0.47);
-        gob.target.at.y = THREE.MathUtils.clamp(gob.target.at.y, -0.45, 0.47);
-        gob.flight = Math.max(0.08, hit.distance / SPEED);
-      }
-      this.gobs.push(gob);
-      delay += rand(0.08, 0.15);
-    });
+    const gob = { amount, age: 0, spin: rand(0, 6), camera };
+    if (target) Object.assign(gob, { target, flight: Math.max(0.08, hit.distance / SPEED) });
+    this.gobs.push(gob);
     return amount;
   }
 
-  // a gob leaving you: from where shots leave, now
+  // a shot leaving you: from where shots leave, now
   launch(gob) {
     const camera = gob.camera;
     gob.mesh = new THREE.Mesh(this.gobGeometry, new THREE.ShaderMaterial({
       uniforms: { uShow: { value: 1 } }, vertexShader: GOB_VERT, fragmentShader: GOB_FRAG, transparent: true, depthWrite: false,
     }));
-    gob.size = 0.45 + 0.6 * Math.sqrt(gob.amount);
+    gob.size = 0.8 + 0.3 * gob.amount;
     gob.from = this.muzzle(camera).clone();
     gob.mesh.position.copy(gob.from);
     this.scene.add(gob.mesh);
@@ -176,26 +191,28 @@ export class Goo {
     if (this.rested > REST) this.store = Math.min(1, this.store + dt / REFILL);
     this.showStore(dt);
     for (const gob of [...this.gobs]) {
-      if ((gob.delay -= dt) > 0) continue; // (a spurt still to come)
       if (!gob.mesh) this.launch(gob);
       gob.age += dt;
       const m = gob.mesh, k = gob.size;
-      // it wobbles as it goes
-      m.scale.set(k * (1 + 0.25 * Math.sin(gob.age * 31 + gob.spin)), k * (1 + 0.25 * Math.sin(gob.age * 27 + 2)), k * (1 + 0.25 * Math.sin(gob.age * 23 + 4)));
-      m.rotation.y += dt * 5;
+      // a thread drawn out along its way, wobbling as it goes (drawn out more the first moment, as it leaves)
+      const wobble = 1 + 0.2 * Math.sin(gob.age * 31 + gob.spin);
+      m.scale.set(k * wobble, k / wobble, k * (10 + 6 * Math.exp(-gob.age * 12)));
+      ahead.copy(m.position);
       if (gob.target) {
         // (to where that place on the post is now, in a slight arc)
         const t = Math.min(1, gob.age / gob.flight), to = this.onPost(gob.target, tmp);
         if (!to) { this.drop(gob); continue; } // (its post gone on the way)
         const arc = Math.sin(Math.PI * t) * gob.from.distanceTo(to) * 0.06;
         m.position.copy(gob.from).lerp(to, t).y += arc;
-        if (t >= 1) { this.splat(gob.target, gob.amount); this.drop(gob); }
+        if (t >= 1) { this.splat(gob.target, gob.amount, camera); this.drop(gob); continue; }
       } else {
         gob.velocity.addScaledVector(GRAVITY, dt);
         m.position.addScaledVector(gob.velocity, dt);
         m.material.uniforms.uShow.value = 1 - THREE.MathUtils.smoothstep(gob.age, 0.8, 1.4);
-        if (gob.age > 1.4) this.drop(gob);
+        if (gob.age > 1.4) { this.drop(gob); continue; }
       }
+      // (lying along the way it goes)
+      if (m.position.distanceToSquared(ahead) > 1e-6) m.lookAt(ahead.sub(m.position).multiplyScalar(-1).add(m.position));
     }
     for (const s of [...this.splats]) {
       s.age += dt;
@@ -215,29 +232,29 @@ export class Goo {
     return target.mesh.localToWorld(out.copy(target.at));
   }
 
-  // the gob arrived: the goo spread on the screen there, on the side it was shot at, as much as it was
-  // (more: wider, more droplets flung round it, more drips and further down)
-  splat(target, amount = 1) {
+  // the shot arrived: a strand on the screen there, on the side it was shot at, flung out from where it
+  // struck, much as it came (more: longer, thicker, more beads and drips), to flow down from there
+  splat(target, amount = 1, camera) {
     const post = target.mesh, group = post.parent;
-    const width = post.scale.x * SIZE * THREE.MathUtils.clamp(0.45 + 0.55 * amount, 0.3, 1.5), r = width * 0.3;
-    // how far it may run: down to the screen's bottom edge (the post's own -0.5), from where it landed
-    const dripMax = Math.max(0, (target.at.y + 0.5) * post.scale.y - r * 0.9);
-    const top = r * 2, bottom = -(r * 0.6 + dripMax + r * 0.4);
-    const geometry = new THREE.PlaneGeometry(width * 1.8, top - bottom, 1, 1).translate(0, (top + bottom) / 2, 0);
-    const lobes = new THREE.Vector4(rand(0, 6), rand(0, 6), rand(0, 6), Math.random());
-    const dropN = THREE.MathUtils.clamp(Math.round(amount * 3.2 + rand(-1, 1)), 0, 8), dripN = THREE.MathUtils.clamp(Math.round(amount * 2.4 + rand(-0.6, 0.6)), 1, 4);
-    const reach = THREE.MathUtils.clamp(0.25 + 0.6 * amount, 0.15, 1); // (how far down its longest drip goes, of the way to the edge)
-    const drops = Array.from({ length: 8 }, () => {
-      const a = rand(0, Math.PI * 2), d = rand(1.25, 2.1) * r;
-      return new THREE.Vector4(Math.cos(a) * d, Math.sin(a) * d * 0.8 + r * 0.15, rand(0.08, 0.22) * r, 0);
-    });
-    const drips = Array.from({ length: 4 }, (_, i) => new THREE.Vector4(
-      rand(-0.75, 0.75) * r, dripMax * reach * (i === 0 ? rand(0.75, 1) : rand(0.2, 0.85)), rand(0.1, 0.2) * r, rand(2.5, 7),
-    ));
+    const L = post.scale.x * LENGTH * rand(0.7, 1.25) * (0.6 + 0.4 * amount), w = post.scale.x * THICK * (0.7 + 0.3 * amount);
+    // the way it is flung: the way the shot came, across the screen, if it came slanting; else any way
+    // (seen from the back of the screen, the post's x runs the other way)
+    const side = target.side, along = camera.getWorldDirection(tmp).applyQuaternion(post.getWorldQuaternion(turn).invert());
+    const angle = Math.hypot(along.x, along.y) > 0.2 ? Math.atan2(along.y, along.x * side) + rand(-0.4, 0.4) : rand(-Math.PI, Math.PI);
+    // the screen's edges, about where it struck (the post's own -0.5 to 0.5)
+    const x = target.at.x * side, rect = new THREE.Vector4((-0.5 - x) * post.scale.x, (0.5 - x) * post.scale.x, (-0.5 - target.at.y) * post.scale.y, (0.5 - target.at.y) * post.scale.y);
+    const beadN = THREE.MathUtils.clamp(Math.round(amount * 2.2 + rand(-1, 1)), 0, 4), dripN = Math.random() < 0.4 * amount ? 2 : 1;
+    const beads = Array.from({ length: 4 }, () => new THREE.Vector4(rand(0.2, 0.95), rand(1.1, 1.8), 0, 0));
+    const drips = Array.from({ length: 2 }, () => new THREE.Vector4(rand(0, 0.8), L * rand(0.5, 1.4), rand(3, 8), 0));
+    const flow = L * rand(0.8, 1.8); // (how far it flows down at most)
+    const half = L * 1.25 + w * 4, top = Math.min(half, rect.w), bottom = Math.max(-(half + flow + L * 1.4 + w * 3), rect.z);
+    const geometry = new THREE.PlaneGeometry(half * 2, top - bottom, 1, 1).translate(0, (top + bottom) / 2, 0);
     const material = new THREE.ShaderMaterial({
       uniforms: {
-        uTime: this.world.G.uTime, uAge: { value: 0 }, uR: { value: r }, uShow: { value: 1 }, uDripMax: { value: dripMax },
-        uLobes: { value: lobes }, uDrops: { value: drops }, uDrips: { value: drips }, uDropN: { value: dropN }, uDripN: { value: dripN },
+        uAge: { value: 0 }, uW: { value: w }, uL: { value: L }, uBend: { value: rand(-0.15, 0.15) },
+        uAngle: { value: angle }, uSeed: { value: Math.random() }, uShow: { value: 1 }, uRect: { value: rect },
+        uFlow: { value: flow }, uSlow: { value: rand(5, 10) },
+        uBeads: { value: beads }, uDrips: { value: drips }, uBeadN: { value: beadN }, uDripN: { value: dripN },
       },
       vertexShader: JELLY_VERT, fragmentShader: JELLY, transparent: true, depthWrite: false,
       polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,

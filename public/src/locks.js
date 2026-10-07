@@ -16,6 +16,13 @@ export class Locks {
     this.forget = new Set();  // the plugins whose password is not remembered: asked every time (VVOID_REMEMBER unset)
     this.leaving = new Map(); // plugin name -> what it does when its session is let go (see onLeave)
     this.keeping = new Map(); // plugin name -> while it answers true, its session outlives leaving its dimensions (see keep)
+    // and a reload: the plugins whose session was being kept as the page went (a call) are not let go as
+    // it loads again (see load), so what kept it may come back (the plugin lets it go itself, if it does not)
+    try { this.keptOver = new Set(JSON.parse(sessionStorage.getItem("vvoid.kept")) ?? []); sessionStorage.removeItem("vvoid.kept"); } catch { this.keptOver = new Set(); }
+    addEventListener("pagehide", () => {
+      const kept = [...this.keeping].filter(([name, fn]) => this.open.get(name) && fn()).map(([name]) => name);
+      try { sessionStorage.setItem("vvoid.kept", JSON.stringify(kept)); } catch { /* private mode: let go as it loads again */ }
+    });
     this.gate = Object.assign(document.createElement("div"), { id: "lockGate" });
     this.gate.innerHTML = `<div class="gate-box"><h2></h2><input type="password" autocomplete="current-password" spellcheck="false"><p class="why"></p><p class="hint">the password · enter to go in · esc to stay</p></div>`;
     document.body.append(this.gate);
@@ -28,13 +35,19 @@ export class Locks {
     this.gate.addEventListener("mousedown", (e) => { if (e.target !== this.input) { e.preventDefault(); this.input.focus(); } });
   }
   // which are locked, and whether this page is in (once, as the page loads; one not remembered is let go
-  // at once, if a session of it was left from before: it is asked every time)
+  // at once, if a session of it was left from before: it is asked every time; but for one kept as the page
+  // was reloaded, see keptOver)
   async load() {
     const names = await fetch("/api/locks").then((r) => (r.ok ? r.json() : [])).catch(() => []);
     await Promise.all(names.map(async (name) => {
       await this.check(name);
-      if (this.forget.has(name) && this.open.get(name)) await this.leave(name);
+      if (this.forget.has(name) && this.open.get(name) && !this.keptOver.has(name)) await this.leave(name);
     }));
+  }
+  // the plugins installed: one kept over the reload that is not there (to let it go) is let go now
+  settle() {
+    for (const name of this.keptOver) if (!this.keeping.has(name)) this.left(name);
+    this.keptOver.clear();
   }
   async check(name) {
     const s = await fetch(`/plugins/${name}/lock`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
@@ -47,7 +60,8 @@ export class Locks {
   // what the plugin does when its session is let go (its own state of being in, dropped)
   onLeave(name, fn) { this.leaving.set(name, fn); }
   // what keeps its session as you leave its dimensions (something of it taken along: discord's call);
-  // once that is over, out of them still, the plugin calls left(name) itself
+  // once that is over, out of them still, the plugin calls left(name) itself (and so too after a reload
+  // that kept it, once what kept it has not come back)
   keep(name, fn) { this.keeping.set(name, fn); }
   // left its dimensions: a password not remembered is let go, to be asked again next time
   left(name) {

@@ -933,22 +933,22 @@ function stopFlying() {
 // the portal the crosshair is on, if any: in the hub, one round the clock; in a plugin's dimension, its
 // way out (a plugin's exit hook: { at, label, hole? }, or several, while you are in its dimension)
 // (what each is called, under the crosshair while it is on one: see showPortalName)
-const PORTAL_HOLES = { zone: 112 }; // (how wide a ring's dark sphere is, where it is not the usual)
-const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", player: "the player", files: "your files", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen", discord: "discord", bhop: "bhop", mania: "mania" };
+const PORTAL_HOLES = { zone: 112, pt: 220 }; // (how wide a ring's dark sphere is, where it is not the usual)
+const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", player: "the player", files: "your files", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen", discord: "discord", watch: "watch together", bhop: "bhop", mania: "mania", pt: "p.t." };
 function portalAimedAt() {
   // (each with the size of its dark sphere: the crosshair on that, and nowhere round it; the way back
   // floating beside you, wherever you are)
   // (on foot, as in bhop, not when you have walked or hopped into it: it fills the view then, and the
   // click is the knife's, not a way back; from a step away it is clicked as ever)
-  const intoIt = back.afoot && back.position.distanceTo(camera.position) < BACK_HOLE * 6;
-  const spots = back.ready && !intoIt ? [{ name: "back", label: back.label, at: back.position, hole: BACK_HOLE }] : [];
+  const intoIt = back.afoot && back.position.distanceTo(camera.position) < BACK_HOLE * 6 * back.size;
+  const spots = back.ready && !intoIt ? [{ name: "back", label: back.label, at: back.position, hole: BACK_HOLE * back.size }] : [];
   if (world.realm === "void") spots.push(...portalNames().map((name) => ({ name, at: new THREE.Vector3(...hubSlot(name).at), hole: PORTAL_HOLES[name] ?? 104 })));
   else spots.push(...[].concat(hook("exit") ?? []).map((exit) => ({ name: "exit", hole: 104, ...exit })));
   const ahead = camera.getWorldDirection(new THREE.Vector3());
   let best = null, bestOff = 0;
   for (const spot of spots) {
     const to = spot.at.clone().sub(camera.position), distance = to.length();
-    if (distance < 1 || distance > 9000) continue;
+    if (distance < 1 || distance > camera.far * 0.97) continue; // (as far as anything is seen: p.t.'s door stands far out, see PORTAL_REACH)
     const off = to.normalize().angleTo(ahead) - Math.atan(spot.hole / distance); // (below 0: on its sphere)
     if (off < bestOff) { bestOff = off; best = spot; }
   }
@@ -997,8 +997,11 @@ function showPanelsFor() {
   }
 }
 let portalNameEl = null;
+// (portals that are not named under the crosshair: p.t.'s is only a door, and says nothing)
+const PORTAL_UNNAMED = new Set(["pt"]);
 function showPortalName() {
-  const portal = started && !map.open && !portalFlight ? portalAimedAt() : null;
+  const aimed = started && !map.open && !portalFlight ? portalAimedAt() : null;
+  const portal = aimed && !PORTAL_UNNAMED.has(aimed.name) ? aimed : null;
   if (!portalNameEl && !portal) return;
   if (!portalNameEl) {
     portalNameEl = Object.assign(document.body.appendChild(document.createElement("div")), { id: "hubPortalName" });
@@ -1222,6 +1225,8 @@ function frame(now) {
   $("crosshair").classList.toggle("still", started && performance.now() - stirred > STILL * 1000);
   back.touring = back.afoot = false; // (fly says so again, while a plugin flies you; a plugin moving you on foot, in its update: see back.js)
   back.post = null; // (and a plugin keeping it at a place, in its update too)
+  back.terrified = false; // (and a plugin frightening it: see back.js's feel)
+  back.pin = null; back.size = 1; // (and a plugin keeping it exactly somewhere, and its size: see back.js)
   if (!started) { idle(elapsed); for (const p of plugins) p.idle?.(dt); } // (what they have in the hub moves behind the start screen too)
   else if (!locks.asking && !hook("busy")) fly(dt); // something of a plugin's is open (a piece, a game): stay where you are
   pushOut(dt); // (turned away from a locked portal: see lockedOut)
@@ -1350,5 +1355,6 @@ for (const url of pluginUrls) {
     forming.done(name, false);
   }
 }
+locks.settle(); // (a session kept over a reload by a plugin that is gone: let go)
 panelsFor = null; // (their windows are there now: which are shown where, worked out again)
 showHelp();

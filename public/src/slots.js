@@ -43,7 +43,9 @@ export class Slots {
   }
   async ask() {
     clearTimeout(this.timer);
-    const res = await fetch(`/api/slots?id=${encodeURIComponent(this.id)}${this.joined ? "&join=1" : ""}`, { cache: "no-store" }).catch(() => null);
+    // (given up on after a while: behind the browser's few connections to vvoid, all busy with places being
+    // dreamt, an ask could wait a minute; the next one goes out on time instead)
+    const res = await fetch(`/api/slots?id=${encodeURIComponent(this.id)}${this.joined ? "&join=1" : ""}`, { cache: "no-store", signal: AbortSignal.timeout(EVERY * 1000) }).catch(() => null);
     if (res?.status === 404) return this.heard({ max: 0 }); // (a server without slots: as if there were no limit)
     const data = res?.ok && (await res.json().catch(() => null));
     if (data) this.heard(data);
@@ -61,14 +63,19 @@ export class Slots {
       this.come();
     }
   }
-  // asked to come in: true when it may now; else it waits in line, and come() is called when it may
+  // Asked to come in: true when it may now; else it waits in line, and come() is called when it may. Unless
+  // the void is known to be full (the last answer said so), it goes in at once and its slot is taken on the
+  // way: waiting for the server's answer first, the start screen stayed while that ask waited behind the
+  // browser's connections (busy with places being dreamt), sometimes for a minute.
   enter() {
     if (this.in) return true;
-    this.wanted = true;
     if (!this.joined) {
       this.joined = true;
       this.ask();
     }
+    const { inside = 0, queued = 0 } = this.counts ?? {};
+    if (!this.max || (inside < this.max && !queued)) return (this.in = true);
+    this.wanted = true;
     return false;
   }
   show() {
