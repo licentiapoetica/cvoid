@@ -6,9 +6,11 @@
 // its plugin is: some build their ring only once they have heard from their source), it opens out from
 // the middle to meet the motes on the circle, as what stood in for it fades. One that never comes (its
 // plugin could not be loaded, or long after it was, still no ring) eases apart instead: its motes drift
-// off outwards and fade.
+// off outwards and fade. But one whose source does not answer (unreachable(name): see grey.js) is not given
+// up on: it forms on, drawn grey, until its plugin hears from its source and puts up its ring.
 import * as THREE from "three";
 import { hubSlot, PORTAL_FORMS_ITSELF } from "./constants.js";
+import { materialize } from "./reach.js";
 
 const RING = 120, HOLE = 104;  // as the plugins' own rings (see theirs)
 const MOTES = 140;             // drawn in to each
@@ -19,7 +21,6 @@ const PART = 2.2;              // seconds, from its plugin given up on to gone
 const NEAR = 450;              // anything new put this near its place, once its plugin is there, is its ring (and is opened out)
 const GIVE_UP = 40;            // seconds after its plugin is there, still no ring where it would be seen: it never comes
                                // (some show theirs only past the start screen: those form on behind it, and open as you come in)
-const SEEN = 6000;             // drawn only this near (as the plugins' rings are)
 
 // each mote: its own way round and its own moment, falling in from far out to the circle, then again
 const MOTE_VERT = /* glsl */ `uniform float uTime, uPx, uShow, uEnd, uOk; attribute float aAngle, aSeed;
@@ -100,6 +101,7 @@ export class Forming {
     this.world = world;
     this.rings = new Map(); // name → { group, uniforms, age, waited: null | seconds since its plugin came, end: null | 0..1 from its ring come (or not), opened }
     this.known = new Set(); // what was in the scene before any plugin (none of it a ring)
+    this.unreachable = () => false; // (whether a plugin's source does not answer: set by main.js, see grey.js)
   }
 
   // one at each of these places round the clock, forming until done(name)
@@ -173,9 +175,11 @@ export class Forming {
       u.uShow.value = THREE.MathUtils.smoothstep(ring.age, 0, SHOW);
       u.uGrow.value = 1 - Math.exp((-3 * ring.age) / GATHER);
       // its plugin there: its ring looked for (and, given up on, it eases apart)
-      const seen = this.world.realm === "void" && ring.group.position.distanceTo(camera.position) < SEEN;
+      // (drawn only as near as the plugins' rings are, and coming into being as they do: see reach.js)
+      const seen = this.world.realm === "void" && materialize(ring.group, ring.group.position.distanceTo(camera.position), dt);
       if (ring.end === null && ring.waited !== null) {
         if (started && seen) ring.waited += dt;
+        if (this.unreachable(name)) ring.waited = 0; // (waited on as long as its source does not answer)
         if (this.arrived(ring).length) this.end(ring, true);
         else if (ring.waited > GIVE_UP) this.end(ring, false);
       }

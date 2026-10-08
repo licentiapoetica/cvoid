@@ -7,13 +7,17 @@
 // only once a minute). A page closing says so (&leave=1): it is let go soon after (SOON), unless it is
 // back by then (a reload). Nothing is held open between asks: every tab keeps the browser's few
 // connections to vvoid's address free for the rest. An admin (see admin.js) is in at once, and takes no slot.
+// One address (see whoIs in server.js) holds at most EACH slots and places in line together (a tab each):
+// a page past that is only looking on, so that no one fills the void, or the line, alone.
 const HELD = 150_000; // ms a slot, or a place in line, is kept without the page asking
 const SOON = 15_000;  // ms, once the page has closed (in case it is a reload)
+const EACH = 4;       // slots and places in line one address may hold
 
-export function makeSlots(max, admin) {
+export function makeSlots(max, admin, whoIs) {
   max = Number.isInteger(max) && max > 0 ? max : 0;
   const inside = new Map(); // id -> kept until (ms)
   const queue = new Map();  // id -> kept until (ms), first in line first (a Map keeps its order)
+  const whose = new Map();  // id -> the address holding it
   let made = 0;
   const fresh = () => `s${Date.now().toString(36)}${(made++).toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
@@ -21,6 +25,7 @@ export function makeSlots(max, admin) {
   const sweep = () => {
     const now = Date.now();
     for (const kept of [inside, queue]) for (const [id, until] of kept) if (until < now) kept.delete(id);
+    for (const id of whose.keys()) if (!inside.has(id) && !queue.has(id)) whose.delete(id);
     for (const id of queue.keys()) {
       if (max && inside.size >= max) break;
       inside.set(id, queue.get(id));
@@ -42,13 +47,15 @@ export function makeSlots(max, admin) {
         return send(res, 200, { ok: true }), true;
       }
       if (join && !boss) {
-        const until = Date.now() + HELD;
+        const until = Date.now() + HELD, who = whoIs(req);
+        const held = () => [...whose.values()].filter((w) => w === who).length;
         if (inside.has(id)) inside.set(id, until);
         else if (queue.has(id)) queue.set(id, until);
-        else if (!max || (inside.size < max && !queue.size)) inside.set(id, until);
-        else queue.set(id, until);
+        else if (max && held() >= EACH) { /* (as many as one address may hold: only looking on) */ }
+        else if (!max || (inside.size < max && !queue.size)) inside.set(id, until), whose.set(id, who);
+        else queue.set(id, until), whose.set(id, who);
       }
-      const place = !join ? null : boss || inside.has(id) ? 0 : [...queue.keys()].indexOf(id) + 1;
+      const place = !join ? null : boss || inside.has(id) ? 0 : queue.has(id) ? [...queue.keys()].indexOf(id) + 1 : null;
       res.setHeader("cache-control", "no-store");
       send(res, 200, { max, inside: inside.size, queued: queue.size, place, you: id, admin: boss });
       return true;

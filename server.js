@@ -26,7 +26,7 @@ const MAX_NEW = Number(process.env.VVOID_MAX_SECTORS ?? 300); // new Claude sect
 const MAX_BEATS = Number(process.env.VVOID_MAX_BEATS ?? 600); // entity turns per server run
 const CONCURRENCY = 4;
 const admin = makeAdmin(process.env.VVOID_ADMIN_KEY, { send, readBody, whoIs }); // past the line and every lock (see admin.js)
-const slots = makeSlots(Number(process.env.VVOID_MAX_SLOTS ?? 0), admin); // how many may be in the void at once (0: any number; see slots.js)
+const slots = makeSlots(Number(process.env.VVOID_MAX_SLOTS ?? 0), admin, whoIs); // how many may be in the void at once (0: any number; see slots.js)
 
 // What the chosen model accepts. Fast mode (same model, quicker output, twice the price) exists on Opus only.
 const TAKES_EFFORT = !MODEL.includes("haiku");
@@ -590,14 +590,38 @@ async function serveFile(res, root, rel) {
 
 // The address a request is from. Behind a proxy on the same machine (nginx: the request comes from loopback)
 // it is the one the proxy says: X-Real-IP, or else the last of X-Forwarded-For (the one the proxy added).
-// From anywhere else those headers are anyone's to write, and are not listened to.
+// From anywhere else those headers are anyone's to write, and are not listened to. An IPv6 address is
+// counted by its /64 (one connection is given a whole one, and could otherwise be a new visitor each try).
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 function whoIs(req) {
   const peer = req.socket.remoteAddress ?? "?";
-  if (!LOOPBACK.has(peer)) return peer;
+  if (!LOOPBACK.has(peer)) return network(peer);
   const real = String(req.headers["x-real-ip"] ?? "").trim();
   const forwarded = String(req.headers["x-forwarded-for"] ?? "").split(",").map((a) => a.trim()).filter(Boolean).at(-1);
-  return real || forwarded || peer;
+  return network(real || forwarded || peer);
+}
+function network(address) {
+  const a = address.replace(/^::ffff:(?=\d+\.\d+\.\d+\.\d+$)/i, "").replace(/%.*$/, "").toLowerCase();
+  if (!a.includes(":") || LOOPBACK.has(a)) return a;
+  const [head, tail] = a.split("::"), h = head ? head.split(":") : [], t = tail ? tail.split(":") : [];
+  const groups = tail === undefined ? h : [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t];
+  return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":")}::/64`;
+}
+
+// What one visitor (one address, as whoIs says) may ask of Claude in an hour, so that no one alone spends
+// the run's budget (VVOID_MAX_SECTORS, VVOID_MAX_BEATS) for everyone else; an admin is not counted.
+// Past it: a place is made of local noise instead, the entity and the void keep their local words.
+const PER_HOUR = { sector: 60, entity: 120, void: 60 };
+const asked = new Map(); // "kind address" -> when it asked (ms), within the hour
+function allowed(req, kind) {
+  if (admin.is(req)) return true;
+  const now = Date.now(), key = `${kind} ${whoIs(req)}`;
+  if (asked.size > 4096) for (const [k, times] of asked) if (now - times.at(-1) > 3_600_000) asked.delete(k);
+  const times = (asked.get(key) ?? []).filter((at) => now - at < 3_600_000);
+  asked.set(key, times);
+  if (times.length >= PER_HOUR[kind]) return false;
+  times.push(now);
+  return true;
 }
 
 function send(res, status, body) {
@@ -609,7 +633,7 @@ function send(res, status, body) {
 // What is vvoid's own on its address: its page and files, its plugins' files and its own API (a
 // plugin passing a whole other site through on vvoid's address leaves these alone; "/" is vvoid's
 // unless a page framed inside vvoid's goes there).
-const VVOID_PATHS = /^\/(index\.html|src\/|vendor\/|plugins\/|api\/(void|entity|sectors?|plugins|locks|slots|admin)(\/|$))/;
+const VVOID_PATHS = /^\/(index\.html|src\/|vendor\/|plugins\/|api\/(void|entity|sectors?|plugins|portals|locks|slots|admin)(\/|$))/;
 const vvoidOwns = (req, pathname) => (pathname === "/" ? req.headers["sec-fetch-dest"] !== "iframe" : VVOID_PATHS.test(pathname));
 
 // ---- plugins: optional local additions, in plugins/<name>/ (kept out of the repository) ----
@@ -619,7 +643,8 @@ const vvoidOwns = (req, pathname) => (pathname === "/" ? req.headers["sec-fetch-
 // /plugins/<name>/, and its public/client.js, if there, is loaded into the page (see main.js). Any of them
 // can be locked behind a password (see locks.js): it is given its lock, `lock.set` whether it is locked and
 // `lock.open(req)` whether a request has the session, and may return `unlocked`, routes of its own that
-// stay open without one.
+// stay open without one. And reach(ok): whether its source answers (a site it reads, an instance it
+// passes through), said as it hears from it or fails to; while it does not, its portal is drawn grey.
 const PLUGINS = path.join(here, "plugins");
 // Claude, for a plugin that has someone speak: ask(params, who) with the model and its settings filled
 // in, on the same budget of turns as the entity (ready() first: false when Claude cannot be asked)
@@ -644,6 +669,7 @@ const claude = {
 const HUB_EXTRAS = []; // what plugins have added to the hub, as Claude is told when it dreams beside it
 const serverPlugins = [], clientPlugins = [];
 const locks = new Map(); // plugin name -> its lock, for those with a password
+const unreachable = new Set(); // the plugins whose source does not answer (never said: it is taken to answer)
 // a file of a plugin's public/ folder (the page's own code: open whatever its lock)
 const publicFile = (name, rel) => {
   const root = path.join(PLUGINS, name, "public"), file = path.resolve(root, `.${path.posix.normalize(`/${rel}`)}`);
@@ -656,7 +682,12 @@ for (const entry of (await fs.readdir(PLUGINS, { withFileTypes: true }).catch(()
     const lock = makeLock(entry.name, { here, send, readBody, whoIs, admin });
     if (lock.set) locks.set(entry.name, lock);
     if (existsSync(path.join(dir, "server.js"))) {
-      const given = { send, readBody, serveFile, clip, claude, here, owns: vvoidOwns, port: PORT, host: HOST, hub: (text) => HUB_EXTRAS.push(text), lock };
+      const reach = (ok) => {
+        if (ok === unreachable.has(entry.name)) console.log(`[vvoid] ${entry.name}: ${ok ? "its source answers again" : "its source does not answer"}`);
+        if (ok) unreachable.delete(entry.name);
+        else unreachable.add(entry.name);
+      };
+      const given = { send, readBody, serveFile, clip, claude, here, owns: vvoidOwns, whoIs, isAdmin: admin.is, port: PORT, host: HOST, hub: (text) => HUB_EXTRAS.push(text), lock, reach };
       const made = await (await import(pathToFileURL(path.join(dir, "server.js")).href)).default(given);
       if (made) serverPlugins.push(made);
       lock.unlocked = made?.unlocked ?? [];
@@ -669,8 +700,11 @@ for (const entry of (await fs.readdir(PLUGINS, { withFileTypes: true }).catch(()
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, "http://localhost");
+  // (what is said is what it is; and vvoid is framed by no one else's page)
+  res.setHeader("x-content-type-options", "nosniff");
+  res.setHeader("x-frame-options", "SAMEORIGIN");
   try {
+    const url = new URL(req.url, "http://localhost");
     // a locked plugin's: the way in, or the session asked for, before the plugin is
     // (its own paths, /plugins/<name>/, and its API, /api/<name>: that has no way in, and no files)
     const ofLocked = url.pathname.match(/^\/plugins\/([\w-]+)\/(.*)$/), ofApi = url.pathname.match(/^\/api\/([\w-]+)(\/.*)?$/);
@@ -679,6 +713,7 @@ const server = http.createServer(async (req, res) => {
     for (const plugin of serverPlugins) if (await plugin.handle?.(req, res, url)) return;
     if (url.pathname === "/api/plugins") return send(res, 200, clientPlugins);
     if (url.pathname === "/api/locks") return send(res, 200, [...locks.keys()]); // (the plugins behind a password)
+    if (url.pathname === "/api/portals") return send(res, 200, { unreachable: [...unreachable] }); // (drawn grey: see grey.js)
     if (slots.handle(req, res, url, send)) return; // (who is in, and the line to come in)
     if (await admin.handle(req, res, url)) return;
     const ofPlugin = url.pathname.match(/^\/plugins\/([\w-]+)\/(.+)$/);
@@ -691,6 +726,7 @@ const server = http.createServer(async (req, res) => {
       } catch {
         return send(res, 400, "bad request");
       }
+      if (!allowed(req, "void")) return send(res, 429, "the void is quiet");
       voices++;
       try {
         return send(res, 200, await voidVoice(journey));
@@ -707,6 +743,7 @@ const server = http.createServer(async (req, res) => {
       } catch {
         return send(res, 400, "bad request");
       }
+      if (!allowed(req, "entity")) return send(res, 429, "the entity is resting");
       beats++;
       try {
         return send(res, 200, await entityBeat(journey));
@@ -750,6 +787,11 @@ const server = http.createServer(async (req, res) => {
         line({ error: "void", offline: false });
         return res.end();
       }
+      // (a place already being dreamt is waited on by whoever asks; a new one counts against the asker)
+      if (!inflight.has(`${x},${y},${z}`) && !allowed(req, "sector")) {
+        line({ error: "enough new places from here for now", offline: false });
+        return res.end();
+      }
       const job = sectorJob(x, y, z);
       if (job.partial) line(job.partial);
       else job.listeners.add(line);
@@ -768,7 +810,8 @@ const server = http.createServer(async (req, res) => {
     return serveFile(res, PUBLIC, rel);
   } catch (err) {
     console.error(err);
-    send(res, 500, "error");
+    if (!res.headersSent) send(res, 500, "error");
+    else res.destroy();
   }
 });
 
@@ -779,7 +822,11 @@ server.on("upgrade", (req, socket, head) => {
   // (a locked plugin's websockets, only with its session)
   const lock = locks.get(req.url.match(/^\/(?:plugins|api)\/([\w-]+)(?:[/?]|$)/)?.[1]);
   if (lock && !lock.open(req)) return void socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
-  for (const plugin of serverPlugins) if (plugin.upgrade?.(req, socket, head)) return;
+  try {
+    for (const plugin of serverPlugins) if (plugin.upgrade?.(req, socket, head)) return;
+  } catch (err) {
+    console.warn(`[vvoid] upgrade ${JSON.stringify(req.url.slice(0, 80))}: ${err.message}`);
+  }
   socket.destroy();
 });
 server.listen(PORT, HOST, () => {

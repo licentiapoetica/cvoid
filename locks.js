@@ -79,7 +79,9 @@ export function makeLock(name, { here, send, readBody, whoIs, admin }) {
 
   const right = (given) => typeof given === "string" && given.length > 0 && given.length < 1024 && timingSafeEqual(hash(given), hash(password));
   async function login(req, res) {
-    const who = whoIs(req), now = Date.now(), t = tries.get(who) ?? { fails: 0, until: 0, last: 0 };
+    const who = whoIs(req), now = Date.now();
+    for (const [a, old] of tries) if (now >= old.until && now - old.last >= COOLDOWN) tries.delete(a); // (over, and a while ago: forgotten)
+    const t = tries.get(who) ?? { fails: 0, until: 0, last: 0 };
     wrongs = wrongs.filter((at) => now - at < 60_000);
     if (now < t.until) return send(res, 429, { error: `too many wrong passwords: wait ${minutes(t.until - now)}`, wait: Math.ceil((t.until - now) / 1000) });
     if (wrongs.length >= 20) return send(res, 429, { error: "too many wrong passwords here: wait a minute", wait: 60 });

@@ -10,7 +10,7 @@ export const MODES = {
 };
 export const semis = (n) => 2 ** (n / 12);
 // whose media is music (setMedia's who): while one of these plays, Irrlicht gives off notes (see music)
-const MUSIC = new Set(["player", "somafm", "mania"]);
+const MUSIC = new Set(["player", "somafm", "mania", "saber"]);
 // s: as the sound starts (the start screen left), what the picture hears eased in from nothing over this
 // long, as the master is (see start): measured against averages only just begun, a drone coming up
 // reads as a burst, and the whole sky flashed with it
@@ -35,8 +35,19 @@ export class VoidAudio {
     if (!(name in this.mix)) return;
     this.mix[name] = level = Math.max(0, Math.min(1.5, level));
     const bus = this.buses?.[name];
-    if (bus) for (const gain of [bus.dry, bus.wet]) gain.gain.setTargetAtTime(level, this.ctx.currentTime, 0.05);
+    if (bus) for (const gain of [bus.dry, bus.wet]) gain.gain.setTargetAtTime(this.busLevel(name), this.ctx.currentTime, 0.05);
   }
+  // A plugin asking the void's own sound (the drone, the wind, the shimmer, the heartbeat) to keep down
+  // while it has something of its own to be heard (who: whose ask; level 0..1, or null to take it back).
+  // The quietest ask stands, under the mix.
+  keepDown(who, level = null) {
+    this.hushes ??= new Map();
+    if (level == null) this.hushes.delete(who);
+    else this.hushes.set(who, Math.max(0, Math.min(1, level)));
+    const bus = this.buses?.void;
+    if (bus) for (const gain of [bus.dry, bus.wet]) gain.gain.setTargetAtTime(this.busLevel("void"), this.ctx.currentTime, 0.4);
+  }
+  busLevel(name) { return this.mix[name] * (name === "void" && this.hushes?.size ? Math.min(...this.hushes.values()) : 1); }
   // where a plugin's sound of a kind goes (dry: as heard; wet: into the echo), within the mix
   out(name = "media") {
     return this.buses?.[name]?.dry ?? this.master;
@@ -95,7 +106,7 @@ export class VoidAudio {
     // entity's voice, and media (what plugins play: posts, radio)
     this.buses = Object.fromEntries(Object.keys(this.mix).map((name) => {
       const dry = ctx.createGain(), wet = ctx.createGain();
-      dry.gain.value = wet.gain.value = this.mix[name];
+      dry.gain.value = wet.gain.value = this.busLevel(name);
       dry.connect(this.master);
       wet.connect(this.reverb);
       return [name, { dry, wet }];

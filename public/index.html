@@ -228,6 +228,19 @@
   #waits { font-size: 12px; color: #eef2ff; margin-bottom: .5em; letter-spacing: .16em; min-height: 1.5em; }
   /* the dark at a door: gathers as you go in, lifts as you come out */
   #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; }
+  /* coming in by a shared link: a portal forming in the dark, then opening out on the place (see arrival.js) */
+  #arrival { position: fixed; inset: 0; pointer-events: none; display: none; }
+  #arrival.on { display: block; }
+  #arrival canvas { position: absolute; }
+  #arrival p {
+    position: absolute; left: 16px; right: 16px; top: calc(50% + 17vmin); margin: 0; text-align: center; text-transform: lowercase;
+    letter-spacing: .2em; font-size: 13px; opacity: .7; color: #c9b8ff; transition: opacity .6s ease;
+  }
+  #arrival.on p { animation: said 1.2s ease 1.3s both; } /* (once the start screen has mostly gone: it is not written over its fields) */
+  #arrival.opening p { opacity: 0; animation: none; }
+  @keyframes said { from { opacity: 0; } }
+  #start #sharedTo { margin-top: 1.2em; font-size: 12px; letter-spacing: .2em; opacity: .6; color: #c9b8ff; animation: none; }
+  #start #sharedTo:empty { display: none; }
   #hint {
     position: fixed; left: 0; right: 0; top: 14vh; text-align: center; pointer-events: none; font-family: monospace;
     font-size: 14px; letter-spacing: .06em; color: #00ffff; text-shadow: 0 0 10px #00ffff;
@@ -406,12 +419,13 @@ try {
 <body>
 <canvas id="view"></canvas>
 <div id="fade"></div>
+<div id="arrival"><canvas></canvas><p></p></div>
 <canvas id="map"></canvas>
 <div id="mapPanel">
   <div class="row"><span>sector</span><input id="mSX" placeholder="x"><input id="mSY" placeholder="y"><input id="mSZ" placeholder="z"></div>
   <div class="row"><span>offset</span><input id="mOX" placeholder="x"><input id="mOY" placeholder="y"><input id="mOZ" placeholder="z"></div>
   <div class="row"><span>screen</span><div class="choices" id="mScreen"></div></div>
-  <div class="row"><button id="mGo">go</button><button id="mSpawn">start here</button><button id="mRandom">random</button><button id="mOrigin">origin</button><button id="mHere">find me</button><button id="mPad">controller</button><button id="mCredits">credits</button></div>
+  <div class="row"><button id="mGo">go</button><button id="mSpawn">start here</button><button id="mRandom">random</button><button id="mOrigin">origin</button><button id="mHere">find me</button><button id="mShare">share</button><button id="mPad">controller</button><button id="mCredits">credits</button></div>
   <div id="mNote">click the map to pick a spot, or type one</div>
   <label class="volume"><span>volume</span><input type="range" min="0" max="100" step="1"><output></output></label>
 </div>
@@ -475,7 +489,7 @@ try {
 <div id="irrlicht"></div>
 <div id="gooStore"><div class="fill"></div></div>
 <div id="stage"></div>
-<div id="start"><div><h1>vvoid</h1><p id="prompt">click to materialize</p><p id="slots"></p>
+<div id="start"><div><h1>vvoid</h1><p id="prompt">click to materialize</p><p id="sharedTo"></p><p id="slots"></p>
   <label class="player"><input type="text" maxlength="24" placeholder="your name (optional)" autocomplete="nickname" spellcheck="false"></label>
   <label class="volume"><span>volume</span><input type="range" min="0" max="100" step="1"><output></output></label></div></div>
 <script type="module" src="/src/main.js"></script>

@@ -14,13 +14,18 @@ import { Meteors } from "./meteors.js";
 import { Lasers } from "./laser.js";
 import { Goo } from "./goo.js";
 import { Forming } from "./forming.js";
+import { Grey } from "./grey.js";
 import { PadMap } from "./pad.js";
-import { SPAWN, setPortals, hubSlot, portalNames } from "./constants.js";
+import { SPAWN, setPortals, hubSlot, portalNames, PORTAL_SEEN, PORTAL_FORMS_ITSELF } from "./constants.js";
 import { draggablePanels } from "./panels.js";
 import { Locks } from "./locks.js";
 import { Slots } from "./slots.js";
 import { Cinema, CINEMA_AFTER } from "./cinema.js";
+import { setViewReach, viewReach, drawn } from "./reach.js";
 import { TouchButtons } from "./touch.js";
+import { VoidXR, standalone } from "./xr.js";
+import { VoidHud } from "./vrhud.js";
+import { Arrival } from "./arrival.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -35,6 +40,8 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 
 const scene = new THREE.Scene();
+// the headset (see xr.js) and what it shows in place of the page's words (vrhud.js): made once the rest is
+let xr = null, vrHud = null;
 const camera = new THREE.PerspectiveCamera(70, 1, 1, CELL * 3.4); // far enough to see into the next sectors
 camera.rotation.order = "YXZ";
 
@@ -121,6 +128,7 @@ const gl = renderer.getContext();
 const GPU_MAX = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), gl.getParameter(gl.MAX_RENDERBUFFER_SIZE), ...gl.getParameter(gl.MAX_VIEWPORT_DIMS));
 const drawRatio = (w = window.innerWidth, h = window.innerHeight) => Math.min(ratio, GPU_MAX / w, GPU_MAX / h);
 function resize() {
+  if (renderer.xr.isPresenting) return; // (a headset's picture has its own size: the window's again once it is taken off)
   const w = window.innerWidth, h = window.innerHeight, drawn = drawRatio(w, h);
   renderer.setPixelRatio(drawn);
   renderer.setSize(w, h, false);
@@ -203,6 +211,7 @@ draggablePanels({ stored, store }); // the Tab panel's windows: moved and resize
 const entity = new Entity({ scene, world, audio, map, textEl: $("entity"), waitsEl: $("waits"), stored, store });
 // turn to face this way (the view eases round, the short way)
 function face(toYaw, toPitch) {
+  if (xr?.on) toYaw -= xr.headYaw(); // (in the headset: the body turned so that the head, as it is, faces it)
   yaw = viewYaw + Math.atan2(Math.sin(toYaw - viewYaw), Math.cos(toYaw - viewYaw));
   pitch = viewPitch + Math.atan2(Math.sin(toPitch - viewPitch), Math.cos(toPitch - viewPitch));
 }
@@ -214,6 +223,8 @@ function arrive(toYaw, toPitch) {
 const meteors = new Meteors({ scene, world }); // now and then a shooting star, far out in the void
 const lasers = new Lasers({ scene, world });   // yours (a portal clicked, V) and, with the together plugin, the others'
 const forming = new Forming({ scene, world }); // the portals round the clock whose plugins are still on their way
+const grey = new Grey({ scene, world, known: () => forming.known, forming: (name) => forming.rings.get(name)?.group }); // and those whose source does not answer, grey
+forming.unreachable = (name) => grey.has(name); // (formed on, grey, not given up on)
 const goo = new Goo({ scene, world, storeEl: $("gooStore"), muzzle: (camera) => lasers.muzzle(camera) }); // J: shot at the post looked at (see goo.js)
 // V (or the laser button on a touch screen): a shot straight ahead, into the dark
 function fireLaser() {
@@ -244,7 +255,8 @@ const back = new Back({ scene, world, textEl: $("irrlicht"), toOrigin: stored("i
 // stay on the screen) · level(): true when R turned you its own way · quiet(): true while the entity
 // keeps away · and, asked of every plugin: keyUp(e), pointer(locked) (the pointer taken or let go),
 // jump() (you are put somewhere at once, by the map or the way back), gamepad(gp, pad) (the controller
-// each frame, seated or not)
+// each frame, seated or not) · draw(renderer, dt): true when it drew the frame itself (a headset's picture),
+// vvoid's own drawing left out
 const plugins = [];
 const hook = (name, ...args) => {
   for (const p of plugins) {
@@ -573,7 +585,7 @@ const stillNow = () => started && performance.now() - stirred > STILL * 1000;
 // The first key, button, wheel or touch only cuts back to you (a click is not a shot into whatever the
 // shot was looking at); a look round, too (see look)
 const cinema = new Cinema({ surround: (camera) => world.surround(camera) });
-const filming = () => started && performance.now() - stirred > CINEMA_AFTER * 1000
+const filming = () => started && !xr?.on && performance.now() - stirred > CINEMA_AFTER * 1000
   && !map.open && !locks.asking && !autofly && !portalFlight && velocity.length() < 40 && !hook("busy") && !hook("seat") && !hook("hold");
 const cinemaSubject = () => !filming() ? null
   : world.realm === "void" ? (back.shown > 0.5 ? { star: back.position, sights: back.sights?.() ?? [] } : null)
@@ -717,6 +729,64 @@ function spawnHere() {
   pitch = viewPitch = Math.asin(to.y / length);
 }
 
+// A place shared: /?at=<dimension>,<x>,<y>,<z>,<yaw>,<pitch> (and &room=<key>&in=<its name> in a viewer's
+// room, &from=<who>), copied by the Tab panel's share; whoever opens it comes in there, facing as the one who
+// shared it faced, in place of where they would start (once the plugin whose dimension it is is in). Out of
+// the address bar once taken: a reload starts as ever.
+const SHARED = ["at", "room", "in", "from"];
+const sharedAt = (() => {
+  const q = new URLSearchParams(location.search), [realm, ...n] = q.get("at")?.split(",") ?? [];
+  const [x, y, z, toYaw = 0, toPitch = 0] = n.map(Number);
+  if (!realm || n.length < 3 || ![x, y, z, toYaw, toPitch].every(Number.isFinite)) return null;
+  const room = q.get("room");
+  return {
+    realm, position: new THREE.Vector3(x, y, z), yaw: toYaw, pitch: THREE.MathUtils.clamp(toPitch, -1.55, 1.55),
+    room: room ? { key: room, label: q.get("in") || room } : null, from: q.get("from")?.slice(0, 40) ?? "",
+  };
+})();
+// (the start screen says where the link leads; going in, a portal forms in the dark, and opens on it)
+if (sharedAt) $("sharedTo").textContent = sharedAt.from ? `a way to ${sharedAt.from}` : "a way to somewhere";
+const arrival = new Arrival($("arrival"));
+let pluginsLoaded;
+const pluginsIn = new Promise((done) => (pluginsLoaded = done)); // (all of them installed, or given up on: see the end)
+async function comeShared(place) {
+  const url = new URL(location.href);
+  for (const name of SHARED) url.searchParams.delete(name);
+  history.replaceState(history.state, "", url);
+  if (!xr?.on && !standalone()) arrival.form(place.from ? `materializing where ${place.from} was` : "materializing where you were sent"); // (in a headset: the dark that lifts, as ever)
+  if (place.realm !== "void" && !realmNames[place.realm]) await pluginsIn;
+  if (place.realm !== "void" && !realmNames[place.realm]) {
+    arrival.leave();
+    return note("the place you were sent to is in a dimension this vvoid does not have");
+  }
+  const land = () => {
+    const said = () => note(place.from ? `where ${place.from} was` : "where you were sent");
+    goTo(place);
+    if (arrival.open(() => { audio.sting(); said(); })) veil = 0; // (the jump hidden in the portal's dark, not the veil's)
+    else said();
+  };
+  if (lockedOut(place.realm, land)) return arrival.leave(); // (its password first: the portal let go meanwhile)
+  land();
+}
+// the Tab panel's share: a link to here (the dimension, the room in it, where you are and which way you
+// face), copied (on a touch screen, handed to its own sharing)
+async function shareHere() {
+  const { realm, room } = back.where(), facing = yaw + (xr?.on ? xr.headYaw() : 0);
+  const at = [encodeURIComponent(realm), ...camera.position.toArray().map(Math.round), Math.atan2(Math.sin(facing), Math.cos(facing)).toFixed(3), pitch.toFixed(3)].join(",");
+  const more = [["room", room?.key], ["in", room?.label !== room?.key ? room?.label : null], ["from", playerName]].filter(([, v]) => v);
+  const url = `${location.origin}${location.pathname}?at=${at}${more.map(([k, v]) => `&${k}=${encodeURIComponent(v)}`).join("")}`;
+  const said = "a way to you · whoever opens it comes in where you are, facing as you face";
+  if (navigator.share && matchMedia("(pointer: coarse)").matches) return navigator.share({ title: "vvoid", url }).catch(() => {});
+  try {
+    await navigator.clipboard.writeText(url);
+    map.note(`copied: ${said}`);
+    note("a way to you, copied");
+  } catch {
+    window.prompt(said, url); // (no clipboard: vvoid not on https or localhost)
+  }
+}
+$("mShare").addEventListener("click", shareHere);
+
 // the start screen's count of who is in, and the line when the void is full (VVOID_MAX_SLOTS: see slots.js)
 const slots = new Slots(() => start());
 
@@ -728,9 +798,10 @@ function start() {
   yaw = viewYaw = camera.rotation.y;
   pitch = viewPitch = camera.rotation.x;
   audio.start();
-  // a chosen place to start, set on the map; else right where the start screen's turning view is, as it
-  // is (no jump: you simply take over), in the hub, looking at the clock
-  if (map.spawn) teleport(map.spawn.realm, map.spawn.x, map.spawn.y, map.spawn.z);
+  // a place shared with you (see comeShared); else a chosen place to start, set on the map; else right where
+  // the start screen's turning view is, as it is (no jump: you simply take over), in the hub, looking at the clock
+  if (sharedAt) comeShared(sharedAt);
+  else if (map.spawn) teleport(map.spawn.realm, map.spawn.x, map.spawn.y, map.spawn.z);
   map.visit(world.currentKey); // where you begin counts as explored
   voice.arrived(); // (someone it knows, it greets)
   if (playerName) back.greet(playerName); // (and Irrlicht, by the name given on the start screen)
@@ -764,9 +835,11 @@ async function lockPointer() {
   showRaw();
 }
 
-$("start").addEventListener("click", () => {
+$("start").addEventListener("click", (e) => {
+  if (e.target.closest?.("#vrStart")) return; // (its own: see below)
   start();
   lockPointer();
+  if (started && standalone()) putOn(); // (a headset's own browser: straight into it, in this click)
 });
 canvas.addEventListener("click", lockPointer);
 document.addEventListener("pointerlockchange", () => {
@@ -787,6 +860,9 @@ const moved = (e, axis) => {
 };
 document.addEventListener("pointermove", (e) => {
   if (document.pointerLockElement !== canvas || e.pointerType !== "mouse") return;
+  // a button pressed or let go while another is held (left clicked with the right held to zoom) comes as a
+  // move, not a press (its button set: a real move's is -1), and its movement is not the mouse's: it threw the view
+  if (e.button !== -1) return;
   // the first events after locking, and occasional huge deltas some browsers emit, would snap the view
   if (skipMoves > 0) return void skipMoves--;
   const dx = moved(e, "movementX"), dy = moved(e, "movementY");
@@ -864,13 +940,14 @@ async function toggleFullscreen() {
 const aiming = () => started && document.pointerLockElement === canvas && !map.open;
 document.addEventListener("mousedown", (e) => {
   if (e.button === 2 && aiming()) rightHeld = e.timeStamp;
-  if (e.button === 0 && aiming()) {
-    // a portal in the hub under the crosshair: flown into; else the click is the plugins'
-    const portal = portalAimedAt();
-    if (portal) return flyIntoPortal(portal);
-    hook("mouse", e);
-  }
+  if (e.button === 0 && aiming()) aimClick(e);
 });
+// a click where you aim: a portal in the hub under the crosshair is flown into; else it is the plugins'
+function aimClick(e) {
+  const portal = portalAimedAt();
+  if (portal) return flyIntoPortal(portal);
+  hook("mouse", e);
+}
 document.addEventListener("mouseup", (e) => {
   if (e.button !== 2 || !rightHeld) return;
   const click = e.timeStamp - rightHeld < ZOOM_AFTER * 1000;
@@ -911,6 +988,7 @@ function activePad() {
 function pollPad(dt) {
   pad.x = pad.y = pad.rise = pad.roll = 0;
   pad.surge = padZoom = false;
+  if (xr?.on) return headsetControls(dt);
   const gp = activePad();
   if (!gp) return;
   padMap.frame(gp);
@@ -1004,7 +1082,7 @@ function stopFlying() {
 // way out (a plugin's exit hook: { at, label, hole? }, or several, while you are in its dimension)
 // (what each is called, under the crosshair while it is on one: see showPortalName)
 const PORTAL_HOLES = { zone: 112, pt: 220 }; // (how wide a ring's dark sphere is, where it is not the usual)
-const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", player: "the player", files: "your files", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen", discord: "discord", watch: "watch together", bhop: "bhop", mania: "mania", edge: "the edge", pt: "p.t." };
+const PORTAL_NAMES = { f0ck: "f0ck", z0r: "z0r", gumo: "gumo", somafm: "somafm", player: "the player", files: "your files", zone: "the zone", chan: "4chan", shorts: "youtube shorts", tiktok: "tiktok", redgifs: "redgifs", marderchen: "marderchen", discord: "discord", watch: "watch together", bhop: "bhop", mania: "mania", saber: "saber", edge: "the edge", pt: "p.t." };
 function portalAimedAt() {
   // (each with the size of its dark sphere: the crosshair on that, and nowhere round it; the way back
   // floating beside you, wherever you are)
@@ -1012,13 +1090,14 @@ function portalAimedAt() {
   // click is the knife's, not a way back; from a step away it is clicked as ever)
   const intoIt = back.afoot && back.position.distanceTo(camera.position) < BACK_HOLE * 6 * back.size;
   const spots = back.ready && !intoIt ? [{ name: "back", label: back.label, at: back.position, hole: BACK_HOLE * back.size }] : [];
-  if (world.realm === "void") spots.push(...portalNames().map((name) => ({ name, at: new THREE.Vector3(...hubSlot(name).at), hole: PORTAL_HOLES[name] ?? 104 })));
+  // (each only as far as it is seen: see reach.js)
+  if (world.realm === "void") spots.push(...portalNames().map((name) => ({ name, at: new THREE.Vector3(...hubSlot(name).at), hole: PORTAL_HOLES[name] ?? 104, near: PORTAL_FORMS_ITSELF.has(name) ? undefined : PORTAL_SEEN })));
   else spots.push(...[].concat(hook("exit") ?? []).map((exit) => ({ name: "exit", hole: 104, ...exit })));
   const ahead = camera.getWorldDirection(new THREE.Vector3());
   let best = null, bestOff = 0;
   for (const spot of spots) {
     const to = spot.at.clone().sub(camera.position), distance = to.length();
-    if (distance < 1 || distance > camera.far * 0.97) continue; // (as far as anything is seen: p.t.'s door stands far out, see PORTAL_REACH)
+    if (distance < 1 || distance > (spot.near ?? camera.far * 0.97) * viewReach()) continue; // (as far as it is seen: the portals stand far out, see PORTAL_RING)
     const off = to.normalize().angleTo(ahead) - Math.atan(spot.hole / distance); // (below 0: on its sphere)
     if (off < bestOff) { bestOff = off; best = spot; }
   }
@@ -1028,7 +1107,7 @@ function portalAimedAt() {
 // further: see fly); double clicked or double tapped (fast), in as fast as anything flies
 function flyIntoPortal(portal, fast = false) {
   if (held()) return;
-  if (forming.has(portal.name)) return note(`${PORTAL_NAMES[portal.name] ?? portal.name} · still forming`); // (its plugin not there yet: nothing to fly into)
+  if (forming.has(portal.name)) return note(`${PORTAL_NAMES[portal.name] ?? portal.name} · ${grey.has(portal.name) ? "unreachable" : "still forming"}`); // (its plugin not there yet, or its source not answering: nothing to fly into)
   if (portal.name === "back" && !back.next) return note(back.toOrigin ? `${COMPANION} · you are at the origin` : `${COMPANION} · nowhere to go back to yet`); // (in the hub, before you have been anywhere: only company)
   // clicked again at once (a double click) on the way into the same one: faster (the same by its name,
   // not to the unit: a way through may sway, as somafm's favourites under their stations do)
@@ -1077,7 +1156,7 @@ function showPortalName() {
     portalNameEl = Object.assign(document.body.appendChild(document.createElement("div")), { id: "hubPortalName" });
     Object.assign(portalNameEl.style, { position: "fixed", left: "50%", top: "calc(50% + 22px)", transform: "translateX(-50%)", zIndex: 3, pointerEvents: "none", padding: "3px 10px", background: "rgba(2, 3, 14, .62)", color: "#bfe6ff", font: '400 14px "Helvetica Neue", Helvetica, Arial, sans-serif', letterSpacing: ".1em", whiteSpace: "nowrap", transition: "opacity .15s ease", opacity: "0" });
   }
-  if (portal) portalNameEl.textContent = `${portal.label ?? PORTAL_NAMES[portal.name] ?? portal.name}${forming.has(portal.name) ? " · forming" : ""}`;
+  if (portal) portalNameEl.textContent = `${portal.label ?? PORTAL_NAMES[portal.name] ?? portal.name}${grey.has(portal.name) ? " · unreachable" : forming.has(portal.name) ? " · forming" : ""}`;
   portalNameEl.style.opacity = portal ? "1" : "0";
 }
 function tap() {
@@ -1250,17 +1329,25 @@ let riseHold = 0;
 function fly(dt) {
   const axis = (pos, neg) => (keys.has(pos) ? 1 : 0) - (keys.has(neg) ? 1 : 0);
   // aim first, so thrust follows where the camera points this frame
-  const ease = lookEase() ? 1 - Math.exp(-lookEase() * dt) : 1;
-  viewYaw += (yaw - viewYaw) * ease;
-  viewPitch += (pitch - viewPitch) * ease;
-  roll += (axis("KeyQ", "KeyE") + pad.roll) * ROLL * dt; // Q rolls left, E right
-  viewRoll += (roll - viewRoll) * (1 - Math.exp(-8 * dt));
-  if (levelling > 0) {
-    levelling -= dt;
-    for (const p of plugins) if (p.roll) p.roll *= Math.exp(-8 * dt);
+  if (xr?.on) {
+    // in the headset the head looks where it looks; only the body turns (the right stick), and nothing
+    // tilts or rolls you (it would turn the ground under your feet)
+    viewYaw = yaw;
+    pitch = viewPitch = roll = viewRoll = 0;
+    xr.place(camera, viewYaw);
+  } else {
+    const ease = lookEase() ? 1 - Math.exp(-lookEase() * dt) : 1;
+    viewYaw += (yaw - viewYaw) * ease;
+    viewPitch += (pitch - viewPitch) * ease;
+    roll += (axis("KeyQ", "KeyE") + pad.roll) * ROLL * dt; // Q rolls left, E right
+    viewRoll += (roll - viewRoll) * (1 - Math.exp(-8 * dt));
+    if (levelling > 0) {
+      levelling -= dt;
+      for (const p of plugins) if (p.roll) p.roll *= Math.exp(-8 * dt);
+    }
+    const [qx, qy, qz] = shaken(dt); // (refused or declined at a locked portal: see locks.refused, locks.declined)
+    camera.rotation.set(viewPitch + qx, viewYaw + qy, viewRoll + qz + plugins.reduce((sum, p) => sum + (p.roll ?? 0), 0));
   }
-  const [qx, qy, qz] = shaken(dt); // (refused or declined at a locked portal: see locks.refused, locks.declined)
-  camera.rotation.set(viewPitch + qx, viewYaw + qy, viewRoll + qz + plugins.reduce((sum, p) => sum + (p.roll ?? 0), 0));
   const seat = hook("seat");
   if (seat) {
     // in a plugin's seat: it holds you, and only the view moves
@@ -1299,7 +1386,9 @@ function fly(dt) {
   back.touring = !!steer; // (a plugin flying you: Irrlicht keeps out of its way, see back.js)
   if (steer) {
     velocity.lerp(steer.velocity, 1 - Math.exp(-3 * (steer.hurry ?? 1) * dt));
-    if (steer.look) face(steer.look.yaw, steer.look.pitch);
+    // (in the headset it flies you but never turns you: turned each frame so the head faces its way,
+    // every turn of the head was undone, the view held centred the whole flight)
+    if (steer.look && !xr?.on) face(steer.look.yaw, steer.look.pitch);
   }
   camera.position.addScaledVector(velocity, dt * world.slow);
   // things are solid: you bounce off them (twice over, for corners)
@@ -1350,9 +1439,10 @@ freeChannel.port2.onmessage = (e) => freeRun(e.data);
 function runFrames() {
   clearTimeout(freeTimer);
   const run = ++freeRunning;
-  if (gfx.vsync) {
+  // (a headset's frames come only through the loop, every one of them drawn: no cap, whatever the choice)
+  if (gfx.vsync || renderer.xr.isPresenting) {
     renderer.setAnimationLoop((now) => {
-      if (gfx.fps && now - last < 1000 / gfx.fps - 1) return; // (this refresh sits out)
+      if (gfx.fps && !renderer.xr.isPresenting && now - last < 1000 / gfx.fps - 1) return; // (this refresh sits out)
       frame(now);
     });
   } else {
@@ -1361,6 +1451,88 @@ function runFrames() {
     freeRun(run);
   }
   showNow();
+}
+
+// ---- the headset, each frame ----
+// Its controllers: the left stick flies (where you look), the right turns you (in steps, or smoothly)
+// and rises or sinks; a grip surges; a trigger clicks where you look (a portal, a post); A opens or
+// enters what you look at, B takes you back (Irrlicht's way); X autofly, Y the menu; the left stick
+// pressed fires a light ahead, the right throws goo
+let turnReady = true, pluginDraws = false; // (a plugin drawing the headset's picture has its controllers too: see the draw hook)
+const lookedAt = new THREE.Quaternion();
+function headsetControls(dt) {
+  const [lx, ly] = xr.stick("left"), [rx, ry] = xr.stick("right");
+  const trigger = xr.pressed("left", 0) || xr.pressed("right", 0);
+  if (lx || ly || rx || ry || ["left", "right"].some((side) => xr.hands[side].buttons.some(Boolean))) stir();
+  if (lookedAt.angleTo(xr.head.quaternion) > 0.03) { stir(); lookedAt.copy(xr.head.quaternion); } // (looking round is not being still)
+  if (!started) { if (trigger) start(); return; }
+  if (pluginDraws) return;
+  if (vrHud.menuOpen) {
+    if (trigger) vrHud.press();
+    if (xr.pressed("left", 5) || xr.pressed("right", 5)) vrHud.toggleMenu(camera);
+    return;
+  }
+  if (xr.pressed("left", 5)) return vrHud.toggleMenu(camera);
+  if (locks.asking) { if (trigger) locks.typed({ key: "Escape" }); return; } // (a password cannot be typed in there: turned away)
+  pad.x = lx;
+  pad.y = ly;
+  pad.rise = Math.abs(ry) > Math.abs(rx) ? -ry : 0;
+  pad.surge = xr.held("left", 1) || xr.held("right", 1);
+  if (Math.abs(rx) > Math.abs(ry)) {
+    if (xr.settings.turn === "snap") {
+      if (turnReady && Math.abs(rx) > 0.6) { yaw -= Math.sign(rx) * (Math.PI / 6); turnReady = false; }
+    } else yaw -= rx * 2.2 * dt;
+  }
+  if (Math.abs(rx) < 0.3) turnReady = true;
+  if (trigger) aimClick({ button: 0, headset: true });
+  if (xr.pressed("right", 4)) interact();
+  if (xr.pressed("right", 5)) goBack();
+  if (xr.pressed("left", 4)) toggleAutofly();
+  if (xr.pressed("left", 3)) fireLaser();
+  if (xr.pressed("right", 3) && !goo.shoot(camera)) note("nothing left · it gathers again");
+  if (pad.y > 0.5) toggleAutofly(false);
+}
+// your steps in the room are steps in the void (not while something holds you where you are)
+const stepBy = new THREE.Vector3();
+function walked() {
+  xr.stepped(stepBy);
+  if (started && !locks.asking && !hook("busy") && !hook("seat")) camera.position.add(stepBy);
+}
+// The picture in the headset: the scene from the head, straight (vvoid's passes are the screen's). The
+// sky, which the screen draws into a flat picture behind everything, is drawn into a small cube round
+// you instead (a flat picture cannot be behind both eyes at once), thirty times a second.
+let skyCube = null;
+// (a headset's frames come at its own rate, and missing them is felt: when they come late the void is
+// seen less far, a fifth at a time, and further again once there is room; its picture's size cannot
+// change while it is on)
+const headsetPace = { frames: [], reach: 1, wait: 0 };
+function paceHeadset(dt) {
+  const p = headsetPace;
+  p.frames.push(dt);
+  if ((p.wait -= dt) > 0 || p.frames.length < 90) return;
+  const typical = p.frames.sort((a, b) => a - b)[p.frames.length >> 1];
+  p.frames = [];
+  if (typical > 1 / 62 && p.reach > 0.35) { p.reach *= 0.8; p.wait = 2; }
+  else if (typical < 1 / 85 && p.reach < 1) { p.reach = Math.min(1, p.reach * 1.1); p.wait = 6; }
+}
+function drawHeadset(dt) {
+  paceHeadset(dt);
+  audio.setSpeed(velocity.length());
+  xr.place(camera, viewYaw);
+  if (!skyCube) {
+    const target = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
+    skyCube = { target, camera: new THREE.CubeCamera(1, 6000, target), wait: 0 };
+  }
+  skyCube.camera.position.copy(camera.position);
+  if ((skyCube.wait -= dt) <= 0) { skyCube.wait = 1 / 30; skyCube.camera.update(renderer, world.sky.scene); }
+  scene.background = skyCube.target.texture;
+  world.G.uPx.value = 1.8; // (points as large, against the headset's eyes, as against the screen)
+  vrHud.update(dt, camera, { fade: Number(fadeEl.style.opacity) || 0, speed: velocity.length(), seated: !!hook("seat") });
+  drawn(camera, true);
+  xr.draw(scene, camera.far * headsetPace.reach);
+  drawn(camera, false);
+  showPortalName();
+  showPanelsFor();
 }
 
 let elapsed = 0, last = performance.now(), coordsTimer = 0, seatedBefore = false;
@@ -1372,7 +1544,9 @@ function frame(now) {
   meter.time += dt;
   if (meter.time >= 0.5) { meter.fps = meter.frames / meter.time; meter.frames = 0; meter.time = 0; if (map.open) showNow(); }
   elapsed += dt;
+  if (xr?.on) xr.update();
   pollPad(dt);
+  if (xr?.on) walked();
   if (keys.size || rightHeld) stir(); // (a key held, flying, is not being still)
   $("crosshair").classList.toggle("still", stillNow());
   back.touring = back.afoot = false; // (fly says so again, while a plugin flies you; a plugin moving you on foot, in its update: see back.js)
@@ -1414,23 +1588,34 @@ function frame(now) {
     entity.meddle(dt); // (its ways with the sound reach everywhere)
   }
   forming.update(dt, camera, started); // (after the plugins: their rings, come, open out where they stand this frame)
+  grey.update(dt);
   veil = Math.max(0, veil - dt / 1.9);
   fadeEl.style.opacity = Math.max(Math.min(1, veil), back.fade, ...plugins.map((p) => p.fade ?? 0)).toFixed(3); // the dark at any door
+  arrival.update(dt);
   cinema.update(dt, cinemaSubject(), camera.position);
   document.body.classList.toggle("cinema", cinema.on);
+  // a plugin drawing the picture itself (a headset's, see the saber plugin: the passes below are the
+  // screen's, and a headset has none of them), and the rest of the frame's drawing left to it
+  pluginDraws = started && !!hook("draw", renderer, dt);
+  if (pluginDraws) { vrHud?.hide(); audio.setSpeed(velocity.length()); showPortalName(); showPanelsFor(); return; }
+  if (xr?.on) return drawHeadset(dt);
   const shooting = cinema.shoot(camera, back); // (the camera at the shot for the picture, and given back after it)
   world.sky.render(renderer, camera);
   if (document.visibilityState === "visible") adaptResolution(dt);
   audio.setSpeed(velocity.length());
-  // the lens widens a little at speed, and narrows (zooms in) while the right button (or the controller's zoom) is held
+  // the lens widens a little at speed, and narrows (zooms in) while the right button (or the controller's zoom) is held,
+  // and zoomed in, the view reaches further, the portals out there coming into being as it does (see reach.js)
   const zooming = padZoom || touchZoom || (rightHeld && performance.now() - rightHeld > ZOOM_AFTER * 1000);
+  setViewReach(zooming, dt);
   const fov = baseFov() * (1 + Math.min(velocity.length() / 500, 1) * (18 / OWN_TALL)) * (zooming ? ZOOM : 1); // (from the field of view chosen: see baseFov)
   if (!shooting && Math.abs(fov - camera.fov) > 0.05) {
     camera.fov += (fov - camera.fov) * Math.min(1, dt * 4);
     camera.updateProjectionMatrix();
   }
   screen.update(dt);
+  drawn(camera, true);
   composer.render(dt);
+  drawn(camera, false);
   if (shooting) cinema.restore(camera, back);
   if (map.open) map.draw(camera, viewYaw, world.realm);
   showPortalName();
@@ -1444,6 +1629,9 @@ function frame(now) {
   }
 }
 runFrames();
+// a headset put on (by a plugin: see the saber plugin) or taken off: its frames, or the screen's again
+renderer.xr.addEventListener("sessionstart", runFrames);
+renderer.xr.addEventListener("sessionend", () => { runFrames(); resize(); });
 
 // (viewers: the f0ck plugin's viewers, each registering itself as it is made: see back.js)
 window.vvoid = {
@@ -1458,6 +1646,9 @@ window.vvoid = {
   locked: (realm, retry, look) => lockedOut(realm, retry, look), // (look: the gate's { title, color }, if not its own)
   // Still a while (the crosshair gone: see STILL), until the next look round, key or button
   still: stillNow,
+  // Others kept out of sight: a plugin's own moment that wants you alone in it (saber's song, played or
+  // watched), asked by whatever draws the other travellers (the together plugin)
+  alone: () => !!hook("alone"),
 };
 
 // The plugins behind a password (see locks.js): known before any is installed, so each portal knows at once
@@ -1467,15 +1658,59 @@ locks.refused = refused; // (a wrong password: the void answers it)
 locks.declined = declined; // (none given, Esc: and that too, quietly)
 window.vvoid.locks = locks;
 
+// ---- the headset (see xr.js, vrhud.js) ----
+xr = new VoidXR({ renderer, scene, stored, store });
+vrHud = new VoidHud({
+  xr, scene, locks,
+  act: {
+    origin: () => map.origin(), back: () => goBack(), autofly: () => toggleAutofly(), mute: () => toggleMute(), muted: () => audio.muted,
+    volume: (d) => setVolume(audio.volume + d * 0.1, true), leave: () => xr.exit(),
+  },
+});
+window.vvoid.xr = xr;
+xr.onChange = (on) => {
+  document.body.classList.toggle("headset", on);
+  if (on) {
+    stir();
+    note("in the headset · look to aim, a trigger clicks · y: the menu");
+  } else {
+    vrHud.hide();
+    scene.background = world.sky.target.texture; // (the sky as the screen has it: see drawHeadset)
+  }
+  showVrButton();
+};
+// put on, in the click that asked (a browser lets it be asked only then)
+function putOn() {
+  xr.enter().catch((err) => note(`the headset: ${err.message}`));
+}
+// The button to put it on, on the start screen and (once in) at the corner: where there is a headset
+// to put on, and not on one's own browser already put on by the start screen's click
+const vrButton = Object.assign(document.createElement("button"), { id: "vrStart", textContent: "vr", title: "play in a VR headset" });
+Object.assign(vrButton.style, { position: "fixed", right: "18px", bottom: "18px", zIndex: 8, display: "none", padding: "8px 16px", background: "rgba(140, 160, 220, .14)", border: "1px solid rgba(160, 180, 240, .45)", color: "#fff", font: '300 14px "Helvetica Neue", Helvetica, Arial, sans-serif', letterSpacing: ".2em", cursor: "pointer" });
+vrButton.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (!started) start();
+  if (started) putOn();
+});
+document.body.append(vrButton);
+let vrSupported = false;
+function showVrButton() { vrButton.style.display = vrSupported && !xr.on ? "block" : "none"; }
+xr.supported().then((yes) => {
+  vrSupported = yes;
+  showVrButton();
+  if (yes && standalone()) $("prompt").textContent = "click to materialize · in the headset";
+});
+
 // The plugins (see the top), installed once the game around them is ready: what they are given.
 const game = {
-  scene, world, audio, map, camera, canvas, velocity, keys, stored, store,
+  scene, world, audio, map, camera, canvas, velocity, keys, stored, store, xr,
   surging: () => keys.has("ShiftLeft") || keys.has("ShiftRight") || pad.surge, // Shift (or the controller's surge) held
   helpMode: () => helpMode,                 // "keys" or "pad": whichever was used last
   pad: padMap, // the controller's buttons, as mapped (see pad.js): a plugin may add actions of its own
   // a touch screen's buttons: a plugin may add its own, and have them arranged from its own window (see touch.js)
   touch: { add: (group, list, how) => touchButtons.add(group, list, how), arrange: (layer) => touchButtons.arrange(true, layer) },
   arrive, face, note, lockPointer, levelOut, showHelp: () => showHelp(),
+  setVolume: (v) => setVolume(v), volume: () => audio.volume, // vvoid's own volume (its sliders kept in step)
   goTo,                                     // somewhere at once: { realm, room?, position, yaw, pitch } (see goTo)
   locks,                                    // its password, if it has one: locked(name), ask(name) at its portal (see locks.js)
   lasers, fireLaser,                        // beams (see laser.js): a plugin may shoot, draw another's, or listen
@@ -1533,6 +1768,7 @@ for (const url of pluginUrls) {
     forming.done(name, false);
   }
 }
+pluginsLoaded();
 locks.settle(); // (a session kept over a reload by a plugin that is gone: let go)
 panelsFor = null; // (their windows are there now: which are shown where, worked out again)
 showHelp();

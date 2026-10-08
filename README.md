@@ -22,7 +22,26 @@ Without a key the void still opens, made of local noise instead of dreams.
 
 Mouse to look, `W` `A` `S` `D` to fly, `Shift` to surge, `V` casts a light ahead, `J` throws a gob of
 alien goo at the post you look at (it clings to the screen and runs down it). `Tab` holds the rest: the map
-of everywhere you have been, the keys, the controller, the screen, the credits.
+of everywhere you have been, the keys, the controller, the screen, the credits. Its `share` copies a link
+to where you are: whoever opens it comes in right there, facing as you face (in a plugin's dimension too,
+and in its room).
+
+### In a headset
+
+vvoid is played in VR too (WebXR). In a headset's own browser (a Quest's), the start screen's click puts
+you straight into it; elsewhere, with a headset there, the `vr` button in the corner does. Your head is
+the camera: look at something to aim (the ring before your eyes), and pull either trigger to click it
+(a portal flies you in, a post opens). The left stick flies where you look, the right one turns you (in
+steps, or smoothly) and rises or sinks; a grip surges. A opens what you look at, B takes you back
+(Irrlicht's way), X autofly, Y the menu: the origin, the way back, the sound, how you turn, comfort (the
+edges darkened while you fly fast), how big you are in the void, how sharp the picture is. Walking about
+your room walks you through the void. What the screen writes over the void (the place's name, a word on
+what happened, what the void says, Irrlicht) hangs on a pane below where you look.
+
+A headset needs vvoid on https (behind nginx, say) or on localhost; on a Quest over USB, `adb reverse
+tcp:5173 tcp:5173` and open `localhost:5173` in its browser. The picture in there is drawn without the
+screen's glow and glass. Plugins whose games are windows on the page (mania, say) cannot be seen in there;
+the menu's origin takes you out of them. The saber plugin is made for it.
 
 <details>
 <summary>settings, in <code>.env</code></summary>
