@@ -339,7 +339,7 @@ class Sky {
       vertexShader: SKY_VERT, fragmentShader: skyFrag(body),
       uniforms: {
         uTime: G.uTime, uOrigin: this.origin, uFogColor: G.uFogColor,
-        uDeep: G.uDeep, uGlow: G.uGlow, uAccent: G.uAccent, uLight: G.uLight, uBass: G.uBass, uOpacity: { value: 1 },
+        uDeep: G.uDeep, uGlow: G.uGlow, uAccent: G.uAccent, uLight: G.uLight, uBass: G.uBass, uPulse: G.uPulse, uOpacity: { value: 1 },
       },
       // transparent from the start: switching it later would recompile the shader mid-fade
       side: THREE.BackSide, depthTest: false, depthWrite: false, transparent: true,
@@ -455,6 +455,7 @@ export class World {
       uTime: { value: 0 }, uPx: { value: 1 }, uLight: { value: 1 },
       // what the sound is doing right now; each drives a different part of the picture
       uBass: { value: 0 }, uMid: { value: 0 }, uHigh: { value: 0 }, uBeat: { value: 0 },
+      uPulse: { value: 0 }, // 0..1: the nebula on a song's beat, as it lands (a plugin's doing, each frame: see main.js)
       uChan: { value: new Float32Array(18).fill(0.5) },
       uRainbowAll: { value: 0 }, // 0..1: the whole void taken over by the running rainbow (a plugin's doing)
       uMote: { value: new THREE.Color() }, // motes in the air's colours (see spec.air)

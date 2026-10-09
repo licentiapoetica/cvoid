@@ -32,13 +32,16 @@ export function materialize(object, distance, dt, near = PORTAL_SEEN) {
 
 const eased = (t) => 1 - (1 - t) ** 3; // (quick, then settling)
 const kept = new Map(); // object → its own scale, while the picture is drawn
-let keptFar = 0;
+let keptFar = 0, keptNear = 0;
 // on, just before the picture: the view's reach widened, those opening or closing at their size; off, just
-// after it: both as they were
-export function drawn(camera, on) {
+// after it: both as they were (least: as far as a plugin needs it, at least, see main.js' far hook; near:
+// where a plugin would have the view begin, further out than vvoid's own, see its near hook)
+export function drawn(camera, on, least = 0, near = 0) {
   if (on) {
     keptFar = camera.far;
-    camera.far *= reach;
+    keptNear = camera.near;
+    camera.far = Math.max(camera.far * reach, least || 0);
+    camera.near = Math.max(camera.near, near || 0);
     camera.updateProjectionMatrix();
     for (const object of between) {
       if (!object.parent) { between.delete(object); continue; } // (taken away by its plugin)
@@ -48,6 +51,7 @@ export function drawn(camera, on) {
     }
   } else {
     camera.far = keptFar;
+    camera.near = keptNear;
     camera.updateProjectionMatrix();
     for (const [object, scale] of kept) object.scale.copy(scale);
     kept.clear();

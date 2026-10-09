@@ -336,6 +336,15 @@
   .movable :is(button, input, select, a, label, output) { cursor: pointer; }
   .movable input:not([type="range"]) { cursor: text; }
   .movable.dragging { user-select: none; opacity: .92; }
+  /* each one folded to its title by the button in its corner (see panels.js), remembered */
+  .movable > .fold { /* (over each window's own look for its buttons) */
+    position: absolute; top: 0; right: 0; width: 22px; height: 16px; padding: 0 !important; border: 0 !important; background: none !important; box-shadow: none !important;
+    color: #cfdcff !important; opacity: .45; font: 300 15px/16px "Helvetica Neue", Helvetica, Arial, sans-serif !important; letter-spacing: 0 !important; text-align: center; cursor: pointer;
+  }
+  .movable > .fold:hover { opacity: 1; color: #9fb8ff !important; }
+  .movable.folded { height: auto !important; min-height: 0; resize: none; overflow: hidden; }
+  .movable.folded > :not(.title, .fold), .movable.folded > .title ~ .title { display: none !important; }
+  .movable.folded:not(:has(> .title))::before { content: attr(data-name); letter-spacing: .3em; opacity: .8; }
   /* the controller page, in the keys' place while it is open: each action, and the buttons it is on */
   #padPanel {
     position: fixed; right: 24px; top: 68px; z-index: 4; display: none; flex-direction: column; gap: 8px;

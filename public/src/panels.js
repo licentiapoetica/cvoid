@@ -1,7 +1,8 @@
 // The Tab panel's windows (vvoid's own, and whatever plugins add: every element straight under the body
 // whose id ends in "Panel"), each one moved by dragging it by any part that is not a control, and
 // resized by its corner. Where each one is and how large is remembered; kept on the screen when the
-// window changes size; a double click on it (not on a control) puts it back where it began.
+// window changes size; a double click on it (not on a control) puts it back where it began. Each one
+// folds to its title by the small button in its corner, and stays folded until unfolded.
 
 const CONTROLS = "button, input, select, textarea, a, label, canvas, [contenteditable], output";
 const MIN_W = 180, MIN_H = 60;
@@ -11,6 +12,7 @@ export function draggablePanels({ stored, store }) {
   const placed = stored("panels", {}) ?? {}; // id -> { left, top, width, height }
   let front = 10;
   const save = () => store("panels", placed);
+  const folded = new Set(stored("foldedPanels", []) ?? []); // the ids of those folded to their title
 
   // put a window where it was left, inside the screen
   function place(el) {
@@ -29,6 +31,25 @@ export function draggablePanels({ stored, store }) {
     el.dataset.movable = "1";
     el.classList.add("movable");
     place(el);
+    // folded, only its title is left (a window without one is named for its id: "map")
+    el.dataset.name = el.id.replace(/Panel$/, "");
+    const fold = Object.assign(document.createElement("button"), { className: "fold", type: "button" });
+    const show = () => {
+      const on = folded.has(el.id);
+      el.classList.toggle("folded", on);
+      fold.textContent = on ? "+" : "–";
+      fold.title = on ? "unfold" : "fold";
+    };
+    fold.addEventListener("click", (e) => {
+      folded.has(el.id) ? folded.delete(el.id) : folded.add(el.id);
+      store("foldedPanels", [...folded]);
+      show();
+      if (e.detail) fold.blur(); // (clicked, not keyed: the next space flies rather than unfolding it)
+    });
+    show();
+    el.append(fold);
+    // (a window that draws itself anew, the controller's, takes the button with its old rows: given back)
+    new MutationObserver(() => { if (fold.parentNode !== el) el.append(fold); }).observe(el, { childList: true });
     el.addEventListener("pointerdown", (e) => {
       el.style.zIndex = String(++front); // (the one touched comes to the front)
       if (e.button !== 0 || e.target.closest(CONTROLS)) return;

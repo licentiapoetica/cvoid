@@ -3,6 +3,8 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { Pass, FullScreenQuad } from "three/addons/postprocessing/Pass.js";
+import { CopyShader } from "three/addons/shaders/CopyShader.js";
 import { SCREENS, screenPass } from "./screen.js";
 import { VoidVoice } from "./voice.js";
 import { World, CELL, addRealm } from "./world.js";
@@ -26,6 +28,7 @@ import { TouchButtons } from "./touch.js";
 import { VoidXR, standalone } from "./xr.js";
 import { VoidHud } from "./vrhud.js";
 import { Arrival } from "./arrival.js";
+import { writePlace, readPlace } from "./share.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -47,6 +50,22 @@ camera.rotation.order = "YXZ";
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
+// A plugin's own pass over the picture (its post hook: true when it drew), after the scene and before the
+// glow: on only while a plugin says it has something to draw (its posting hook), and costing nothing else
+const pluginPass = new (class extends Pass {
+  constructor() {
+    super();
+    this.copy = new FullScreenQuad(new THREE.ShaderMaterial({ ...CopyShader, uniforms: THREE.UniformsUtils.clone(CopyShader.uniforms), depthTest: false, depthWrite: false }));
+  }
+  render(renderer, writeBuffer, readBuffer) {
+    if (hook("post", renderer, writeBuffer, readBuffer)) return;
+    this.copy.material.uniforms.tDiffuse.value = readBuffer.texture;
+    renderer.setRenderTarget(writeBuffer);
+    this.copy.render(renderer);
+  }
+})();
+pluginPass.enabled = false;
+composer.addPass(pluginPass);
 const BLOOM = 0.6;
 const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), BLOOM, 0.6, 0.55);
 composer.addPass(bloom);
@@ -256,7 +275,11 @@ const back = new Back({ scene, world, textEl: $("irrlicht"), toOrigin: stored("i
 // keeps away · and, asked of every plugin: keyUp(e), pointer(locked) (the pointer taken or let go),
 // jump() (you are put somewhere at once, by the map or the way back), gamepad(gp, pad) (the controller
 // each frame, seated or not) · draw(renderer, dt): true when it drew the frame itself (a headset's picture),
-// vvoid's own drawing left out
+// vvoid's own drawing left out · posting() / post(renderer, write, read): a pass of its own over the picture
+// (read: the scene drawn; write: where it goes), after the scene and before the glow, while posting() says ·
+// far(): how far at least the view must reach, while a plugin's world is larger than vvoid's far plane ·
+// near(): where the view may begin, further out than vvoid's own (a world kilometres wide keeps its depth
+// sharp far off only so: with a centimetre's near plane, what lies on what fights through it)
 const plugins = [];
 const hook = (name, ...args) => {
   for (const p of plugins) {
@@ -729,20 +752,15 @@ function spawnHere() {
   pitch = viewPitch = Math.asin(to.y / length);
 }
 
-// A place shared: /?at=<dimension>,<x>,<y>,<z>,<yaw>,<pitch> (and &room=<key>&in=<its name> in a viewer's
-// room, &from=<who>), copied by the Tab panel's share; whoever opens it comes in there, facing as the one who
-// shared it faced, in place of where they would start (once the plugin whose dimension it is is in). Out of
-// the address bar once taken: a reload starts as ever.
-const SHARED = ["at", "room", "in", "from"];
+// A place shared: /?v=<a word> (see share.js: the dimension, the room in it, where, which way, and who),
+// copied by the Tab panel's share; whoever opens it comes in there, facing as the one who shared it faced, in
+// place of where they would start (once the plugin whose dimension it is is in). Out of the address bar once
+// taken: a reload starts as ever.
+const SHARED = "v";
 const sharedAt = (() => {
-  const q = new URLSearchParams(location.search), [realm, ...n] = q.get("at")?.split(",") ?? [];
-  const [x, y, z, toYaw = 0, toPitch = 0] = n.map(Number);
-  if (!realm || n.length < 3 || ![x, y, z, toYaw, toPitch].every(Number.isFinite)) return null;
-  const room = q.get("room");
-  return {
-    realm, position: new THREE.Vector3(x, y, z), yaw: toYaw, pitch: THREE.MathUtils.clamp(toPitch, -1.55, 1.55),
-    room: room ? { key: room, label: q.get("in") || room } : null, from: q.get("from")?.slice(0, 40) ?? "",
-  };
+  const word = new URLSearchParams(location.search).get(SHARED), place = word && readPlace(word);
+  if (!place || !place.position.every(Number.isFinite)) return null;
+  return { ...place, position: new THREE.Vector3(...place.position), pitch: THREE.MathUtils.clamp(place.pitch, -1.55, 1.55), from: place.from.slice(0, 40) };
 })();
 // (the start screen says where the link leads; going in, a portal forms in the dark, and opens on it)
 if (sharedAt) $("sharedTo").textContent = sharedAt.from ? `a way to ${sharedAt.from}` : "a way to somewhere";
@@ -751,7 +769,7 @@ let pluginsLoaded;
 const pluginsIn = new Promise((done) => (pluginsLoaded = done)); // (all of them installed, or given up on: see the end)
 async function comeShared(place) {
   const url = new URL(location.href);
-  for (const name of SHARED) url.searchParams.delete(name);
+  url.searchParams.delete(SHARED);
   history.replaceState(history.state, "", url);
   if (!xr?.on && !standalone()) arrival.form(place.from ? `materializing where ${place.from} was` : "materializing where you were sent"); // (in a headset: the dark that lifts, as ever)
   if (place.realm !== "void" && !realmNames[place.realm]) await pluginsIn;
@@ -772,9 +790,8 @@ async function comeShared(place) {
 // face), copied (on a touch screen, handed to its own sharing)
 async function shareHere() {
   const { realm, room } = back.where(), facing = yaw + (xr?.on ? xr.headYaw() : 0);
-  const at = [encodeURIComponent(realm), ...camera.position.toArray().map(Math.round), Math.atan2(Math.sin(facing), Math.cos(facing)).toFixed(3), pitch.toFixed(3)].join(",");
-  const more = [["room", room?.key], ["in", room?.label !== room?.key ? room?.label : null], ["from", playerName]].filter(([, v]) => v);
-  const url = `${location.origin}${location.pathname}?at=${at}${more.map(([k, v]) => `&${k}=${encodeURIComponent(v)}`).join("")}`;
+  const word = writePlace({ realm, room, position: camera.position.toArray(), yaw: facing, pitch, from: playerName.slice(0, 40) });
+  const url = `${location.origin}${location.pathname}?${SHARED}=${word}`;
   const said = "a way to you · whoever opens it comes in where you are, facing as you face";
   if (navigator.share && matchMedia("(pointer: coarse)").matches) return navigator.share({ title: "vvoid", url }).catch(() => {});
   try {
@@ -1528,7 +1545,7 @@ function drawHeadset(dt) {
   scene.background = skyCube.target.texture;
   world.G.uPx.value = 1.8; // (points as large, against the headset's eyes, as against the screen)
   vrHud.update(dt, camera, { fade: Number(fadeEl.style.opacity) || 0, speed: velocity.length(), seated: !!hook("seat") });
-  drawn(camera, true);
+  drawn(camera, true, hook("far"), hook("near"));
   xr.draw(scene, camera.far * headsetPace.reach);
   drawn(camera, false);
   showPortalName();
@@ -1559,6 +1576,7 @@ function frame(now) {
   leftLocked();
   const heard = audio.features(dt);
   world.G.uBass.value = heard.bass; world.G.uMid.value = heard.mid; world.G.uHigh.value = heard.high; world.G.uBeat.value = heard.beat;
+  world.G.uPulse.value = 0; // (a plugin keeping the nebula on its song's beat sets it again, in its update: see saber)
   world.update(dt, camera);
   meteors.update(dt, camera); // (behind the start screen too)
   lasers.update(dt);
@@ -1613,7 +1631,8 @@ function frame(now) {
     camera.updateProjectionMatrix();
   }
   screen.update(dt);
-  drawn(camera, true);
+  drawn(camera, true, hook("far"), hook("near"));
+  pluginPass.enabled = started && !!hook("posting"); // (a plugin's own pass, while it has one to draw)
   composer.render(dt);
   drawn(camera, false);
   if (shooting) cinema.restore(camera, back);

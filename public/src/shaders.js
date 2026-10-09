@@ -82,7 +82,7 @@ void main(){
 }`;
 
 export const skyFrag = (body) => /* glsl */ `
-uniform float uTime, uOpacity, uLight, uBass;
+uniform float uTime, uOpacity, uLight, uBass, uPulse;
 uniform vec3 uOrigin, uFogColor, uDeep, uGlow, uAccent;
 varying vec3 vDir;
 ${NOISE_LIB}
@@ -91,15 +91,16 @@ void main(){
   vec3 d = normalize(vDir);
   float acc = 0., peak = 0.;
   for (int i = 0; i < 3; i++) {
-    float f = clamp(field(uOrigin + d * (1.4 + float(i) * 1.6), uTime), 0., 1.);
+    // (and on a song's beat it leans in at you a little: see uPulse)
+    float f = clamp(field(uOrigin + d * (1.4 + float(i) * 1.6) * (1. - uPulse * 0.05), uTime), 0., 1.);
     acc += f; peak = max(peak, f);
   }
   acc /= 3.;
   vec3 col = mix(uDeep, uFogColor, 0.55 + 0.3 * d.y);
   // the nebula is a rumour of light, not a sky
-  // bass swells the nebula
-  col = mix(col, uGlow, min(acc * 0.3 * uLight * (1. + uBass * 1.3), 1.));
-  col += uAccent * pow(peak, 4.) * 0.2 * uLight;
+  // bass swells the nebula, and a song's beat does
+  col = mix(col, uGlow, min(acc * 0.3 * uLight * (1. + uBass * 1.3 + uPulse * 0.9), 1.));
+  col += uAccent * pow(peak, 4.) * 0.2 * uLight * (1. + uPulse * 1.5);
   gl_FragColor = vec4(col, uOpacity);
 }`;
 
