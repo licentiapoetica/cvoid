@@ -189,6 +189,8 @@ export class Back {
     this.post = null;                    // a place it waits at instead, not following you (a plugin's, set each frame: bhop's stage)
     this.terrified = false;              // a plugin's say, set each frame: it is afraid (p.t.'s house), its eyes wide and darting; 2, frantic
     this.joy = false;                    // a plugin's say, set each frame: it is overjoyed (saber's, on the platform as a song is filmed), its eyes two happy arches
+    this.chill = false;                  // a plugin's say, set each frame: it is at its ease where it is (saber's, in a corner of the platform as a song is played or watched)
+    this.sees = null;                    // a plugin's say, set each frame: what it watches there, chilling (points in the world, the first the most)
     this.pin = null;                     // a plugin's: exactly where it is this frame (it does not travel there: p.t.'s, at the side of your view, never through a wall)
     this.size = 1;                       // a plugin's: how big it is (and its smoke, its embers, the dark you click), set each frame
     this.speed = new THREE.Vector3();    // and how it is going, beside you (see place)
@@ -364,7 +366,8 @@ export class Back {
       if (this.recent.length > 40) this.recent.shift();
     }
 
-    const want = started && (this.next || this.atHub()) ? 1 : 0;
+    // (there once there is somewhere to go back to, in the hub, or wherever a plugin keeps it: company, at least)
+    const want = started && (this.next || this.atHub() || this.pin) ? 1 : 0;
     if (want && this.shown <= 0.01) this.place(camera, true); // (coming, it comes at your side, not from wherever it was last)
     this.shown += (want - this.shown) * Math.min(1, dt * 2.5);
     const visible = this.shown > 0.01;
@@ -535,6 +538,12 @@ export class Back {
       mood = "overjoyed"; lid = 0; wide = 1.25 + 0.06 * Math.sin(this.time * 5.3); smile = 1;
       look = side.set(Math.sin(this.time * 2.3) * 0.03, 0.012 + Math.abs(Math.sin(this.time * 4.1)) * 0.015);
     }
+    else if (this.chill) {
+      // chilling (a plugin's say): happy, its eyes two arches, watching what goes on there (sees: saber's, whoever
+      // plays and down the track), its face turned to it and not to you
+      mood = "chilling"; lid = 0; wide = 1.1; smile = 1;
+      look = this.watchNow(dt) ? side.copy(this.awayTo(camera)) : ZERO;
+    }
     else if (this.watching) {
       // on a tour, at a post: watching it with you (a test: see watch.js)
       const w = (this.watch ??= new Watching()).update(dt, this.watching, this.heard ?? QUIET, towardYou);
@@ -563,7 +572,8 @@ export class Back {
     if (mood !== "curious" && m.sight) { m.sight = false; m.wonderIn = rand(...LOOKS); } // (anything else, and it is back to you)
     this.moodName = mood;
     // its face turned to what it looks at: slowly away, back to you quickly
-    this.turned += ((mood === "curious" ? 1 : 0) - this.turned) * Math.min(1, dt * (mood === "curious" ? 2.2 : 6));
+    const away = mood === "curious" || (mood === "chilling" && !!this.sees?.length);
+    this.turned += ((away ? 1 : 0) - this.turned) * Math.min(1, dt * (away ? 2.2 : 6));
     const ease = Math.min(1, dt * 5);
     m.lid += (lid - m.lid) * ease;
     m.wide += (wide - m.wide) * ease;
@@ -610,13 +620,31 @@ export class Back {
       m.wonderIn = rand(...LOOKS);
       return false;
     }
-    // where its eyes look: the way to it, as its face is when turned all it turns
+    this.awayTo(camera);
+    return true;
+  }
+  // where its eyes look, at what it looks at (gaze): the way to it, as its face is when turned all it turns
+  awayTo(camera) {
+    const m = this.mood;
     gazer.position.copy(this.position);
     gazer.lookAt(this.gaze);
     turnedQ.copy(camera.quaternion).rotateTowards(gazer.quaternion, TURNS).invert();
     local.copy(this.gaze).sub(this.position).normalize().applyQuaternion(turnedQ);
     (m.away ??= new THREE.Vector2()).set(local.x, local.y).multiplyScalar(0.08);
     if (m.away.length() > 0.06) m.away.setLength(0.06);
+    return m.away;
+  }
+  // chilling, what it watches (a plugin's sees): the first most of the time, now and then another, a few
+  // seconds each. True while it has something to watch
+  watchNow(dt) {
+    const m = this.mood, sees = this.sees;
+    if (!sees?.length) return false;
+    m.seesIn = (m.seesIn ?? 0) - dt;
+    if (m.seesIn <= 0 || !(m.seesI < sees.length)) {
+      m.seesI = sees.length > 1 && Math.random() < 0.4 ? 1 + Math.floor(Math.random() * (sees.length - 1)) : 0;
+      m.seesIn = rand(2.5, 6);
+    }
+    this.gaze.copy(sees[m.seesI]);
     return true;
   }
 

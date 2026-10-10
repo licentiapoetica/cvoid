@@ -14,10 +14,17 @@
 <form id="login" hidden>
   <h1>vvoid</h1>
   <p class="sub">panel</p>
-  <input id="key" type="password" autocomplete="current-password" placeholder="key" aria-label="the panel's key">
-  <button>in</button>
+  <div id="enroll" class="door" hidden>
+    <p class="hint" id="enroll-what">No passkey yet. The key makes the first, and nothing more: then come in with it.</p>
+    <input id="key" type="password" autocomplete="off" placeholder="key" aria-label="the panel's key">
+    <input id="enroll-name" type="text" maxlength="40" autocomplete="off" placeholder="its name: laptop, phone" aria-label="the passkey's name">
+    <button class="primary">make a passkey</button>
+  </div>
+  <div id="signin" class="door" hidden>
+    <button class="primary">in, with a passkey</button>
+  </div>
   <p class="error" role="alert"></p>
-  <p class="hint">VVOID_PANEL_KEY, or the link the panel printed as it started</p>
+  <p class="hint" id="login-hint"></p>
 </form>
 
 <main id="app" hidden>
@@ -43,6 +50,7 @@
     <button role="tab" data-tab="look">look</button>
     <button role="tab" data-tab="env">.env</button>
     <button role="tab" data-tab="log">log</button>
+    <button role="tab" data-tab="passkeys">passkeys</button>
   </nav>
 
   <section id="tab-settings" role="tabpanel" hidden>
@@ -92,6 +100,20 @@
   <section id="tab-log" role="tabpanel" hidden>
     <p class="lead" id="log-where"></p>
     <pre id="log" tabindex="0"></pre>
+  </section>
+
+  <section id="tab-passkeys" role="tabpanel" hidden>
+    <p class="lead">The way in: a passkey, and nothing else (<code>VVOID_PANEL_KEY</code> makes only the first, while there is none). Add one for each device the panel is opened on, and each address it is opened at (a passkey is for one: localhost's is not panel.example.org's), the second with a code from here; the last is never taken away. Every one lost: delete <code id="passkeys-file"></code> on the server, and the key makes one again.</p>
+    <div class="look-group">
+      <h3>passkeys</h3>
+      <div id="passkeys" class="saves"></div>
+    </div>
+    <div class="bar">
+      <input id="passkey-name" type="text" maxlength="40" autocomplete="off" placeholder="its name: laptop, phone" aria-label="the new passkey's name">
+      <button id="passkey-add" class="primary">add a passkey</button>
+      <button id="passkey-code" title="a passkey at another of the panel's addresses (localhost, or the one behind https): a code to make it there with, once">a code for another address</button>
+    </div>
+    <p class="hint" id="passkey-code-out" aria-live="polite"></p>
   </section>
 
   <div id="pending" hidden>

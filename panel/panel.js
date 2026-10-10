@@ -20,45 +20,117 @@ const store = {
   set: (k, v) => { try { v === null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch {} },
 };
 
-// ---- the way in ----
+// ---- the way in: a passkey, and nothing else (the key makes the first, while there is none; see panel.js) ----
 let token = store.get("vvoid-panel");
+let door = null; // { enrolled, here, origin, origins, file }, as the panel says: any passkey, one for this address, which it is
 async function api(path, { method = "GET", body } = {}) {
   const r = await fetch(`/api/${path}`, {
     method, body: body === undefined ? undefined : JSON.stringify(body),
     headers: { ...(token && { authorization: `Bearer ${token}` }), ...(body !== undefined && { "content-type": "application/json" }) },
   });
   const out = await r.json().catch(() => ({}));
-  if (r.status === 401 && path !== "login") {
+  if (r.status === 401 && !/^(auth|login|enroll)/.test(path)) {
     out_();
-    throw Object.assign(new Error("the key, again"), { status: 401 });
+    throw Object.assign(new Error("a passkey, again"), { status: 401 });
   }
   if (!r.ok) throw Object.assign(new Error(out.error ?? `${r.status}`), { status: r.status });
   return out;
 }
-async function in_(key) {
-  const { token: t } = await api("login", { method: "POST", body: { key } });
+// a passkey as the browser has it (ArrayBuffers) and as it goes over the wire (JSON, base64url), both ways
+function b64u(buf) {
+  let s = "";
+  for (const b of new Uint8Array(buf)) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+const unb64u = (text) => Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+const ids = (list) => (list ?? []).map((c) => ({ ...c, id: unb64u(c.id) }));
+async function makePasskey(o) {
+  const cred = await navigator.credentials.create({ publicKey: { ...o, challenge: unb64u(o.challenge), user: { ...o.user, id: unb64u(o.user.id) }, excludeCredentials: ids(o.excludeCredentials) } });
+  const r = cred.response;
+  return {
+    id: cred.id, rawId: b64u(cred.rawId), type: cred.type, authenticatorAttachment: cred.authenticatorAttachment ?? undefined, clientExtensionResults: cred.getClientExtensionResults(),
+    response: { clientDataJSON: b64u(r.clientDataJSON), attestationObject: b64u(r.attestationObject), transports: r.getTransports?.() ?? [] },
+  };
+}
+async function usePasskey(o) {
+  const cred = await navigator.credentials.get({ publicKey: { ...o, challenge: unb64u(o.challenge), allowCredentials: ids(o.allowCredentials) } });
+  const r = cred.response;
+  return {
+    id: cred.id, rawId: b64u(cred.rawId), type: cred.type, authenticatorAttachment: cred.authenticatorAttachment ?? undefined, clientExtensionResults: cred.getClientExtensionResults(),
+    response: { clientDataJSON: b64u(r.clientDataJSON), authenticatorData: b64u(r.authenticatorData), signature: b64u(r.signature), userHandle: r.userHandle ? b64u(r.userHandle) : undefined },
+  };
+}
+// (what the browser's refusals mean, here)
+const said = (err) => ({
+  NotAllowedError: "no passkey given (put aside, or too slow)",
+  InvalidStateError: "this device has one of the panel's passkeys already",
+  SecurityError: `passkeys here are for ${door?.origins?.join(" or ") ?? "the panel's own addresses"} only (VVOID_PANEL_ORIGIN)`,
+})[err?.name] ?? err.message;
+
+async function in_() {
+  const { options } = await api("login/options", { method: "POST", body: {} });
+  const response = await usePasskey(options);
+  const { token: t } = await api("login", { method: "POST", body: { response } });
   token = t;
   store.set("vvoid-panel", t);
   show();
 }
-function out_() {
+function out_(why = "") {
   token = null;
   store.set("vvoid-panel", null);
   clearTimeout(polling);
   $("#app").hidden = true;
   $("#login").hidden = false;
-  $("#key").focus();
+  return showDoor(why);
+}
+// the door as it stands, at this address: no passkey at all yet (the key, to make the first), none for this
+// address yet (a code, given to one signed in at another), or in with one
+const withCode = () => !!door?.enrolled && !door.here;
+async function showDoor(why = "", good = false) {
+  try {
+    door = await api(`auth?at=${encodeURIComponent(location.origin)}`);
+  } catch (err) {
+    door = null;
+    why ||= err.message;
+  }
+  const enroll = !!door && !door.here, code = withCode();
+  $("#enroll").hidden = !enroll;
+  $("#signin").hidden = !door?.here;
+  $("#enroll-what").textContent = code
+    ? "No passkey for this address yet. Signed in at another, the passkeys tab gives a code: it makes one here, once."
+    : "No passkey yet. The key makes the first, and nothing more: then come in with it.";
+  Object.assign($("#key"), code ? { type: "text", placeholder: "the code: abcd-efgh-jkmn", ariaLabel: "the code" } : { type: "password", placeholder: "key", ariaLabel: "the panel's key" });
+  $("#login-hint").textContent = !door ? "" : code
+    ? `None signed in anywhere? Every passkey lost: delete ${door.file} on the server, and the key makes one again.`
+    : enroll
+      ? `VVOID_PANEL_KEY, or the link the panel printed as it started. Once there is a passkey the key opens nothing; to start again, delete ${door.file} on the server.`
+      : `Every passkey lost? Delete ${door.file} on the server, and the key makes one again.`;
+  if (!window.PublicKeyCredential) why = "this browser has no passkeys";
+  else if (door && !door.origin) why = `passkeys here are made at ${door.origins.join(" or ")} (VVOID_PANEL_ORIGIN), not ${location.origin}: open one of those instead`;
+  const error = $("#login .error");
+  error.textContent = why;
+  error.classList.toggle("good", good && !!why);
+  (enroll ? $("#key").value ? $("#enroll-name") : $("#key") : $("#signin button")).focus();
 }
 $("#login").addEventListener("submit", async (ev) => {
   ev.preventDefault();
-  const error = $("#login .error");
+  const error = $("#login .error"), buttons = document.querySelectorAll("#login button");
   error.textContent = "";
+  error.classList.remove("good");
+  for (const b of buttons) b.disabled = true;
   try {
-    await in_($("#key").value);
-    $("#key").value = "";
+    if (door && !door.here) {
+      const { options } = await api("enroll/options", { method: "POST", body: { [withCode() ? "code" : "key"]: $("#key").value, name: $("#enroll-name").value } });
+      const response = await makePasskey(options);
+      const { name } = await api("enroll", { method: "POST", body: { response } });
+      $("#key").value = $("#enroll-name").value = "";
+      await showDoor(`"${name}" made: now come in with it`, true);
+    } else await in_();
   } catch (err) {
-    error.textContent = err.message;
+    error.textContent = said(err);
+    if (err.status === 403 && /passkey/.test(err.message) && door && !door.here) showDoor(err.message); // (one was made meanwhile)
   }
+  for (const b of buttons) b.disabled = false;
 });
 $("#logout").addEventListener("click", async () => {
   if (unsaved() && !confirm("Leave what is not saved?")) return;
@@ -77,7 +149,7 @@ function toast(text, bad = false) {
 }
 
 // ---- tabs ----
-const TABS = ["settings", "plugins", "look", "env", "log"];
+const TABS = ["settings", "plugins", "look", "env", "log", "passkeys"];
 function tab(name) {
   if (!TABS.includes(name)) name = "settings";
   store.set("vvoid-panel-tab", name);
@@ -88,6 +160,7 @@ function tab(name) {
   if (name === "look") loadLook();
   if (name === "env" && !envDirty) loadEnv();
   if (name === "log") requestAnimationFrame(() => ($("#log").scrollTop = $("#log").scrollHeight));
+  if (name === "passkeys") loadPasskeys();
 }
 for (const b of document.querySelectorAll("nav [data-tab]")) b.addEventListener("click", () => tab(b.dataset.tab));
 
@@ -815,13 +888,70 @@ $("#env-save").addEventListener("click", async () => {
   }
 });
 
+// ---- the passkeys: more made here (one a device, named), and taken away; never the last ----
+const when = (iso) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+async function loadPasskeys() {
+  try {
+    renderPasskeys(await api("passkeys"));
+  } catch (err) {
+    if (err.status !== 401) toast(err.message, true);
+  }
+}
+function renderPasskeys({ passkeys, mine, file }) {
+  const last = passkeys.length <= 1;
+  $("#passkeys-file").textContent = file;
+  $("#passkeys").replaceChildren(...passkeys.map((p) => el("div", { class: "save" },
+    el("span", {}, p.name, el("small", {}, `${p.at ? `at ${p.at} · ` : ""}made ${when(p.created)}${p.used ? ` · last in ${when(p.used)}` : ""}`)),
+    p.id === mine && el("em", {}, "this one"),
+    el("button", { disabled: last, title: last ? "the last one stays: add another first" : null, onclick: () => removePasskey(p, p.id === mine) }, "take away"))));
+}
+$("#passkey-add").addEventListener("click", async () => {
+  const b = $("#passkey-add");
+  b.disabled = true;
+  try {
+    const { options } = await api("passkeys/options", { method: "POST", body: { name: $("#passkey-name").value } });
+    const response = await makePasskey(options);
+    renderPasskeys(await api("passkeys", { method: "POST", body: { response } }));
+    $("#passkey-name").value = "";
+    toast("a passkey added");
+  } catch (err) {
+    if (err.status !== 401) toast(said(err), true);
+  }
+  b.disabled = false;
+});
+// (a code for another of the panel's addresses, with no passkey of its own yet: shown here, ten minutes, once)
+let codeTimer;
+$("#passkey-code").addEventListener("click", async () => {
+  try {
+    const { code, until, origins } = await api("passkeys/code", { method: "POST" });
+    const others = origins.filter((o) => o !== location.origin);
+    $("#passkey-code-out").replaceChildren(el("code", {}, code), ` · at ${others.length ? others.join(" or ") : "another of the panel's addresses"}, in place of the key, until ${new Date(until).toLocaleTimeString([], { timeStyle: "short" })}; once`);
+    clearTimeout(codeTimer);
+    codeTimer = setTimeout(() => $("#passkey-code-out").replaceChildren(), until - Date.now());
+  } catch (err) {
+    if (err.status !== 401) toast(err.message, true);
+  }
+});
+async function removePasskey(p, mine) {
+  if (!confirm(`Take away the passkey "${p.name}"?${mine ? " You are in with it: you will be let out." : ""}`)) return;
+  try {
+    const out = await api(`passkeys/${encodeURIComponent(p.id)}`, { method: "DELETE" });
+    if (mine) return out_(`"${p.name}" taken away: in, with another`);
+    renderPasskeys(out);
+    toast(`"${p.name}" taken away`);
+  } catch (err) {
+    if (err.status !== 401) toast(err.message, true);
+  }
+}
+
 // ---- leaving with something unsaved ----
 const unsaved = () => pending.size > 0 || drafts.size > 0 || envDirty || (lookData && Object.keys(lookEdit).length > 0);
 addEventListener("beforeunload", (ev) => {
   if (unsaved()) ev.preventDefault();
 });
 
-// ---- the start: a key in the link (#key=…, never sent anywhere but here), a session kept, or the form ----
+// ---- the start: a key in the link (#key=…, never sent anywhere but here: for the first passkey only), a
+// session kept, or the door ----
 async function show() {
   $("#login").hidden = true;
   $("#app").hidden = false;
@@ -832,16 +962,13 @@ async function show() {
   const key = new URLSearchParams(location.hash.slice(1)).get("key");
   if (key) {
     history.replaceState(null, "", location.pathname);
-    try {
-      return await in_(key);
-    } catch (err) {
-      $("#login .error").textContent = err.message;
-    }
+    $("#key").value = key;
   } else if (token) {
     try {
       await api("state?since=999999999");
       return show();
     } catch {}
   }
-  out_();
+  await out_();
+  if (key && door?.enrolled) $("#login .error").textContent = "there is a passkey: the key in the link opens nothing now";
 })();

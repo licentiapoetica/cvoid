@@ -1795,7 +1795,7 @@ function frame(now) {
   $("crosshair").classList.toggle("still", stillNow());
   back.touring = back.afoot = false; // (fly says so again, while a plugin flies you; a plugin moving you on foot, in its update: see back.js)
   back.post = null; // (and a plugin keeping it at a place, in its update too)
-  back.terrified = back.joy = false; // (and a plugin frightening it, or delighting it: see back.js's feel)
+  back.terrified = back.joy = back.chill = false; back.sees = null; // (and a plugin frightening it, delighting it, or putting it at its ease: see back.js's feel)
   back.pin = null; back.size = 1; // (and a plugin keeping it exactly somewhere, and its size: see back.js)
   if (!started) { idle(elapsed); for (const p of plugins) p.idle?.(dt); } // (what they have in the hub moves behind the start screen too)
   else if (!locks.asking && !hook("busy")) fly(dt); // something of a plugin's is open (a piece, a game): stay where you are
@@ -1818,7 +1818,10 @@ function frame(now) {
       back.watching = at ? at.picked ?? { id: world.realm, text: "" } : null;
     }
     back.heard = heard;
-    if (back.update(dt, camera, started && !hook("hold"))) goBack(); // (held where you are, it keeps away; the Tab panel open, it stays)
+    // (held where you are, it keeps away, unless a plugin keeps it somewhere this frame (saber's platform, a song
+    // played: see back.pin), and then it is only company, taking you nowhere; the Tab panel open, it stays)
+    const holding = !!hook("hold");
+    if (back.update(dt, camera, started && (!holding || !!back.pin)) && !holding) goBack();
     voice.update(dt, velocity.length(), $("entity").classList.contains("show"));
     const seated = !!hook("seat");
     touchButtons.update({ afoot: back.afoot, seated }); // (a plugin moving you on foot has said so by now: see back.afoot)

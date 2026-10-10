@@ -1,11 +1,13 @@
-// vvoid's panel: a small web server of its own, apart from vvoid's (npm run panel; http://127.0.0.1:5174),
+// vvoid's panel: a small web server of its own, apart from vvoid's (npm run panel; http://localhost:5174),
 // where what vvoid is set by is turned. Its settings and its plugins' (.env, each as its README describes
 // it, or the whole file as it is), which plugins are on, the void's look (see public/src/look.js), and vvoid
 // itself: started, stopped and restarted from here (it reads its settings once, as it starts), and what it
 // writes, read here as it writes it.
-// The way in: VVOID_PANEL_KEY (in .env); unset, a new key every time the panel starts, in the link it
-// prints. A right key is given a session (in memory: the panel restarting lets every one go), which the
-// page sends with every request (never a cookie: vvoid on the same address would be sent it too).
+// The way in: a passkey (WebAuthn), and nothing else (see "the way in", below). VVOID_PANEL_KEY (in .env;
+// unset, a new key every time the panel starts, in the link it prints) makes the first one, while there is
+// none, and does nothing more. A passkey taken is given a session (in memory: the panel restarting lets
+// every one go), which the page sends with every request (never a cookie: vvoid on the same address would
+// be sent it too).
 // The panel reads .env itself, and never into its own environment: vvoid, started from here, reads it
 // afresh each time. A setting in the environment the panel was started from is over the file's (as with
 // npm start), and the settings page says so where it is.
@@ -16,6 +18,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { generateAuthenticationOptions, generateRegistrationOptions, verifyAuthenticationResponse, verifyRegistrationResponse } from "@simplewebauthn/server";
 import { LOOK, cleanLooks } from "./public/src/look.js";
 import { CELL, REACH, UNIT, PORTAL_ORDER, PORTAL_RING } from "./public/src/constants.js";
 
@@ -388,40 +391,367 @@ async function setLook(given) {
   return [200, { looks, live: false }];
 }
 
-// ---- the way in ----
-const sessions = new Map(); // token -> last used (ms)
-const IDLE = 12 * 3_600_000;
+// ---- the way in: a passkey (WebAuthn), and nothing else ----
+// A passkey is made for one address, the panel's as the browser shows it (its host is the "relying party", and
+// a browser never gives a passkey to any other), and asked for there only. The panel's addresses: those in
+// VVOID_PANEL_ORIGIN (split by commas: https://panel.example.org), and always this machine's own,
+// http://localhost:<port>. Which one a request is for, its Origin says, but only to choose among those: what
+// the browser signs says where it was, and that is checked against the one chosen, never against what a
+// request's Host header claims. The first passkey is made with VVOID_PANEL_KEY, while there is none, and the key
+// gives nothing more (no session, ever); once there is one, the key is refused for everything. More are made,
+// and taken away (never the last), by one signed in: at the address they are in at, or (an address with none of
+// its own yet) with a code they are given, once, for a little while. Every one lost: delete the passkeys' file
+// (VVOID_PANEL_PASSKEYS) on the server, and the key makes one again.
+const ORIGINS = (() => {
+  const local = `http://localhost:${PORT}`;
+  const given = String(effective("VVOID_PANEL_ORIGIN", startEnv) ?? "").split(",").map((o) => o.trim().replace(/\/+$/, "")).filter(Boolean);
+  const out = [];
+  for (const o of [...given, local]) {
+    let u = null;
+    try {
+      u = new URL(o);
+    } catch {}
+    // (an origin alone, as a browser says it: https, or http on localhost, where passkeys may be made too; a
+    // name, not an address: a relying party is never an IP)
+    if (!u || u.origin !== o || /^[\d.]+$|^\[/.test(u.hostname) || !(u.protocol === "https:" || (u.protocol === "http:" && u.hostname === "localhost"))) {
+      console.error(`[panel] VVOID_PANEL_ORIGIN: the panel's addresses as the browser shows them, split by commas (https://panel.example.org; http://localhost:${PORT} is always one), not ${o}`);
+      process.exit(1);
+    }
+    if (!out.includes(u.origin)) out.push(u.origin);
+  }
+  return out;
+})();
+const rpOf = (origin) => new URL(origin).hostname;
+// (whether a passkey is for an address's host: one made before the panel had several does not say, and is
+// asked for at each, its own found by what it signs, and kept from then on: see the login)
+const fits = (p, rp) => !p.rp || p.rp === rp;
+// which of the panel's addresses a request is from (its Origin, only ever one of them; else none)
+const originOf = (req) => (ORIGINS.includes(req.headers.origin) ? req.headers.origin : null);
+const NOT_HERE = `open the panel at ${ORIGINS.join(" or ")} (VVOID_PANEL_ORIGIN)`;
+const PASSKEYS = path.resolve(here, effective("VVOID_PANEL_PASSKEYS", startEnv) || path.join(".cache", "panel-passkeys.json"));
+const PASSKEYS_SHOWN = PASSKEYS.startsWith(here + path.sep) ? path.relative(here, PASSKEYS) : PASSKEYS;
+const NAME = 40; // (a passkey's name: "laptop", "phone")
+
+// the passkeys, read afresh each time (deleting the file counts at once): { user, passkeys: [{ id, publicKey,
+// counter, transports, rp (the address's host it is for), name, created, used }] }. None there is none; one that cannot be read opens nothing.
+async function passkeysFile() {
+  let text;
+  try {
+    text = await fs.readFile(PASSKEYS, "utf8");
+  } catch (err) {
+    if (err.code === "ENOENT") return { user: null, passkeys: [] };
+    throw err;
+  }
+  let kept = null;
+  try {
+    kept = JSON.parse(text);
+  } catch {}
+  if (!Array.isArray(kept?.passkeys)) throw new Error(`${PASSKEYS_SHOWN} cannot be read: mend it, or delete it (and make a passkey again with the key)`);
+  return kept;
+}
+// written whole, in place of the old one at once (600: what is in it lets no one in, but is no one else's)
+async function writePasskeys(kept) {
+  await fs.mkdir(path.dirname(PASSKEYS), { recursive: true, mode: 0o700 });
+  const tmp = `${PASSKEYS}.panel-${process.pid}`;
+  await fs.writeFile(tmp, JSON.stringify(kept, null, 2), { mode: 0o600 });
+  await fs.rename(tmp, PASSKEYS);
+}
+// one change at a time: read, changed, written, before the next is read
+let passkeysBusy = Promise.resolve();
+function withPasskeys(fn) {
+  const run = passkeysBusy.then(() => passkeysFile()).then(fn);
+  passkeysBusy = run.catch(() => {});
+  return run;
+}
+const shown = (p) => ({ id: p.id, name: p.name, at: p.rp ?? null, created: p.created, used: p.used ?? null });
+const nameOf = (given) => (typeof given === "string" ? given.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, NAME) : "") || "a passkey";
+
+// what the browser is asked to sign: a challenge each, kept here (never trusted from the page), for a little
+// while, and taken once, whatever comes of it
+const challenges = new Map(); // challenge -> { kind: "enroll" | "add" | "login", origin, until, name, user, session, code }
+const CHALLENGE = 2 * 60_000, CHALLENGES = 100;
+function asked(options, kind, more = {}) {
+  const now = Date.now();
+  for (const [c, at] of challenges) if (now >= at.until) challenges.delete(c);
+  if (challenges.size >= CHALLENGES) return null;
+  challenges.set(options.challenge, { kind, until: now + CHALLENGE, ...more });
+  return options;
+}
+// (found by what the browser signed it with: its clientData, checked again, whole, in the verifying)
+function taken(response, kind) {
+  let c = null;
+  try {
+    c = JSON.parse(Buffer.from(String(response?.response?.clientDataJSON ?? ""), "base64url").toString("utf8")).challenge;
+  } catch {}
+  const at = typeof c === "string" && challenges.get(c);
+  if (!at) return null;
+  challenges.delete(c);
+  return at.kind === kind && Date.now() < at.until ? { ...at, challenge: c } : null;
+}
+// a new passkey's options, for the address asked from: user verification asked for (a PIN, a finger, a face),
+// none of those there already for it
+async function toMake(kept, kind, origin, more) {
+  const user = kept.user ?? randomBytes(16).toString("base64url"), rp = rpOf(origin);
+  const options = await generateRegistrationOptions({
+    rpName: "vvoid panel", rpID: rp, userName: "vvoid", userDisplayName: "vvoid panel",
+    userID: new Uint8Array(Buffer.from(user, "base64url")), challenge: new Uint8Array(randomBytes(32)),
+    timeout: CHALLENGE, attestationType: "none",
+    excludeCredentials: kept.passkeys.filter((p) => fits(p, rp)).map(({ id, transports }) => ({ id, transports })),
+    authenticatorSelection: { residentKey: "preferred", userVerification: "required" },
+  });
+  return asked(options, kind, { ...more, origin, user });
+}
+// and the passkey made, as it is kept: the browser's word for where it was, what it signed and that the one
+// holding it was there and known to it (UP, UV), all checked (and the relying party's hash in it)
+async function made(response, at) {
+  const { verified, registrationInfo: info } = await verifyRegistrationResponse({
+    response, expectedChallenge: at.challenge, expectedOrigin: at.origin, expectedRPID: rpOf(at.origin), expectedType: "webauthn.create",
+    requireUserPresence: true, requireUserVerification: true,
+  });
+  if (!verified) throw new Error("not verified");
+  const { id, publicKey, counter, transports } = info.credential;
+  return {
+    id, publicKey: Buffer.from(publicKey).toString("base64url"), counter,
+    transports: (transports ?? []).filter((t) => typeof t === "string").slice(0, 8), rp: rpOf(at.origin),
+    name: at.name, created: new Date().toISOString(), used: null,
+  };
+}
+
+// a code for another address (one of the panel's with no passkey of its own yet), given to one signed in: a
+// passkey made there with it, once, within ten minutes; kept here by its hash, a few at most
+const codes = new Map(); // sha-256 of the code -> until
+const CODE_LIFE = 10 * 60_000, CODES = 5, CODE_LETTERS = "abcdefghjkmnpqrstuvwxyz23456789";
+function newCode() {
+  const now = Date.now();
+  for (const [k, until] of codes) if (now >= until) codes.delete(k);
+  while (codes.size >= CODES) codes.delete(codes.keys().next().value);
+  const code = [...randomBytes(12)].map((b) => CODE_LETTERS[b % CODE_LETTERS.length]).join("").replace(/(.{4})(?=.)/g, "$1-");
+  codes.set(hash(code).toString("hex"), now + CODE_LIFE);
+  return { code, until: now + CODE_LIFE };
+}
+// (a code given back: good once, as typed, its dashes and case as they come)
+function useCode(given) {
+  if (typeof given !== "string" || given.length > 64) return false;
+  const key = hash(given.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(.{4})(?=.)/g, "$1-")).toString("hex"), until = codes.get(key);
+  codes.delete(key);
+  return !!until && Date.now() < until;
+}
+
+// sessions: a token for the page (in its sessionStorage), kept here by its hash, ended by a while unused, a
+// day whatever, signing out, or its passkey taken away (or the file deleted)
+const sessions = new Map(); // sha-256 of the token -> { key, at, last, cred }
+const IDLE = 12 * 3_600_000, LIFE = 24 * 3_600_000, SESSIONS = 50;
+const over = (s, now) => now - s.last > IDLE || now - s.at > LIFE;
+async function sessionOf(req) {
+  const token = String(req.headers.authorization ?? "").match(/^Bearer ([\w-]{20,100})$/)?.[1];
+  if (!token) return null;
+  const key = hash(token).toString("hex"), s = sessions.get(key), now = Date.now();
+  if (!s || over(s, now)) return sessions.delete(key), null;
+  if (!(await passkeysFile()).passkeys.some((p) => p.id === s.cred)) return sessions.delete(key), null;
+  s.last = now;
+  return s;
+}
+function newSession(cred) {
+  const now = Date.now();
+  for (const [k, s] of sessions) if (over(s, now)) sessions.delete(k);
+  while (sessions.size >= SESSIONS) sessions.delete(sessions.keys().next().value); // (the oldest)
+  const token = randomBytes(32).toString("base64url"), key = hash(token).toString("hex");
+  sessions.set(key, { key, at: now, last: now, cred });
+  return token;
+}
+
+// how often: a wrong key or a refused passkey, five from one address and it waits a while, twenty from
+// anywhere in a minute and every one does; and the way in's own requests, so many a minute
 const tries = new Map(); // address -> { fails, until }
 let wrongs = [];
 const TRIES = 5, COOLDOWN = 5 * 60_000;
-function sessionOf(req) {
-  const token = String(req.headers.authorization ?? "").match(/^Bearer ([\w-]{20,100})$/)?.[1];
-  const at = token && sessions.get(token);
-  if (!at || Date.now() - at > IDLE) return token && sessions.delete(token), null;
-  sessions.set(token, Date.now());
-  return token;
-}
-async function login(req, res) {
-  const who = req.socket.remoteAddress ?? "?", now = Date.now();
+const hits = new Map(); // "address" -> times, this last minute
+function held(who) {
+  const now = Date.now();
   wrongs = wrongs.filter((at) => now - at < 60_000);
-  const t = tries.get(who) ?? { fails: 0, until: 0 };
-  if (now < t.until) return send(res, 429, { error: "too many wrong keys: wait a while" });
-  if (wrongs.length >= 20) return send(res, 429, { error: "too many wrong keys: wait a minute" });
-  const given = (await body(req, 2048).catch(() => null))?.key;
-  if (typeof given === "string" && given.length < 1024 && timingSafeEqual(hash(given), hash(KEY))) {
-    tries.delete(who);
-    for (const [k, at] of sessions) if (now - at > IDLE) sessions.delete(k);
-    const token = randomBytes(24).toString("base64url");
-    sessions.set(token, now);
-    console.log(`[panel] in, from ${who}`);
-    return send(res, 200, { token });
-  }
+  if (now < (tries.get(who)?.until ?? 0)) return "too many refused: wait a while";
+  if (wrongs.length >= 20) return "too many refused: wait a minute";
+  return null;
+}
+function failed(who) {
+  const now = Date.now(), t = tries.get(who) ?? { fails: 0, until: 0 };
   t.fails = now >= t.until && t.until ? 1 : t.fails + 1;
   t.until = t.fails >= TRIES ? now + COOLDOWN : 0;
+  if (tries.size > 1000) for (const [k, v] of tries) if (now >= v.until) tries.delete(k);
   tries.set(who, t);
   wrongs.push(now);
-  console.log(`[panel] a wrong key from ${who}`);
-  send(res, 403, { error: "wrong key" });
+}
+function often(who, most) {
+  const now = Date.now(), times = (hits.get(who) ?? []).filter((at) => now - at < 60_000);
+  times.push(now);
+  if (hits.size > 1000) for (const [k, v] of hits) if (!v.some((at) => now - at < 60_000)) hits.delete(k);
+  hits.set(who, times);
+  return times.length > most;
+}
+// who asks: the address, or, from a proxy on this machine (Caddy), the one it says it passes on (the last it added)
+function whoOf(req) {
+  const peer = req.socket.remoteAddress ?? "?";
+  const passed = /^(127\.|::1$|::ffff:127\.)/.test(peer) && String(req.headers["x-forwarded-for"] ?? "").split(",").at(-1).trim();
+  return passed || peer;
+}
+
+// the way in's own requests, before any session: what there is, the first passkey (with the key), and in
+async function door(req, res, p) {
+  const who = whoOf(req), wait = held(who);
+  if (wait) return send(res, 429, { error: wait });
+  if (often(who, 30) || often("*", 120)) return send(res, 429, { error: "too many at once: wait a minute" });
+  const given = await body(req, 64 * 1024).catch(() => null);
+  if (!given || typeof given !== "object") return send(res, 400, { error: "bad request" });
+  const kept = await passkeysFile();
+  const none = !kept.passkeys.length;
+  // (which of the panel's addresses this is: its passkeys only)
+  const origin = originOf(req);
+  if (!origin) return send(res, 400, { error: NOT_HERE });
+  const here = kept.passkeys.filter((k) => fits(k, rpOf(origin)));
+
+  if (p === "/api/enroll/options") {
+    // (the key, only while there is no passkey: with one, it is not even looked at; then a code, given to one
+    // signed in, for an address with none of its own)
+    if (!none) {
+      if (given.code === undefined) return send(res, 403, { error: `there is a passkey: the key opens nothing now. Here, a code from the passkeys tab, signed in at another address (every one lost? delete ${PASSKEYS_SHOWN} on the server)` });
+      if (!useCode(given.code)) {
+        failed(who);
+        console.log(`[panel] a wrong (or old) code from ${who}`);
+        return send(res, 403, { error: "that code is wrong, used, or too old: ask for another" });
+      }
+      tries.delete(who);
+      const options = await toMake(kept, "enroll", origin, { name: nameOf(given.name), code: true });
+      return options ? send(res, 200, { options }) : send(res, 429, { error: "too many asked at once: wait a minute" });
+    }
+    if (!(typeof given.key === "string" && given.key.length < 1024 && timingSafeEqual(hash(given.key), hash(KEY)))) {
+      failed(who);
+      console.log(`[panel] a wrong key from ${who}`);
+      return send(res, 403, { error: "wrong key" });
+    }
+    tries.delete(who);
+    const options = await toMake(kept, "enroll", origin, { name: nameOf(given.name) });
+    return options ? send(res, 200, { options }) : send(res, 429, { error: "too many asked at once: wait a minute" });
+  }
+  if (p === "/api/enroll") {
+    const at = taken(given.response, "enroll");
+    if (!at) return failed(who), send(res, 403, { error: "that was not asked for, or too long ago: again" });
+    try {
+      const passkey = await made(given.response, at);
+      await withPasskeys(async (now) => {
+        // (with a code: one more, for this address; with the key: the first, only while there is none)
+        if (at.code) {
+          if (!now.passkeys.some((k) => k.id === passkey.id)) now.passkeys.push(passkey);
+          now.user ??= at.user;
+          return writePasskeys(now);
+        }
+        if (now.passkeys.length) throw Object.assign(new Error("a passkey was made meanwhile: come in with it"), { status: 409 });
+        await writePasskeys({ user: at.user, passkeys: [passkey] });
+      });
+      console.log(at.code ? `[panel] a passkey, "${passkey.name}", made for ${passkey.rp} from ${who}, with a code` : `[panel] the first passkey, "${passkey.name}", made for ${passkey.rp} from ${who} (the key opens nothing now)`);
+      return send(res, 200, { name: passkey.name }); // (and no session: in, with it)
+    } catch (err) {
+      if (err.status) return send(res, err.status, { error: err.message });
+      failed(who);
+      console.log(`[panel] a passkey not made, from ${who}: ${err.message}`);
+      return send(res, 403, { error: "the passkey was not taken" });
+    }
+  }
+  if (p === "/api/login/options") {
+    if (none) return send(res, 409, { error: "no passkey yet: make one with the key" });
+    if (!here.length) return send(res, 409, { error: `no passkey for ${origin} yet: make one with a code from the passkeys tab, signed in at ${[...new Set(kept.passkeys.map((k) => k.rp).filter(Boolean))].join(" or ") || "another address"}` });
+    const options = asked(await generateAuthenticationOptions({
+      rpID: rpOf(origin), challenge: new Uint8Array(randomBytes(32)), timeout: CHALLENGE, userVerification: "required",
+      allowCredentials: here.map(({ id, transports }) => ({ id, transports })),
+    }), "login", { origin });
+    return options ? send(res, 200, { options }) : send(res, 429, { error: "too many asked at once: wait a minute" });
+  }
+  if (p === "/api/login") {
+    if (given.key !== undefined) return failed(who), send(res, 403, { error: "a passkey, only: the key opens nothing" });
+    const at = taken(given.response, "login");
+    if (!at) return failed(who), send(res, 403, { error: "that was not asked for, or too long ago: again" });
+    try {
+      // what it signed, by its own key, there and known to it (UP, UV), its counter never back (when it keeps one)
+      const passkey = await withPasskeys(async (now) => {
+        const passkey = now.passkeys.find((k) => k.id === given.response.id);
+        if (!passkey) throw new Error("not one of the panel's");
+        if (!fits(passkey, rpOf(at.origin))) throw new Error(`not one for ${at.origin}`);
+        const { verified, authenticationInfo: info } = await verifyAuthenticationResponse({
+          response: given.response, expectedChallenge: at.challenge, expectedOrigin: at.origin, expectedRPID: rpOf(at.origin), expectedType: "webauthn.get",
+          credential: { id: passkey.id, publicKey: new Uint8Array(Buffer.from(passkey.publicKey, "base64url")), counter: passkey.counter ?? 0, transports: passkey.transports },
+          requireUserVerification: true,
+        });
+        if (!verified || !info.userVerified) throw new Error("not verified");
+        Object.assign(passkey, { counter: info.newCounter, used: new Date().toISOString(), rp: rpOf(at.origin) });
+        await writePasskeys(now);
+        return passkey;
+      });
+      tries.delete(who);
+      console.log(`[panel] in, with "${passkey.name}", from ${who}`);
+      return send(res, 200, { token: newSession(passkey.id) });
+    } catch (err) {
+      failed(who);
+      console.log(`[panel] a passkey refused, from ${who}: ${err.message}`);
+      return send(res, 403, { error: "the passkey was not taken" });
+    }
+  }
+  send(res, 404, { error: "nothing here" });
+}
+const DOOR = new Set(["/api/enroll/options", "/api/enroll", "/api/login/options", "/api/login"]);
+
+// and, signed in: the passkeys, more of them (one a device), and one taken away (never the last)
+async function passkeys(req, res, p, m, session) {
+  const list = (kept) => ({ passkeys: kept.passkeys.map(shown), mine: session.cred, file: PASSKEYS_SHOWN });
+  if (p === "/api/passkeys" && m === "GET") return send(res, 200, list(await passkeysFile()));
+  if (p === "/api/passkeys/options" && m === "POST") {
+    const given = await body(req, 4 * 1024).catch(() => ({}));
+    const origin = originOf(req);
+    if (!origin) return send(res, 400, { error: NOT_HERE });
+    const options = await toMake(await passkeysFile(), "add", origin, { name: nameOf(given?.name), session: session.key });
+    return options ? send(res, 200, { options }) : send(res, 429, { error: "too many asked at once: wait a minute" });
+  }
+  if (p === "/api/passkeys" && m === "POST") {
+    const given = await body(req, 64 * 1024).catch(() => null);
+    const at = taken(given?.response, "add");
+    if (!at || at.session !== session.key) return send(res, 403, { error: "that was not asked for, or too long ago: again" });
+    let passkey;
+    try {
+      passkey = await made(given.response, at);
+    } catch (err) {
+      console.log(`[panel] a passkey not made: ${err.message}`);
+      return send(res, 403, { error: "the passkey was not taken" });
+    }
+    const kept = await withPasskeys(async (now) => {
+      if (now.passkeys.some((k) => k.id === passkey.id)) return now;
+      now.user ??= at.user;
+      now.passkeys.push(passkey);
+      await writePasskeys(now);
+      return now;
+    });
+    console.log(`[panel] a passkey added: "${passkey.name}"`);
+    return send(res, 200, list(kept));
+  }
+  // (a code, for an address with no passkey of its own yet: see newCode)
+  if (p === "/api/passkeys/code" && m === "POST") {
+    const given = newCode();
+    console.log("[panel] a code given, for a passkey at another address (ten minutes, once)");
+    return send(res, 200, { ...given, origins: ORIGINS });
+  }
+  const id = p.match(/^\/api\/passkeys\/([\w-]{1,1400})$/)?.[1];
+  if (id && m === "DELETE") {
+    const kept = await withPasskeys(async (now) => {
+      const passkey = now.passkeys.find((k) => k.id === id);
+      if (!passkey) throw Object.assign(new Error("no such passkey"), { status: 404 });
+      if (now.passkeys.length <= 1) throw Object.assign(new Error("the last passkey stays: add another first"), { status: 409 });
+      now.passkeys = now.passkeys.filter((k) => k !== passkey);
+      await writePasskeys(now);
+      for (const [k, s] of sessions) if (s.cred === id) sessions.delete(k); // (its sessions with it)
+      console.log(`[panel] a passkey taken away: "${passkey.name}"`);
+      return now;
+    }).catch((err) => err);
+    if (kept instanceof Error) return send(res, kept.status ?? 500, { error: kept.message });
+    return send(res, 200, list(kept));
+  }
+  send(res, 404, { error: "nothing here" });
 }
 
 // ---- the server ----
@@ -451,10 +781,17 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { "content-type": TYPES[path.extname(file)], "cache-control": "no-cache" });
       return res.end(await fs.readFile(path.join(PUBLIC, file)));
     }
-    if (p === "/api/login" && m === "POST") return await login(req, res);
-    const token = sessionOf(req);
-    if (!token) return send(res, 401, { error: "the key, first" });
-    if (p === "/api/logout" && m === "POST") return sessions.delete(token), send(res, 200, {});
+    if (p === "/api/auth" && m === "GET") {
+      // (for the page's door: whether there is any passkey, and one for the address it says it is at)
+      const { passkeys } = await passkeysFile(), at = url.searchParams.get("at");
+      const origin = ORIGINS.includes(at) ? at : null;
+      return send(res, 200, { enrolled: passkeys.length > 0, here: !!origin && passkeys.some((k) => fits(k, rpOf(origin))), origin, origins: ORIGINS, file: PASSKEYS_SHOWN });
+    }
+    if (DOOR.has(p) && m === "POST") return await door(req, res, p);
+    const session = await sessionOf(req);
+    if (!session) return send(res, 401, { error: "a passkey, first" });
+    if (p === "/api/logout" && m === "POST") return sessions.delete(session.key), send(res, 200, {});
+    if (p.startsWith("/api/passkeys")) return await passkeys(req, res, p, m, session);
 
     if (p === "/api/state" && m === "GET") {
       const since = Number(url.searchParams.get("since") ?? 0);
@@ -565,7 +902,11 @@ server.on("error", (err) => {
 server.listen(PORT, HOST, async () => {
   const shown = HOST === "0.0.0.0" || HOST === "::" ? "127.0.0.1" : HOST;
   const at = `http://${shown.includes(":") ? `[${shown}]` : shown}:${PORT}/`;
-  console.log(`[panel] ${MADE_KEY ? `${at}#key=${KEY}  (a key for this run only: VVOID_PANEL_KEY sets one that stays)` : at}`);
+  // (passkeys are made, and asked for, at the panel's addresses only: VVOID_PANEL_ORIGIN's, and this machine's)
+  console.log(`[panel] ${ORIGINS.map((o) => `${o}/`).join("  ")}${ORIGINS.includes(at.replace("//127.0.0.1", "//localhost").replace(/\/$/, "")) ? "" : `  (here at ${at})`}`);
+  const n = await passkeysFile().then((k) => k.passkeys.length, (err) => (console.error(`[panel] ${err.message}`), null));
+  if (n === 0) console.log(`[panel] no passkey yet: make the first at any of those with ${MADE_KEY ? `the key, #key=${KEY} after the address  (a key for this run only: VVOID_PANEL_KEY sets one that stays)` : "VVOID_PANEL_KEY"}`);
+  else if (n) console.log(`[panel] ${n} passkey${n === 1 ? "" : "s"} in ${PASSKEYS_SHOWN}: the key opens nothing (every one lost: delete the file, and the key makes one again)`);
   if (!/^(127\.|::1$|localhost$)/.test(HOST)) console.warn("[panel] open to more than this machine: put it behind https, or what is typed into it (keys and all) goes over the wire as it is");
   if (/^(1|on|yes|true)$/i.test(effective("VVOID_PANEL_START", startEnv) ?? "")) {
     if ((await probe(startEnv)).up) console.log("[panel] vvoid is running already (started elsewhere)");

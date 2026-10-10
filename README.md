@@ -73,20 +73,29 @@ are counted per visitor rather than for everyone at once):
 
 ### The panel
 
-    npm run panel             # http://127.0.0.1:5174
+    npm run panel             # http://localhost:5174
 
 A page of its own, on its own port, apart from the void: every setting above and every plugin's, each as
 its README describes it (or `.env` whole, as it is), which plugins are on, the void's look, and vvoid
 itself, started, stopped and restarted from there (it reads `.env` once, as it starts), with what it
-writes. It asks for a key: `VVOID_PANEL_KEY`, or, unset, a new one each time it starts, in the link it
-prints. The `.env` before each change is kept in `.cache/panel/env/`. vvoid started from the panel stops
+writes. The way in is a passkey, and nothing else, kept in `.cache/panel-passkeys.json`. A passkey is for one
+address: the panel's are `http://localhost:<port>`, always, and those in `VVOID_PANEL_ORIGIN`
+(`https://panel.example.org` behind a proxy). While there is none at all it shows a page to make the first, at
+any of them, with a key: `VVOID_PANEL_KEY`, or, unset, a new one each time it starts, in the link it prints.
+The key makes that passkey and nothing more (never a way in of its own); once there is one it is refused for
+everything. More passkeys (one a device: "laptop", "phone") are made and taken away, never the last, from the
+panel's passkeys tab; one for another of its addresses with a code given there (ten minutes, once), typed in
+at that address in place of the key. Every one lost: delete the passkeys' file on the server, and the key makes
+one again. The `.env` before each change is kept in `.cache/panel/env/`. vvoid started from the panel stops
 with it; one started elsewhere (`npm start`) is seen, but stopped and started where it was.
 
 | | default | |
 |---|---|---|
 | `VVOID_PANEL_PORT` | `5174` | the panel's port |
 | `VVOID_PANEL_HOST` | `127.0.0.1` | its bind address (anything wider: put it behind https, as it shows every key) |
-| `VVOID_PANEL_KEY` | a new one each run | the key it asks for |
+| `VVOID_PANEL_KEY` | a new one each run | the key that makes the first passkey, while there is none (and nothing else) |
+| `VVOID_PANEL_ORIGIN` | none | the panel's addresses as the browser shows them, besides `http://localhost:<port>` (always one), split by commas (`https://panel.example.org` behind a proxy): a passkey is made for one of them, and taken there only |
+| `VVOID_PANEL_PASSKEYS` | `.cache/panel-passkeys.json` | where its passkeys are kept (delete it, and the key makes one again) |
 | `VVOID_PANEL_START` | off | `1`: start vvoid as the panel starts |
 
 ## Other doors
