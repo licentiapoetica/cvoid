@@ -28,7 +28,7 @@
   #start #slots.full { color: #ff9aa0; opacity: .8; }
   body.queued #start #prompt { display: none; }
   body.queued #start #slots { margin-top: 2.5em; font-size: inherit; opacity: .7; color: inherit; animation: breathe 3s ease-in-out infinite; }
-  /* volume: on the start screen and in the map's panel */
+  /* volume: on the start screen and on the settings' sound page */
   .volume { display: flex; align-items: center; gap: 10px; font: 300 12px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .1em; color: #cfdcff; text-transform: lowercase; }
   /* a hairline like the structures' lit edges, and a small hollow square for a handle */
   .volume input {
@@ -52,11 +52,12 @@
   .volume input:hover::-webkit-slider-thumb, .volume input:focus-visible::-webkit-slider-thumb { background: #9fb8ff; box-shadow: 0 0 12px #5f8cff; }
   .volume input:hover::-moz-range-thumb, .volume input:focus-visible::-moz-range-thumb { background: #9fb8ff; box-shadow: 0 0 12px #5f8cff; }
   .volume output { width: 3ch; opacity: .7; font-variant-numeric: tabular-nums; }
-  /* the mix under it, in the map's panel: each kind of sound's own slider, their names in a column */
-  #mapPanel .mix { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
-  #mapPanel .mix .of { opacity: .5; letter-spacing: .2em; font-size: 11px; text-transform: lowercase; }
-  #mapPanel .mixer span { width: 7em; opacity: .75; }
-  #mapPanel .mixer output { width: 4ch; }
+  /* the mix under it, on the settings' sound page: each kind of sound's own slider, their names in a
+     column with the volume's, every line as long as the page is wide */
+  #gfxPanel .mix { display: flex; flex-direction: column; gap: 4px; }
+  #gfxPanel .volume span { width: 8.5em; opacity: .6; }
+  #gfxPanel .volume input { flex: 1; width: auto; min-width: 8em; }
+  #gfxPanel .volume output { width: 4ch; text-align: right; }
   #start .volume { justify-content: center; gap: 16px; margin-top: 2.6em; opacity: .7; text-shadow: 0 0 12px rgba(95, 140, 255, .5); }
   /* label and number as wide as each other, so the line sits under the middle of the screen */
   #start .volume span, #start .volume output { width: 5em; }
@@ -265,6 +266,7 @@
     font: 300 12px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .08em; color: #cfdcff;
   }
   .mapping #mapPanel { display: flex; }
+  #mapPanel .title { letter-spacing: .3em; opacity: .8; text-transform: lowercase; }
   #mapPanel .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   #mapPanel .row span { width: 5.5em; opacity: .6; }
   #mapPanel input {
@@ -283,15 +285,26 @@
   .mapping #sector, .mapping #help { opacity: 0; transition: opacity .25s ease; }
   .seated #sector { opacity: 0; } /* (and the place's name would sit over the game) */
   /* the keys, in the Tab panel: vvoid's own, then each plugin's (the gamepad's when one is in use) */
-  /* graphics and the mouse: what to give up for a smoother picture */
+  /* the settings: the picture (and what to give up for a smoother one), the controls, the sound */
   #gfxPanel {
-    position: fixed; left: 24px; top: 68px; z-index: 4; display: none; flex-direction: column; gap: 8px; max-width: min(420px, calc(100vw - 48px));
-    padding: 14px 16px; background: rgba(2, 3, 14, .85); border: 1px solid rgba(140, 160, 220, .3);
+    position: fixed; left: 24px; top: 68px; z-index: 4; display: none; flex-direction: column; gap: 8px; width: min(420px, calc(100vw - 48px));
+    max-height: calc(100vh - 92px); overflow-y: auto; padding: 14px 16px; background: rgba(2, 3, 14, .85); border: 1px solid rgba(140, 160, 220, .3);
     font: 300 12px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .08em; color: #cfdcff; text-transform: lowercase;
   }
   .mapping #gfxPanel { display: flex; }
-  .mapping.padding #gfxPanel { display: none; }
-  #gfxPanel .title { letter-spacing: .3em; opacity: .8; }
+  #gfxPanel .title { letter-spacing: .3em; opacity: .8; display: flex; align-items: center; gap: 6px; padding-right: 14px; }
+  #gfxPanel .title button { letter-spacing: .2em; }
+  #gfxPanel .title #mCredits { margin-left: auto; }
+  #gfxPanel .title #mLook { display: none; } /* (an admin's: the look page) */
+  body.admin #gfxPanel .title #mLook { display: inline-block; }
+  /* its pages: one shown at a time, chosen under the title (the window as wide for each: nothing jumps) */
+  #gfxPanel .tabs { display: flex; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid rgba(140, 160, 220, .2); }
+  #gfxPanel .tabs button { flex: 1; letter-spacing: .2em; }
+  #gfxPanel .section { display: none; flex-direction: column; gap: 8px; }
+  #gfxPanel .section.on { display: flex; }
+  #gfxPanel .group { letter-spacing: .25em; opacity: .7; margin-top: 4px; }
+  #gfxPanel .group .of { letter-spacing: .06em; }
+  #gfxPanel .group:first-child { margin-top: 0; }
   #gfxPanel #gFpsNow { letter-spacing: .1em; color: #8fd3ff; font-variant-numeric: tabular-nums; }
   #gfxPanel .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   #gfxPanel .row > span { width: 8.5em; opacity: .6; }
@@ -304,6 +317,7 @@
   #gfxPanel button.on { background: rgba(95, 140, 255, .32); border-color: #9fb8ff; box-shadow: 0 0 8px rgba(95, 140, 255, .35); }
   #gfxPanel input[type=range] { flex: 1; min-width: 8em; accent-color: #9fb8ff; }
   #gfxPanel output { width: 4ch; text-align: right; }
+  #gfxPanel #gFovOut { width: auto; min-width: 4ch; white-space: nowrap; } /* ("96° (vvoid's)" on one line) */
   #gfxPanel .of { opacity: .55; letter-spacing: .06em; font-size: 11px; line-height: 1.4; }
   #keysPanel {
     position: fixed; right: 24px; top: 68px; z-index: 4; display: none; flex-direction: column; gap: 10px; /* (below the map's own lines) */
@@ -367,6 +381,41 @@
   #padPanel button:hover { background: rgba(140, 160, 220, .28); }
   #padPanel button.on { background: rgba(95, 140, 255, .32); border-color: #9fb8ff; box-shadow: 0 0 8px rgba(95, 140, 255, .35); }
   #padPanel button.set { text-align: left; }
+  /* the look page (an admin's), in the keys' place while it is open: the void's look, turned live */
+  #lookPanel {
+    position: fixed; right: 24px; top: 68px; z-index: 6; display: none; flex-direction: column; gap: 6px;
+    width: min(460px, calc(100vw - 48px)); max-height: calc(100vh - 92px); overflow-y: auto;
+    padding: 14px 16px; background: rgba(2, 3, 14, .85); border: 1px solid rgba(140, 160, 220, .3);
+    font: 300 11px "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .06em; color: #cfdcff; text-transform: lowercase;
+  }
+  .mapping.looking #lookPanel { display: flex; }
+  .mapping.looking #keysPanel, .mapping.looking #padPanel, .mapping.looking #creditsPanel { display: none; }
+  #lookPanel .title { letter-spacing: .3em; opacity: .8; font-size: 12px; display: flex; align-items: center; gap: 6px; padding-right: 18px; }
+  #lookPanel #lookPin { margin-left: auto; letter-spacing: .2em; }
+  #lookPanel #lookPin.on { background: rgba(95, 140, 255, .32); border-color: #9fb8ff; box-shadow: 0 0 8px rgba(95, 140, 255, .35); }
+  /* pinned: there while you fly, the Tab panel closed, to see each change as it is made */
+  body.started.admin.lookPinned #lookPanel { display: flex; }
+  body.started.admin.lookPinned:not(.mapping) #lookPanel { background: rgba(2, 3, 14, .62); }
+  #lookPanel #lookSaid { letter-spacing: .1em; color: #8fd3ff; }
+  #lookPanel .of { opacity: .5; letter-spacing: .06em; }
+  #lookPanel .group { letter-spacing: .25em; opacity: .7; margin-top: 8px; }
+  #lookPanel .row { display: flex; align-items: center; gap: 8px; }
+  #lookPanel .row > span { width: 11em; opacity: .65; }
+  #lookPanel .row.changed > span { opacity: 1; color: #fff; }
+  #lookPanel input[type=range] { flex: 1; min-width: 6em; accent-color: #9fb8ff; }
+  #lookPanel output { width: 6ch; text-align: right; font-variant-numeric: tabular-nums; }
+  #lookPanel .row button.switch { min-width: 5em; }
+  #lookPanel .row button.switch.on { background: rgba(95, 140, 255, .32); border-color: #9fb8ff; box-shadow: 0 0 8px rgba(95, 140, 255, .35); }
+  #lookPanel button {
+    padding: 4px 8px; background: rgba(140, 160, 220, .12); border: 1px solid rgba(140, 160, 220, .4);
+    color: #fff; font: inherit; letter-spacing: .08em; cursor: pointer;
+  }
+  #lookPanel button:hover { background: rgba(140, 160, 220, .28); }
+  #lookPanel button.on { background: rgba(95, 140, 255, .32); border-color: #9fb8ff; box-shadow: 0 0 8px rgba(95, 140, 255, .35); }
+  #lookPanel input[type=text] { flex: 1; min-width: 0; padding: 4px 6px; background: rgba(140, 160, 220, .08); border: 1px solid rgba(140, 160, 220, .35); color: #fff; font: inherit; letter-spacing: .06em; }
+  #lookPanel input[type=color] { flex: 1; height: 18px; padding: 0; border: 1px solid rgba(140, 160, 220, .35); background: none; cursor: pointer; }
+  #lookPanel .row.save > span { flex: 1; width: auto; color: #fff; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #lookPanel output { width: 7ch; }
   /* the credits page, in the keys' place while it is open: what vvoid is made with, and whose it is */
   #creditsPanel {
     position: fixed; right: 24px; top: 68px; z-index: 4; display: none; flex-direction: column; gap: 8px;
@@ -430,32 +479,58 @@ try {
 <div id="fade"></div>
 <div id="arrival"><canvas></canvas><p></p></div>
 <canvas id="map"></canvas>
+<!-- the map's window: where to go, and nothing else (the settings are in their own) -->
 <div id="mapPanel">
+  <div class="title">map</div>
   <div class="row"><span>sector</span><input id="mSX" placeholder="x"><input id="mSY" placeholder="y"><input id="mSZ" placeholder="z"></div>
   <div class="row"><span>offset</span><input id="mOX" placeholder="x"><input id="mOY" placeholder="y"><input id="mOZ" placeholder="z"></div>
-  <div class="row"><span>screen</span><div class="choices" id="mScreen"></div></div>
-  <div class="row"><button id="mGo">go</button><button id="mSpawn">start here</button><button id="mRandom">random</button><button id="mOrigin">origin</button><button id="mHere">find me</button><button id="mShare">share</button><button id="mPad">controller</button><button id="mCredits">credits</button></div>
+  <div class="row"><span>the spot</span><button id="mGo">go</button><button id="mSpawn">start here</button></div>
+  <div class="row"><span>jump</span><button id="mRandom">random</button><button id="mOrigin">origin</button></div>
+  <div class="row"><span>you</span><button id="mHere">find me</button><button id="mShare">share</button></div>
   <div id="mNote">click the map to pick a spot, or type one</div>
-  <label class="volume"><span>volume</span><input type="range" min="0" max="100" step="1"><output></output></label>
 </div>
 <div id="keysPanel"><div class="title">keys</div><div id="keysList"></div></div>
+<!-- the settings: a page each for the picture, the controls and the sound (the one open remembered);
+     the pages that take the keys' place (credits, an admin's look) in its title -->
 <div id="gfxPanel">
-  <div class="title">graphics <span id="gFpsNow"></span></div>
-  <div class="row"><span>resolution</span><div class="choices" id="gRes"></div></div>
-  <div class="row"><span>frame rate</span><div class="choices" id="gFps"></div></div>
-  <div class="row"><span>vsync</span><div class="choices" id="gVsync"></div></div>
-  <div class="row"><span>glow</span><div class="choices" id="gBloom"></div></div>
-  <div class="row"><span>smooth edges</span><div class="choices" id="gAA"></div></div>
-  <div class="row"><span>videos at once</span><div class="choices" id="gVideos"></div></div>
-  <div class="row"><span>flash loops at once</span><div class="choices" id="gLoops"></div></div>
-  <label class="row" title="double click: back to vvoid's own"><span>field of view</span><input type="range" id="gFov" min="60" max="130" step="1"><output id="gFovOut"></output></label>
-  <div class="of" id="gNow"></div>
-  <div class="title">mouse</div>
-  <div class="row"><span>smoothing</span><div class="choices" id="gEase"></div></div>
-  <label class="row"><span>sensitivity</span><input type="range" id="gSens" min="-1.6" max="1.6" step="0.01"><output id="gSensOut"></output></label>
-  <div class="of" id="gRaw"></div>
+  <div class="title">settings <span id="gFpsNow"></span><button id="mCredits">credits</button><button id="mLook" title="the void's look: an admin's to turn">look</button></div>
+  <div class="tabs" id="gTabs"><button data-tab="graphics">graphics</button><button data-tab="controls">controls</button><button data-tab="sound">sound</button></div>
+  <div class="section" data-tab="graphics">
+    <div class="group">picture</div>
+    <div class="row"><span>screen</span><div class="choices" id="gScreen"></div></div>
+    <label class="row" title="double click: back to vvoid's own"><span>field of view</span><input type="range" id="gFov" min="60" max="130" step="1"><output id="gFovOut"></output></label>
+    <div class="row"><span>glow</span><div class="choices" id="gBloom"></div></div>
+    <div class="row"><span>smooth edges</span><div class="choices" id="gAA"></div></div>
+    <div class="group">performance</div>
+    <div class="row"><span>resolution</span><div class="choices" id="gRes"></div></div>
+    <div class="row"><span>frame rate</span><div class="choices" id="gFps"></div></div>
+    <div class="row"><span>vsync</span><div class="choices" id="gVsync"></div></div>
+    <div class="row"><span>videos at once</span><div class="choices" id="gVideos"></div></div>
+    <div class="row"><span>flash loops at once</span><div class="choices" id="gLoops"></div></div>
+    <div class="of" id="gNow"></div>
+  </div>
+  <div class="section" data-tab="controls">
+    <div class="group">mouse</div>
+    <label class="row"><span>sensitivity</span><input type="range" id="gSens" min="-1.6" max="1.6" step="0.01"><output id="gSensOut"></output></label>
+    <div class="row"><span>smoothing</span><div class="choices" id="gEase"></div></div>
+    <div class="of" id="gRaw"></div>
+    <div class="group">controller</div>
+    <div class="row"><span>buttons</span><div class="choices"><button id="mPad" title="each action and the buttons it is on, in the keys' place">change them</button></div></div>
+  </div>
+  <div class="section" data-tab="sound">
+    <label class="volume"><span>volume</span><input type="range" min="0" max="100" step="1"><output></output></label>
+    <div class="mix" id="gMix"><div class="group">mix <span class="of">· double click a slider: back to 100</span></div></div>
+  </div>
 </div>
 <div id="padPanel"></div>
+<div id="lookPanel"><div class="title">look <span id="lookSaid"></span><button id="lookPin" title="keep it on the screen with the Tab panel closed (esc frees the mouse to turn it)">pin</button></div>
+  <div class="group">saves</div>
+  <div class="row"><input id="lookName" type="text" maxlength="40" placeholder="a name for the look as it is now" spellcheck="false"><button id="lookSave">save</button></div>
+  <div id="lookSaves"></div>
+  <div id="lookList"></div>
+  <div class="row"><button id="lookReset">all back to vvoid's own</button></div>
+  <div class="of">an admin's: kept for everyone as you turn it · double click a row: back to vvoid's own</div>
+</div>
 <div id="creditsPanel">
   <div class="title">credits</div>
   <div class="credits" id="creditsMade">

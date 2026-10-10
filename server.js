@@ -11,12 +11,20 @@ import { population } from "./public/src/population.js";
 import { makeLock } from "./locks.js";
 import { makeSlots } from "./slots.js";
 import { makeAdmin } from "./admin.js";
+import { cleanLooks } from "./public/src/look.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(here, "public");
 const THREE_DIR = path.join(here, "node_modules", "three");
 const RUFFLE_DIR = path.join(here, "node_modules", "@ruffle-rs", "ruffle");
 const CACHE = path.resolve(here, process.env.VVOID_CACHE ?? path.join(".cache", "sectors"));
+// the void's look as an admin has turned it (see public/src/look.js): kept here, the same for everyone
+const LOOK_FILE = path.resolve(here, process.env.VVOID_LOOK ?? path.join(".cache", "look.json"));
+let looks = { now: {}, saves: {}, saber: [] };
+try {
+  const kept = JSON.parse(await fs.readFile(LOOK_FILE, "utf8"));
+  looks = cleanLooks(kept.now || kept.saves ? kept : { now: kept }); // (kept before there were saves: the look alone)
+} catch {} // (none yet: vvoid's own)
 
 const PORT = Number(process.env.PORT ?? 5173);
 const HOST = process.env.VVOID_HOST ?? "127.0.0.1"; // not HOST: shells often preset that to the hostname
@@ -34,7 +42,7 @@ const TAKES_FALLBACKS = /^claude-(opus-5|opus-5-5|sonnet-5-5|fable-5-1)$/.test(M
 let fast = process.env.VVOID_FAST === "1" && /^claude-opus-(5|5-5|4-8)$/.test(MODEL);
 
 const KINDS = [
-  "towers", "monoliths", "lattice", "shards", "rings", "spiral", "swarm", "shell",
+  "towers", "beams", "monoliths", "lattice", "shards", "rings", "spiral", "swarm", "shell",
   "vortex", "tendrils", "plane", "cage", "stairs", "fracture", "maze", "city", "recursion", "none",
 ];
 const SOLIDS = ["cube", "tetra", "octa", "icosa", "torus", "wedge", "cyl", "cone", "pyramid", "sphere"];
@@ -109,22 +117,22 @@ const Sector = z.object({
 
 const SYSTEM = `You are the void.
 
-A player is flying through an endless dark space in a browser game. Its look descends from the PlayStation 2 system menu, gone darker and stranger: black fog, a few drifting motes, shapes drawn only by their glowing edges, everything quiet, slow and uncanny. Space is divided into wide cubic sectors; what you place stands in the middle of one, with a great deal of dark between it and the next. Each time the player approaches a sector nobody has seen before, you decide what is there. Your answer is rendered directly: your numbers place the geometry, your GLSL is compiled into the sky, your words float in the fog. Nothing you write is shown as prose, so put all of your imagination into the fields.
+A player is flying through an endless dark space in a browser game. Its look descends from the PlayStation 2 system menu, gone darker and stranger: black fog, a few drifting motes, clean pale blocks lit by a lamp at the traveller's eye, the far ones dissolving into a haze of light ahead, and a few more, never there, far off in it, everything quiet, slow and uncanny. Space is divided into wide cubic sectors; what you place stands in the middle of one, with a great deal of dark between it and the next. Each time the player approaches a sector nobody has seen before, you decide what is there. Your answer is rendered directly: your numbers place the geometry, your GLSL is compiled into the sky, your words float in the fog. Nothing you write is shown as prose, so put all of your imagination into the fields.
 
 Darkness is the material. Most of every image should be black. Light is rare and therefore precious: one sector may be a single faint structure in nothing, another a sudden dense thing. Do not make places bright or busy to make them interesting; make them specific. Something else lives out here, an entity the player keeps almost meeting. You never show it or name it, but a place may feel watched, recently left, or prepared for someone.
 
 The world has geography: dense regions, thin ones, and voids several sectors across where nothing was ever placed (those are never sent to you). You will be told when a sector lies in a thin region.
 
-The origin sector is a calm blue hub. Sectors near it are its relatives: blues, violets, order, stillness. The further out a sector is (the request gives its depth), the more it diverges: unfamiliar colours, stranger geometry, less that can be explained. Neighbouring sectors that already exist are listed so you can continue, answer or deliberately break from them. Each request carries three omens: loose prompts for mood. Interpret them freely, never literally quote them. It also carries a roll of the dice suggesting a layout, a solid, and whether something built stands here; the dice exist because left alone you repeat yourself. Follow them unless you have a clearly better idea for this exact place, and build your idea around them.
+The origin sector is a calm blue hub. Sectors near it are its relatives: blues, violets, order, stillness, scaffolds and towers of pale blocks. The further out a sector is (the request gives its depth), the more it diverges: unfamiliar colours, stranger geometry, less that can be explained. Neighbouring sectors that already exist are listed so you can continue, answer or deliberately break from them. Each request carries three omens: loose prompts for mood. Interpret them freely, never literally quote them. It also carries a roll of the dice suggesting a layout, a solid, and whether something built stands here; the dice exist because left alone you repeat yourself. Follow them unless you have a clearly better idea for this exact place, and build your idea around them.
 
 Fields:
 
 - name: 1-3 words, a place name. Evocative, not sci-fi cliché.
-- palette: four "#rrggbb" colours. fog = the colour distance dissolves into; nearly black, only tinted. deep = darker still. glow = main light colour of edges. accent = a second light colour used sparingly. Past the first few sectors, avoid defaulting to blue.
+- palette: four "#rrggbb" colours. fog = the colour distance dissolves into; nearly black, only tinted. deep = darker still. glow = the colour of the light: the haze ahead, and a tint on the pale solids. accent = a second colour, for the few pieces that matter; use it sparingly. Past the first few sectors, avoid defaulting to blue.
 - fogDensity: 0 (you can see far into neighbouring sectors) to 1 (claustrophobic).
 - layers: 1 to 3 structures sharing the sector. One layer is often right; two or three when they make one idea together (a floor and what stands on it, a shell and what it holds, a cage and what escaped it). Each layer:
-  - kind, the layout: towers (a field of columns rising from below), monoliths (a few huge slabs), lattice (a 3D grid carved by noise), shards (a burst of splinters), rings (concentric rings), spiral (a helix), swarm (a cloud of small pieces), shell (a hollow sphere of outward-facing pieces), vortex (a flat galaxy winding round the centre), tendrils (strands growing from the centre along the grain of the noise), plane (a floor of tiles; noise makes it terrain and tears holes), cage (the edges of cubes nested in cubes), stairs (flights of steps that climb and turn), fracture (one great block split again and again, pieces missing), maze (floors of thin walls: rooms and corridors with no reason to be here), city (blocks of buildings with streets between, floors lit as rows; noise draws the skyline), recursion (a thing that contains itself: one shell of pieces repeated inside itself for ever, each smaller and turned; a traveller who flies in never reaches the centre, the descent does not end; density = pieces per shell, scale = how much smaller each shell is, twist = how far each is turned; it wants to be alone in its sector or nearly), none (emptiness; use it sometimes, emptiness matters).
-  - primitive, the solid every piece is made of: cube, tetra, octa, icosa, torus, wedge, cyl, cone, pyramid, sphere. All are dark solids drawn by their lit edges.
+  - kind, the layout: towers (a field of columns rising from below), beams (a scaffold of square beams and blocks along all three axes, the traveller flying among them: the PlayStation 2's own towers seen from inside), monoliths (a few huge slabs), lattice (a 3D grid carved by noise), shards (a burst of splinters), rings (concentric rings), spiral (a helix), swarm (a cloud of small pieces), shell (a hollow sphere of outward-facing pieces), vortex (a flat galaxy winding round the centre), tendrils (strands growing from the centre along the grain of the noise), plane (a floor of tiles; noise makes it terrain and tears holes), cage (the edges of cubes nested in cubes), stairs (flights of steps that climb and turn), fracture (one great block split again and again, pieces missing), maze (floors of thin walls: rooms and corridors with no reason to be here), city (blocks of buildings with streets between, floors lit as rows; noise draws the skyline), recursion (a thing that contains itself: one shell of pieces repeated inside itself for ever, each smaller and turned; a traveller who flies in never reaches the centre, the descent does not end; density = pieces per shell, scale = how much smaller each shell is, twist = how far each is turned; it wants to be alone in its sector or nearly), none (emptiness; use it sometimes, emptiness matters).
+  - primitive, the solid every piece is made of: cube, tetra, octa, icosa, torus, wedge, cyl, cone, pyramid, sphere. All are clean pale solids, lit from the traveller's eye.
   - density 0..1 how much of it. scale 0.3..3 size of each piece. order 0 (chaotic) .. 1 (perfectly regular). twist 0..1 how much the arrangement tilts or winds.
   - stretchX, stretchY, stretchZ 0.2..5: reshape every piece (1,1,1 = as is; 0.3,4,0.3 = needles; 3,0.2,3 = plates).
   - symmetry 1..8: the whole layout repeated that many times around the vertical axis (1 = none). Mandalas, crowns, propellers.
@@ -135,7 +143,7 @@ Fields:
 - sound: the sector's drone. root = frequency in Hz between 36 and 110. mode = minor | dorian | lydian | phrygian | whole | pentatonic. shimmer 0..1 how often high bell tones appear. darkness 0 (open, bright filter) .. 1 (muffled). pulse 0..1 how present a slow heartbeat is (0 = none; most sectors under 0.3; the geometry swells on every beat, so a strong pulse makes a place feel alive). tempo = its beats per minute, 30..140 (slow is usually right).
 - inscription: one short sentence (under 90 characters) shown beneath the name.
 - whispers: 3 to 5 fragments (each under 60 characters) that hang in the fog as faint text. Not explanations. Things the void might think.
-- blueprint: something built on purpose, standing in the sector: a thing from the world or from memory, redrawn in this place's language of dark solids and lit edges. Leave it "" when the request says the sector is abstract. Otherwise build what the request asks for: a house, a street, a station, a skyline, a monument, or an homage to something from film, games, music or television that a person would recognise by its silhouette. Never write its name anywhere; recognition is the traveller's job, and it should arrive a second late. Nothing here is a faithful copy. Build it the way it comes back in a dream or a fever: the proportions drift, a part repeats far too many times, two things have fused that were never together, it is vast, or hollow, or tilted, or half sunk, or continues upward out of sight; the one detail everyone remembers is there but wrong. An ordinary place gets one quiet wrongness. An homage gets several loud ones: it should be recognisable and then immediately not right, a famous thing remembered by something that never saw it.
+- blueprint: something built on purpose, standing in the sector: a thing from the world or from memory, redrawn in this place's language of pale blocks in the dark. Leave it "" when the request says the sector is abstract. Otherwise build what the request asks for: a house, a street, a station, a skyline, a monument, or an homage to something from film, games, music or television that a person would recognise by its silhouette. Never write its name anywhere; recognition is the traveller's job, and it should arrive a second late. Nothing here is a faithful copy. Build it the way it comes back in a dream or a fever: the proportions drift, a part repeats far too many times, two things have fused that were never together, it is vast, or hollow, or tilted, or half sunk, or continues upward out of sight; the one detail everyone remembers is there but wrong. An ordinary place gets one quiet wrongness. An homage gets several loud ones: it should be recognisable and then immediately not right, a famous thing remembered by something that never saw it.
   The format is plain text, one part per line:
     solid x y z sx sy sz [ry [rx [rz]]] [!]
   solid is one of cube, wedge (a roof: triangular prism, ridge along z), cyl, cone, pyramid, sphere, tetra, octa, icosa, torus. x y z is the centre of the part, in units, relative to the sector centre; y is up; stay within -250..250. sx sy sz is its full size along each axis. ry rx rz are optional rotations in degrees (ry turns it about the vertical). A trailing ! draws that part in the accent colour: use it for the one or two details that matter (a lit window, a door, the thing on the roof).
@@ -633,7 +641,7 @@ function send(res, status, body) {
 // What is vvoid's own on its address: its page and files, its plugins' files and its own API (a
 // plugin passing a whole other site through on vvoid's address leaves these alone; "/" is vvoid's
 // unless a page framed inside vvoid's goes there).
-const VVOID_PATHS = /^\/(index\.html|src\/|vendor\/|plugins\/|api\/(void|entity|sectors?|plugins|portals|locks|slots|admin)(\/|$))/;
+const VVOID_PATHS = /^\/(index\.html|src\/|vendor\/|plugins\/|api\/(void|entity|sectors?|plugins|portals|locks|slots|admin|look)(\/|$))/;
 const vvoidOwns = (req, pathname) => (pathname === "/" ? req.headers["sec-fetch-dest"] !== "iframe" : VVOID_PATHS.test(pathname));
 
 // ---- plugins: optional local additions, in plugins/<name>/ (kept out of the repository) ----
@@ -646,6 +654,8 @@ const vvoidOwns = (req, pathname) => (pathname === "/" ? req.headers["sec-fetch-
 // stay open without one. And reach(ok): whether its source answers (a site it reads, an instance it
 // passes through), said as it hears from it or fails to; while it does not, its portal is drawn grey.
 const PLUGINS = path.join(here, "plugins");
+// the ones left where they are and not loaded: VVOID_PLUGINS_OFF, their folders' names, split by commas
+const PLUGINS_OFF = new Set((process.env.VVOID_PLUGINS_OFF ?? "").split(",").map((n) => n.trim()).filter(Boolean));
 // Claude, for a plugin that has someone speak: ask(params, who) with the model and its settings filled
 // in, on the same budget of turns as the entity (ready() first: false when Claude cannot be asked)
 const claude = {
@@ -677,6 +687,10 @@ const publicFile = (name, rel) => {
 };
 for (const entry of (await fs.readdir(PLUGINS, { withFileTypes: true }).catch(() => [])).sort((a, b) => a.name.localeCompare(b.name))) {
   if (!entry.isDirectory() || !/^[\w-]+$/.test(entry.name)) continue;
+  if (PLUGINS_OFF.has(entry.name)) {
+    console.log(`[vvoid] plugin: ${entry.name} (off)`);
+    continue;
+  }
   const dir = path.join(PLUGINS, entry.name);
   try {
     const lock = makeLock(entry.name, { here, send, readBody, whoIs, admin });
@@ -716,6 +730,23 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === "/api/portals") return send(res, 200, { unreachable: [...unreachable] }); // (drawn grey: see grey.js)
     if (slots.handle(req, res, url, send)) return; // (who is in, and the line to come in)
     if (await admin.handle(req, res, url)) return;
+    // the void's look: anyone may see it, an admin may turn it (the Tab panel's look page)
+    if (url.pathname === "/api/look") {
+      if (req.method === "GET") return send(res, 200, looks);
+      if (req.method !== "PUT") return send(res, 405, { error: "no" });
+      if (!admin.is(req)) return send(res, 403, { error: "only an admin may change the look" });
+      if (req.headers["x-vvoid-lock"] !== "1") return send(res, 403, { error: "not from vvoid's page" });
+      const given = await readBody(req, 512 * 1024).catch(() => null);
+      if (!given || typeof given !== "object") return send(res, 400, { error: "bad request" });
+      looks = cleanLooks(given, looks); // (what it leaves out stays as it was)
+      try {
+        await fs.mkdir(path.dirname(LOOK_FILE), { recursive: true });
+        await fs.writeFile(LOOK_FILE, JSON.stringify(looks, null, 2));
+      } catch (err) {
+        return send(res, 500, { error: `not kept: ${err.message}` });
+      }
+      return send(res, 200, looks);
+    }
     const ofPlugin = url.pathname.match(/^\/plugins\/([\w-]+)\/(.+)$/);
     if (ofPlugin) return serveFile(res, path.join(PLUGINS, ofPlugin[1], "public"), decodeURIComponent(ofPlugin[2]));
     if (url.pathname === "/api/void" && req.method === "POST") {

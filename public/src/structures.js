@@ -215,6 +215,25 @@ const GENERATORS = {
       }
     }
   },
+  // a scaffold of square beams along all three axes, each a row of blocks: the PS2's own towers, seen
+  // from among them. Each axis has its lines between the others', so beams cross without meeting.
+  beams(st, field, r, out) {
+    const n = 5 + Math.round(st.density * 4), step = (REACH * 2) / n;
+    const w = step * (0.17 + 0.1 * Math.min(st.scale, 2) / 2), most = Math.floor((step * 0.94) / w);
+    const threshold = 0.7 - st.density * 0.14;
+    const p = [0, 0, 0], X = new THREE.Vector3(1, 0, 0);
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) for (let k = 0; k < n; k++) for (let a = 0; a < 3; a++) {
+      p[0] = -REACH + (i + 0.5) * step; p[1] = -REACH + (j + 0.5) * step; p[2] = -REACH + (k + 0.5) * step;
+      p[(a + 1) % 3] += step * (a - 1) * 0.3;
+      p[(a + 2) % 3] += step * (1 - a) * 0.3 + step * 0.15;
+      const h = field(p[0] / REACH + a * 1.7, p[1] / REACH, p[2] / REACH);
+      if (h < threshold) continue;
+      const blocks = Math.max(1, Math.min(most, Math.round(1 + (h - threshold) * 16 * Math.min(st.scale, 2))));
+      // a disordered scaffold slides its beams along their lines
+      p[a] += (1 - st.order) * (r() - 0.5) * (step - blocks * w);
+      instance(out, p[0], p[1], p[2], w, w * blocks, w, h > threshold + 0.2 ? 1 : 0, { axis: "y", dir: [X, Y, Z][a] });
+    }
+  },
   // a floor of tiles; noise makes it terrain and tears holes in it
   plane(st, field, r, out) {
     const n = 12 + Math.round(st.density * 16);
@@ -377,7 +396,7 @@ export function buildLayers(spec, seed) {
       instances, layer,
       fractal: base.fractal ?? null,
       // cube columns read as stacked blocks; city blocks get twice as many rows, which read as floors
-      bands: layer.primitive !== "cube" ? 0 : layer.kind === "towers" ? 1 : layer.kind === "city" ? 2 : 0,
+      bands: layer.primitive !== "cube" ? 0 : layer.kind === "towers" || layer.kind === "beams" ? 1 : layer.kind === "city" ? 2 : 0,
       tiltZ: (r() - 0.5) * layer.tilt * 2,
     };
   });

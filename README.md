@@ -22,9 +22,9 @@ Without a key the void still opens, made of local noise instead of dreams.
 
 Mouse to look, `W` `A` `S` `D` to fly, `Shift` to surge, `V` casts a light ahead, `J` throws a gob of
 alien goo at the post you look at (it clings to the screen and runs down it). `Tab` holds the rest: the map
-of everywhere you have been, the keys, the controller, the screen, the credits. Its `share` copies a link
-to where you are: whoever opens it comes in right there, facing as you face (in a plugin's dimension too,
-and in its room).
+of everywhere you have been, the keys, the settings (graphics, controls and the controller, sound), the
+credits. Its `share` copies a link to where you are: whoever opens it comes in right there, facing as you
+face (in a plugin's dimension too, and in its room).
 
 ### In a headset
 
@@ -58,6 +58,8 @@ the menu's origin takes you out of them. The saber plugin is made for it.
 | `VVOID_MAX_BEATS` | `600` | turns of the entity per run |
 | `VVOID_MAX_SLOTS` | none | how many may be in the void at once; the rest wait in line on the start screen |
 | `VVOID_ADMIN_KEY` | none | open vvoid once as `/?admin=<key>`: that browser is admin for a year, straight in past the line (taking no slot) and through every portal without its password; `/?admin=` lets it go |
+| `VVOID_LOOK` | `.cache/look.json` | where the void's look is kept (as an admin turns it: `Tab`, then look) |
+| `VVOID_PLUGINS_OFF` | none | plugins left in `plugins/` but not loaded: their folders' names, split by commas |
 
 Behind nginx on the same machine, let it say who is asking (for the logs, and so that wrong passwords
 are counted per visitor rather than for everyone at once):
@@ -67,6 +69,24 @@ are counted per visitor rather than for everyone at once):
     proxy_set_header X-Forwarded-Proto $scheme;
 
 </details>
+
+### The panel
+
+    npm run panel             # http://127.0.0.1:5174
+
+A page of its own, on its own port, apart from the void: every setting above and every plugin's, each as
+its README describes it (or `.env` whole, as it is), which plugins are on, the void's look, and vvoid
+itself, started, stopped and restarted from there (it reads `.env` once, as it starts), with what it
+writes. It asks for a key: `VVOID_PANEL_KEY`, or, unset, a new one each time it starts, in the link it
+prints. The `.env` before each change is kept in `.cache/panel/env/`. vvoid started from the panel stops
+with it; one started elsewhere (`npm start`) is seen, but stopped and started where it was.
+
+| | default | |
+|---|---|---|
+| `VVOID_PANEL_PORT` | `5174` | the panel's port |
+| `VVOID_PANEL_HOST` | `127.0.0.1` | its bind address (anything wider: put it behind https, as it shows every key) |
+| `VVOID_PANEL_KEY` | a new one each run | the key it asks for |
+| `VVOID_PANEL_START` | off | `1`: start vvoid as the panel starts |
 
 ## Other doors
 
@@ -99,6 +119,8 @@ And the code it borrows:
 | [Simplex noise demystified](https://github.com/stegu/perlin-noise) | public domain | simplex noise on the CPU, after Stefan Gustavson: where the void is crowded and where it is empty |
 | [mulberry32](https://gist.github.com/tommyettinger/46a874533244883189143505d203312c) | public domain | seeded randomness, by Tommy Ettinger: the same place is always the same |
 | [MurmurHash3](https://github.com/aappleby/smhasher) | public domain | its finaliser, by Austin Appleby: a place's coordinates into its seed |
+
+The licence text of the code taken from them: `THIRD-PARTY-NOTICES.md`.
 
 What a plugin brings keeps its own licence, and is named on the credits page in vvoid (`Tab`, then
 `credits`).

@@ -248,7 +248,7 @@ export class TouchButtons {
     el.addEventListener("pointerdown", (e) => {
       if ([...this.held.values()].some((hold) => hold.b === b)) return; // (one thumb to a button)
       e.preventDefault();
-      el.setPointerCapture?.(e.pointerId);
+      try { el.setPointerCapture?.(e.pointerId); } catch {} // (the pointer locked meanwhile: none to capture, the press still a press)
       if (this.arranging) {
         // (a row's: held by its middle, wherever along it the thumb is)
         const box = el.getBoundingClientRect(), [mx, my] = this.groups[b.group].row ? this.rowMiddle(b.group) : [box.left + box.width / 2, box.top + box.height / 2];

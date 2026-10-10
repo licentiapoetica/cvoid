@@ -29,6 +29,7 @@ import { VoidXR, standalone } from "./xr.js";
 import { VoidHud } from "./vrhud.js";
 import { Arrival } from "./arrival.js";
 import { writePlace, readPlace } from "./share.js";
+import { LOOK, lookBase, setLook, saveName, defaults as lookDefaults } from "./look.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -41,6 +42,10 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPrefer
 renderer.setClearColor(0x000000, 1);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
+// (what is drawn counted over a whole frame, every pass and every plugin's own picture in it, not the last
+// pass alone: reset once a frame, in frame, the last whole frame's kept in lastDrawn)
+renderer.info.autoReset = false;
+const lastDrawn = { calls: 0, triangles: 0 };
 
 const scene = new THREE.Scene();
 // the headset (see xr.js) and what it shows in place of the page's words (vrhud.js): made once the rest is
@@ -291,10 +296,28 @@ const hook = (name, ...args) => {
 const realmNames = {}; // for the HUD (the plugins add their dimensions)
 const voice = new VoidVoice({ world, notice: () => hook("notice"), textEl: $("voidVoice"), stored, store }); // the void itself, now and then
 
-// the screen: chosen in the Tab panel, remembered
+// The settings window's pages (graphics, controls, sound): one shown at a time, the one last open
+// remembered
+{
+  const tabs = [...$("gTabs").children], pages = [...document.querySelectorAll("#gfxPanel > .section")];
+  const show = (tab) => {
+    if (!tabs.some((b) => b.dataset.tab === tab)) tab = tabs[0].dataset.tab;
+    for (const b of tabs) b.classList.toggle("on", b.dataset.tab === tab);
+    for (const page of pages) page.classList.toggle("on", page.dataset.tab === tab);
+  };
+  for (const b of tabs) {
+    b.addEventListener("click", (e) => {
+      store("settingsTab", b.dataset.tab);
+      show(b.dataset.tab);
+      if (e.detail) b.blur(); // (clicked, not keyed: the next space flies)
+    });
+  }
+  show(stored("settingsTab", "graphics"));
+}
+// the screen: chosen on the settings' graphics page, remembered
 {
   let chosen = stored("screen", "none");
-  const row = $("mScreen"), buttons = SCREENS.map((name) => {
+  const row = $("gScreen"), buttons = SCREENS.map((name) => {
     const b = Object.assign(document.createElement("button"), { textContent: name });
     b.onclick = () => { chosen = name; store("screen", name); show(); };
     row.append(b);
@@ -680,7 +703,7 @@ function toggleAutofly(on) {
   autofly = on;
   note(autofly ? "autofly on · enter or s to stop" : "autofly off");
 }
-// Volume: a slider on the start screen and in the map's panel, and - / = while flying. Remembered.
+// Volume: a slider on the start screen and on the settings' sound page, and - / = while flying. Remembered.
 const sliders = [...document.querySelectorAll(".volume")];
 function setVolume(volume, say = false) {
   volume = audio.setVolume(volume);
@@ -715,7 +738,7 @@ let playerName = stored("player", "");
   });
 }
 
-// The mix, under the volume in the Tab panel: how loud each kind of sound is (0 to 150%), remembered.
+// The mix, under the volume on the settings' sound page: how loud each kind of sound is (0 to 150%), remembered.
 {
   const MIX = [["void", "the void"], ["music", "music"], ["sounds", "sounds"], ["voice", "voices"], ["media", "radio, posts"]];
   const mix = stored("mix", {});
@@ -735,9 +758,7 @@ let playerName = stored("player", "");
     input.addEventListener("dblclick", () => { set(100); mix[name] = 1; store("mix", mix); }); // (twice: back to as it comes)
     return row;
   });
-  const box = Object.assign(document.createElement("div"), { className: "mix" });
-  box.append(Object.assign(document.createElement("div"), { className: "of", textContent: "mix · double click a slider: back to 100" }), ...rows);
-  $("mapPanel").append(box);
+  $("gMix").append(...rows);
 }
 
 function toggleMute() {
@@ -841,8 +862,12 @@ new MutationObserver(() => {
 
 // Raw mouse input where the browser offers it: the OS pointer acceleration curve
 // is what makes locked-pointer look feel slippery.
+// (a finger's last: nothing to lock, and a lock would take every touch from the buttons on the screen,
+// whoever asked for it (a plugin, as it seats you); a mouse's, it locks again)
+let pointerType = matchMedia("(pointer: coarse)").matches ? "touch" : "mouse";
+addEventListener("pointerdown", (e) => { pointerType = e.pointerType; }, true);
 async function lockPointer() {
-  if (!started || !canvas.requestPointerLock || document.pointerLockElement === canvas) return; // (in line, the pointer stays free)
+  if (!started || !canvas.requestPointerLock || document.pointerLockElement === canvas || pointerType === "touch") return; // (in line, the pointer stays free)
   try {
     await canvas.requestPointerLock({ unadjustedMovement: true });
     rawInput = !/firefox/i.test(navigator.userAgent); // (Firefox takes the option without a word, and gives no raw input)
@@ -952,6 +977,16 @@ async function toggleFullscreen() {
     lockPointer();
   } catch { /* fullscreen refused: nothing to undo */ }
 }
+// F11 does what F does, always. A page in fullscreen holding the keyboard (F, or bhop's) is handed F11 instead
+// of the browser, and a plugin may take every key while it plays (mania): so it is caught here, first. (The
+// browser's own fullscreen, from an F11 it was given before, is left to the browser to undo.)
+window.addEventListener("keydown", (e) => {
+  if (e.code !== "F11" || e.repeat) return;
+  if (!document.fullscreenElement && matchMedia("(display-mode: fullscreen)").matches) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  toggleFullscreen();
+}, true);
 // the left button is the plugins'; the right one, held, zooms in
 // (see ZOOM), and let go quickly it is a click, which is the plugins' again
 const aiming = () => started && document.pointerLockElement === canvas && !map.open;
@@ -1065,11 +1100,140 @@ $("mPad").addEventListener("click", () => {
   $("mPad").classList.toggle("on", open);
   if (!open) padMap.cancel();
   if (open && document.body.classList.contains("crediting")) $("mCredits").click(); // (one page in the keys' place at a time)
+  if (open && document.body.classList.contains("looking")) $("mLook").click();
 });
 // the credits page of the Tab panel, in the keys' place like the controller's: what vvoid is made with
 $("mCredits").addEventListener("click", () => {
   const open = document.body.classList.toggle("crediting");
   $("mCredits").classList.toggle("on", open);
+  if (open && document.body.classList.contains("padding")) $("mPad").click();
+  if (open && document.body.classList.contains("looking")) $("mLook").click();
+});
+// The void's look (see look.js): as the server keeps it, for everyone; and for an admin, the Tab panel's
+// look page, in the keys' place like the credits, every setting of it turned live and kept as it is turned,
+// with saves of it by name (loaded again at will, and any of them saber's as a platform of its own)
+const looks = { saves: {}, saber: [] };
+fetch("/api/look").then((res) => (res.ok ? res.json() : null)).then((kept) => {
+  if (!kept) return;
+  setLook(kept.now ?? {});
+  Object.assign(looks, { saves: kept.saves ?? {}, saber: kept.saber ?? [] });
+}).catch(() => {}).finally(buildLook);
+let lookSaving = null, showLookRows = () => {};
+async function sendLooks(body) {
+  $("lookSaid").textContent = "· …";
+  const res = await fetch("/api/look", { method: "PUT", headers: { "x-vvoid-lock": "1", "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+  const data = res && (await res.json().catch(() => null));
+  $("lookSaid").textContent = res?.ok ? "· kept" : `· not kept: ${data?.error ?? "the server does not answer"}`;
+  if (res?.ok && data) { Object.assign(looks, { saves: data.saves ?? {}, saber: data.saber ?? [] }); showSaves(); }
+}
+function keepLook() {
+  clearTimeout(lookSaving);
+  $("lookSaid").textContent = "· …";
+  lookSaving = setTimeout(() => sendLooks({ now: lookBase }), 500);
+}
+// the saves: a name and save (the same name again: saved over), and each one's load, whether it is a
+// platform in saber, and away
+function showSaves() {
+  const list = $("lookSaves");
+  list.replaceChildren();
+  for (const name of Object.keys(looks.saves)) {
+    const row = Object.assign(document.createElement("div"), { className: "row save" });
+    const load = Object.assign(document.createElement("button"), { textContent: "load", title: "the void's look, as it was saved (for everyone)" });
+    const saber = Object.assign(document.createElement("button"), { textContent: "saber", title: "a platform of its own in saber: the void round you, in this look (only there)" });
+    const away = Object.assign(document.createElement("button"), { textContent: "×", title: "away with it" });
+    saber.classList.toggle("on", looks.saber.includes(name));
+    load.onclick = () => { setLook(looks.saves[name]); showLookRows(); keepLook(); $("lookName").value = name; };
+    saber.onclick = () => sendLooks({ saber: looks.saber.includes(name) ? looks.saber.filter((n) => n !== name) : [...looks.saber, name] });
+    away.onclick = () => {
+      if (!confirm(`away with the look "${name}"?`)) return;
+      const saves = { ...looks.saves };
+      delete saves[name];
+      sendLooks({ saves, saber: looks.saber.filter((n) => n !== name) });
+    };
+    row.append(Object.assign(document.createElement("span"), { textContent: name, title: name }), load, saber, away);
+    list.append(row);
+  }
+  if (!list.children.length) list.append(Object.assign(document.createElement("div"), { className: "of", textContent: "none yet: name the look as it is now, and save it" }));
+}
+function buildLook() {
+  const list = $("lookList"), own = lookDefaults(), rows = [];
+  let group = null;
+  for (const d of LOOK) {
+    if (d.group !== group) list.append(Object.assign(document.createElement("div"), { className: "group", textContent: (group = d.group) }));
+    const row = Object.assign(document.createElement("label"), { className: "row" });
+    const colour = d.type === "colour";
+    if (d.type === "switch") {
+      // (a switch: a button, on or off)
+      const button = Object.assign(document.createElement("button"), { type: "button", className: "switch" });
+      row.append(Object.assign(document.createElement("span"), { textContent: d.label }), button);
+      const show = () => {
+        const on = lookBase[d.key] > 0;
+        button.textContent = on ? "on" : "off";
+        button.classList.toggle("on", on);
+        row.classList.toggle("changed", lookBase[d.key] !== own[d.key]);
+      };
+      button.addEventListener("click", (e) => { e.preventDefault(); setLook({ [d.key]: lookBase[d.key] > 0 ? 0 : 1 }); show(); keepLook(); });
+      list.append(row);
+      rows.push(show);
+      show();
+      continue;
+    }
+    const input = Object.assign(document.createElement("input"), colour ? { type: "color" } : { type: "range", min: d.min, max: d.max, step: d.step });
+    const out = document.createElement("output");
+    row.append(Object.assign(document.createElement("span"), { textContent: d.label }), input, out);
+    const show = () => {
+      const v = lookBase[d.key];
+      input.value = v;
+      out.textContent = colour ? v : +v.toFixed(d.step < 0.1 ? 2 : d.step < 1 ? 1 : 0);
+      row.classList.toggle("changed", v !== own[d.key]);
+    };
+    input.addEventListener("input", () => { setLook({ [d.key]: colour ? input.value : Number(input.value) }); show(); keepLook(); });
+    row.addEventListener("dblclick", () => { setLook({ [d.key]: own[d.key] }); show(); keepLook(); });
+    // (its keys are its own while it has them: an arrow turns the number, not you)
+    input.addEventListener("keydown", (e) => e.stopPropagation());
+    list.append(row);
+    rows.push(show);
+    show();
+  }
+  showLookRows = () => rows.forEach((show) => show());
+  $("lookReset").onclick = () => { setLook(own); showLookRows(); keepLook(); };
+  $("lookName").addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Enter") $("lookSave").click(); });
+  $("lookSave").onclick = () => {
+    const name = saveName($("lookName").value);
+    if (!name) return $("lookName").focus();
+    sendLooks({ saves: { ...looks.saves, [name]: { ...lookBase } } });
+  };
+  showSaves();
+}
+// whether this is an admin's (body.admin: its own buttons show): asked once an admin key in the address,
+// if any, has been given (see slots.js, which says so too), and again each time the Tab panel opens
+function askAdmin() {
+  fetch("/api/admin", { cache: "no-store" }).then((res) => res.json()).then((a) => document.body.classList.toggle("admin", !!a?.admin || !!slots.admin)).catch(() => {});
+}
+slots.loggedIn.then(askAdmin, askAdmin);
+let tabOpen = false;
+new MutationObserver(() => {
+  const open = document.body.classList.contains("mapping");
+  if (open && !tabOpen) askAdmin();
+  tabOpen = open;
+}).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+// pinned (remembered): the look page stays on the screen with the Tab panel closed, so each change is seen
+// in the void as it is made (esc frees the mouse to turn it; its keys are its own while it has them)
+const pinLook = (on) => {
+  document.body.classList.toggle("lookPinned", on);
+  $("lookPin").classList.toggle("on", on);
+  $("lookPin").textContent = on ? "pinned" : "pin";
+  store("lookPinned", on);
+};
+pinLook(!!stored("lookPinned", false));
+$("lookPin").addEventListener("click", (e) => {
+  pinLook(!document.body.classList.contains("lookPinned"));
+  if (e.detail) e.currentTarget.blur(); // (clicked: the next space flies)
+});
+$("mLook").addEventListener("click", () => {
+  const open = document.body.classList.toggle("looking");
+  $("mLook").classList.toggle("on", open);
+  if (open && document.body.classList.contains("crediting")) $("mCredits").click();
   if (open && document.body.classList.contains("padding")) $("mPad").click();
 });
 padMap.onSaved = () => showHelp();
@@ -1555,6 +1719,8 @@ function drawHeadset(dt) {
 let elapsed = 0, last = performance.now(), coordsTimer = 0, seatedBefore = false;
 let watchAsk = 0; // (when next to ask what a tour holds you at: see back.watching)
 function frame(now) {
+  lastDrawn.calls = renderer.info.render.calls; lastDrawn.triangles = renderer.info.render.triangles;
+  renderer.info.reset();
   const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
   meter.frames++;
@@ -1568,7 +1734,7 @@ function frame(now) {
   $("crosshair").classList.toggle("still", stillNow());
   back.touring = back.afoot = false; // (fly says so again, while a plugin flies you; a plugin moving you on foot, in its update: see back.js)
   back.post = null; // (and a plugin keeping it at a place, in its update too)
-  back.terrified = false; // (and a plugin frightening it: see back.js's feel)
+  back.terrified = back.joy = false; // (and a plugin frightening it, or delighting it: see back.js's feel)
   back.pin = null; back.size = 1; // (and a plugin keeping it exactly somewhere, and its size: see back.js)
   if (!started) { idle(elapsed); for (const p of plugins) p.idle?.(dt); } // (what they have in the hub moves behind the start screen too)
   else if (!locks.asking && !hook("busy")) fly(dt); // something of a plugin's is open (a piece, a game): stay where you are
@@ -1647,6 +1813,12 @@ function frame(now) {
     $("coords").textContent = `${realmNames[world.realm] ? `${realmNames[world.realm]} · ` : ""}sector ${cell(p.x)}, ${cell(p.y)}, ${cell(p.z)} · offset ${signed(off(p.x))} ${signed(off(p.y))} ${signed(off(p.z))}`;
   }
 }
+// The plugins behind a password (see locks.js): known before any is installed, so each portal knows at once
+// (and before the first frame, which asks it whose windows to show: see showPanelsFor)
+const locks = new Locks();
+const locksKnown = locks.load();
+locks.refused = refused; // (a wrong password: the void answers it)
+locks.declined = declined; // (none given, Esc: and that too, quietly)
 runFrames();
 // a headset put on (by a plugin: see the saber plugin) or taken off: its frames, or the screen's again
 renderer.xr.addEventListener("sessionstart", runFrames);
@@ -1655,6 +1827,7 @@ renderer.xr.addEventListener("sessionend", () => { runFrames(); resize(); });
 // (viewers: the f0ck plugin's viewers, each registering itself as it is made: see back.js)
 window.vvoid = {
   world, camera, renderer, entity, back, voice, map, plugins, padMap, CELL, graphics: gfx, viewers: [], meteors, lasers, aim(y, p) { yaw = viewYaw = y; pitch = viewPitch = p; },
+  lastDrawn, // ({ calls, triangles }: the last whole frame's, all its passes)
   baseFov, // (the camera's own field of view, up and down, before zoom and speed widen or narrow it)
   // Held where you are (see held: a group's member, say), asked by every way into a dimension or a room (its
   // ring, a tag's portal, a search): they neither draw you nor take you, and with say, the reason is said.
@@ -1670,11 +1843,6 @@ window.vvoid = {
   alone: () => !!hook("alone"),
 };
 
-// The plugins behind a password (see locks.js): known before any is installed, so each portal knows at once
-const locks = new Locks();
-const locksKnown = locks.load();
-locks.refused = refused; // (a wrong password: the void answers it)
-locks.declined = declined; // (none given, Esc: and that too, quietly)
 window.vvoid.locks = locks;
 
 // ---- the headset (see xr.js, vrhud.js) ----
@@ -1728,7 +1896,8 @@ const game = {
   pad: padMap, // the controller's buttons, as mapped (see pad.js): a plugin may add actions of its own
   // a touch screen's buttons: a plugin may add its own, and have them arranged from its own window (see touch.js)
   touch: { add: (group, list, how) => touchButtons.add(group, list, how), arrange: (layer) => touchButtons.arrange(true, layer) },
-  arrive, face, note, lockPointer, levelOut, showHelp: () => showHelp(),
+  arrive, face, note, lockPointer, levelOut, touching: () => pointerType === "touch", // (a finger the last to press: no pointer to lock)
+  showHelp: () => showHelp(),
   setVolume: (v) => setVolume(v), volume: () => audio.volume, // vvoid's own volume (its sliders kept in step)
   goTo,                                     // somewhere at once: { realm, room?, position, yaw, pitch } (see goTo)
   locks,                                    // its password, if it has one: locked(name), ask(name) at its portal (see locks.js)

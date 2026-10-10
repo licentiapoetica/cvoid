@@ -89,6 +89,11 @@ export function normalizeSpec(raw) {
     rainbow: clamp(s.rainbow, 0, 1, 0),
     file: typeof s.file === "string" ? s.file : null, // a file this sector is made from (a plugin's dimension)
     air: !!s.air,           // its pieces and motes wear the air's colours, easing over with them
+    solid: !!s.solid,       // a dimension in the void's own look (see World.enter)
+    blocks: clamp(s.blocks, 0, 4, 1), // how many blocks far off in its sky, x1
+    // where its glow is, a direction (else the void's)
+    haze: Array.isArray(s.haze) && s.haze.length === 3 && s.haze.every(Number.isFinite) && s.haze.some(Boolean)
+      ? (() => { const l = Math.hypot(...s.haze); return s.haze.map((v) => v / l); })() : null,
     passable: !!s.passable, // nothing in it is solid (see World.collide)
     noise: {
       frequency: clamp(n.frequency, 0.3, 6, 1.5),

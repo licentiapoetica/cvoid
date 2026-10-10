@@ -188,6 +188,7 @@ export class Back {
     this.home = new THREE.Vector3();     // where it would float (eased towards you)
     this.post = null;                    // a place it waits at instead, not following you (a plugin's, set each frame: bhop's stage)
     this.terrified = false;              // a plugin's say, set each frame: it is afraid (p.t.'s house), its eyes wide and darting; 2, frantic
+    this.joy = false;                    // a plugin's say, set each frame: it is overjoyed (saber's, on the platform as a song is filmed), its eyes two happy arches
     this.pin = null;                     // a plugin's: exactly where it is this frame (it does not travel there: p.t.'s, at the side of your view, never through a wall)
     this.size = 1;                       // a plugin's: how big it is (and its smoke, its embers, the dark you click), set each frame
     this.speed = new THREE.Vector3();    // and how it is going, beside you (see place)
@@ -529,6 +530,11 @@ export class Back {
     }
     else if (closing > 0.4 || this.open > 0.3) { mood = "happy"; lid = 0; wide = 1.1; smile = 1; look = ZERO; }
     else if (this.greeting?.at != null && this.time >= this.greeting.at) { mood = "greeting"; lid = 0; wide = 1.15; smile = 1; look = towardYou.multiplyScalar(0.4); }
+    else if (this.joy) {
+      // overjoyed (a plugin's say): its eyes two wide happy arches, looking all about it, delighted
+      mood = "overjoyed"; lid = 0; wide = 1.25 + 0.06 * Math.sin(this.time * 5.3); smile = 1;
+      look = side.set(Math.sin(this.time * 2.3) * 0.03, 0.012 + Math.abs(Math.sin(this.time * 4.1)) * 0.015);
+    }
     else if (this.watching) {
       // on a tour, at a post: watching it with you (a test: see watch.js)
       const w = (this.watch ??= new Watching()).update(dt, this.watching, this.heard ?? QUIET, towardYou);

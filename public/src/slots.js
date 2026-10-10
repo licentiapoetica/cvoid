@@ -27,7 +27,8 @@ export class Slots {
       try { sessionStorage.setItem("vvoid.slot", this.id); } catch { /* private mode: a reload is a newcomer */ }
       if (this.joined) navigator.sendBeacon?.(`/api/slots?id=${encodeURIComponent(this.id)}&leave=1`);
     });
-    this.login().then(() => this.ask());
+    this.loggedIn = this.login(); // (an admin key given: done once this is; see the look page in main.js)
+    this.loggedIn.then(() => this.ask());
   }
   // /?admin=<key>: given to the server once (its cookie is what says so from then on), and out of the
   // address bar; /?admin= with nothing: let go
@@ -90,6 +91,7 @@ export class Slots {
       this.el.classList.toggle("full", full && !this.in && !this.admin);
     }
     if (this.said || this.admin) words.push(this.said || "admin");
+    if (this.admin) document.body.classList.add("admin"); // (an admin's own buttons: the look page, see main.js)
     this.el.textContent = words.join(" · ");
   }
 }

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>vvoid panel</title>
+<link rel="icon" href="/icon.svg">
+<link rel="stylesheet" href="/panel.css">
+<script type="module" src="/panel.js"></script>
+</head>
+<body>
+
+<form id="login" hidden>
+  <h1>vvoid</h1>
+  <p class="sub">panel</p>
+  <input id="key" type="password" autocomplete="current-password" placeholder="key" aria-label="the panel's key">
+  <button>in</button>
+  <p class="error" role="alert"></p>
+  <p class="hint">VVOID_PANEL_KEY, or the link the panel printed as it started</p>
+</form>
+
+<main id="app" hidden>
+  <header>
+    <h1>vvoid <span>panel</span></h1>
+    <div id="vvoid">
+      <span class="dot"></span>
+      <span id="vvoid-state">…</span>
+      <a id="vvoid-open" target="_blank" rel="noopener noreferrer" hidden>open ↗</a>
+      <span class="acts">
+        <button data-act="start">start</button>
+        <button data-act="restart">restart</button>
+        <button data-act="stop">stop</button>
+      </span>
+    </div>
+    <button id="logout" class="quiet">out</button>
+  </header>
+  <p id="stale" hidden>.env has changed since vvoid started: it reads its settings once, as it starts. <button data-act="restart">restart it</button></p>
+
+  <nav role="tablist">
+    <button role="tab" data-tab="settings">settings</button>
+    <button role="tab" data-tab="plugins">plugins</button>
+    <button role="tab" data-tab="look">look</button>
+    <button role="tab" data-tab="env">.env</button>
+    <button role="tab" data-tab="log">log</button>
+  </nav>
+
+  <section id="tab-settings" role="tabpanel" hidden>
+    <div class="tools">
+      <input id="filter" type="search" placeholder="filter: a name, a word" aria-label="filter the settings">
+      <label><input id="only-set" type="checkbox"> only those in .env</label>
+    </div>
+    <div id="groups"></div>
+  </section>
+
+  <section id="tab-plugins" role="tabpanel" hidden>
+    <p class="lead">Each folder in <code>plugins/</code>. One turned off is left where it is and not loaded (<code>VVOID_PLUGINS_OFF</code>).</p>
+    <div id="plugins"></div>
+  </section>
+
+  <section id="tab-look" role="tabpanel" hidden>
+    <p class="lead" id="look-where"></p>
+    <div id="look"></div>
+  </section>
+
+  <section id="tab-env" role="tabpanel" hidden>
+    <p class="lead">The whole file, as it is. The one before each save is kept in <code>.cache/panel/env/</code>.</p>
+    <textarea id="env-text" spellcheck="false" autocomplete="off" aria-label=".env"></textarea>
+    <div class="bar">
+      <button id="env-save" class="primary">save</button>
+      <button id="env-discard">discard</button>
+    </div>
+  </section>
+
+  <section id="tab-log" role="tabpanel" hidden>
+    <p class="lead" id="log-where"></p>
+    <pre id="log" tabindex="0"></pre>
+  </section>
+
+  <div id="pending" hidden>
+    <span id="pending-text"></span>
+    <button id="pending-save" class="primary">save</button>
+    <button id="pending-discard">discard</button>
+  </div>
+  <div id="toast" role="status" aria-live="polite"></div>
+</main>
+
+</body>
+</html>

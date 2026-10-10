@@ -6,6 +6,8 @@ import { ORIGIN, localSpec, voidSpec, normalizeSpec } from "./spec.js";
 import { population } from "./population.js";
 import { PRIMITIVES, buildLayers, buildBlueprint } from "./structures.js";
 import { CELL, UNIT, SIGHT } from "./constants.js";
+import { Worms } from "./worms.js";
+import { look, uLook } from "./look.js";
 import {
   SKY_VERT, skyFrag, fieldCompiles, DEFAULT_FIELD,
   BOX_VERT, BOX_FRAG, MOTE_VERT, MOTE_FRAG, ORB_VERT, ORB_FRAG,
@@ -17,6 +19,7 @@ const FRACTAL_REACH = 110 * UNIT; // within this distance of a recursion's centr
 const FRACTAL_FLOOR = 7 * UNIT;   // and this close, the traveller is moved one level back out
 
 const key = (x, y, z) => `${x},${y},${z}`;
+const tint = new THREE.Color();
 const dummy = new THREE.Object3D();
 // collisions
 const BOUNCE = 0.55; // how much of the speed into a surface comes back out of it
@@ -86,7 +89,7 @@ class Cell {
     geometry.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
     const material = new THREE.ShaderMaterial({
       vertexShader: MOTE_VERT, fragmentShader: MOTE_FRAG,
-      uniforms: { uTime: G.uTime, uPx: G.uPx, uFogDensity: G.uFogDensity, uLight: G.uLight, uHigh: G.uHigh, uCell: { value: CELL }, uRainbow: { value: 0 }, uRainbowAll: G.uRainbowAll, ...uniforms },
+      uniforms: { uTime: G.uTime, uPx: G.uPx, uFogDensity: G.uFogDensity, uLight: G.uLight, uHigh: G.uHigh, uSolid: G.uSolid, uCell: { value: CELL }, uRainbow: { value: 0 }, uRainbowAll: G.uRainbowAll, ...uniforms },
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
     const points = new THREE.Points(geometry, material);
@@ -169,7 +172,7 @@ class Cell {
       defines: { ...(primitive === "cube" ? {} : { BARY: 1 }), ...(fractal ? { FRACTAL: 1 } : {}) },
       uniforms: {
         uFogColor: G.uFogColor, uFogDensity: G.uFogDensity, uLight: G.uLight, uTime: G.uTime, uMat: mat, uWarp: { value: warp },
-        uMid: G.uMid, uBeat: G.uBeat, uNear: { value: 1e5 }, uUnit: { value: UNIT }, uRainbow: { value: spec.rainbow }, uChan: G.uChan, uRainbowAll: G.uRainbowAll,
+        uMid: G.uMid, uBeat: G.uBeat, uSolid: G.uSolid, uHaze: G.uGlow, uHazeDir: G.uHazeDir, uKeyLight: G.uKeyLight, uLook, uNear: { value: 1e5 }, uUnit: { value: UNIT }, uRainbow: { value: spec.rainbow }, uChan: G.uChan, uRainbowAll: G.uRainbowAll,
         // a place that wears the air's colours (spec.air): its pieces ease over with the air when it changes
         ...(spec.air ? { uDeep: G.uDeep, uGlow: G.uGlow, uAccent: G.uAccent } : {
           uDeep: { value: new THREE.Color(spec.palette.deep) }, uGlow: { value: new THREE.Color(spec.palette.glow) },
@@ -312,9 +315,7 @@ class Cell {
 
 // The nebula is the most expensive shader in the game and also the softest image, so it is
 // drawn into a small offscreen target and stretched behind the scene instead of per screen pixel.
-const SKY_SCALE = 0.25;
 const JUMP = 2500;    // further than this in one frame is not flying but a jump (see Sky.update)
-const SKY_FADE = 9;   // seconds one sky takes to fade into the next
 const SKY_LAYERS = 2; // skies fading at once, at most (see show)
 
 class Sky {
@@ -339,7 +340,7 @@ class Sky {
       vertexShader: SKY_VERT, fragmentShader: skyFrag(body),
       uniforms: {
         uTime: G.uTime, uOrigin: this.origin, uFogColor: G.uFogColor,
-        uDeep: G.uDeep, uGlow: G.uGlow, uAccent: G.uAccent, uLight: G.uLight, uBass: G.uBass, uPulse: G.uPulse, uOpacity: { value: 1 },
+        uDeep: G.uDeep, uGlow: G.uGlow, uAccent: G.uAccent, uLight: G.uLight, uBass: G.uBass, uPulse: G.uPulse, uSolid: G.uSolid, uHazeDir: G.uHazeDir, uKeyLight: G.uKeyLight, uLook, uBlocksMany: G.uBlocksMany, uBlocksLit: G.uBlocksLit, uBlocksLights: G.uBlocksLights, uBlocksColours: G.uBlocksColours, uOpacity: { value: 1 },
       },
       // transparent from the start: switching it later would recompile the shader mid-fade
       side: THREE.BackSide, depthTest: false, depthWrite: false, transparent: true,
@@ -411,7 +412,7 @@ class Sky {
     this.current.position.copy(camera.position);
     for (const mesh of [...this.fading]) {
       mesh.position.copy(camera.position);
-      mesh.userData.left -= dt / SKY_FADE;
+      mesh.userData.left -= dt / look.skyFade; // (how many seconds one sky takes to fade into the next)
       // eased at both ends, so neither the start nor the end of the fade can be seen
       mesh.material.uniforms.uOpacity.value = THREE.MathUtils.smootherstep(mesh.userData.left, 0, 1);
       if (mesh.userData.left <= 0) {
@@ -423,7 +424,8 @@ class Sky {
   }
 
   render(renderer, camera) {
-    renderer.getDrawingBufferSize(this.size).multiplyScalar(SKY_SCALE).ceil();
+    // (half by default: the blocks far off in it want the sharpness; see look.skyScale)
+    renderer.getDrawingBufferSize(this.size).multiplyScalar(look.skyScale).ceil();
     if (this.size.x !== this.target.width || this.size.y !== this.target.height) this.target.setSize(this.size.x, this.size.y);
     renderer.setRenderTarget(this.target);
     renderer.render(this.scene, camera);
@@ -438,6 +440,9 @@ const REALMS = {};
 export function addRealm(name, prefix, spec) {
   REALMS[name] = { prefix, spec };
 }
+
+// where the void's glow is (past the hub's clock, as you arrive), and the light on its blocks
+const HAZE = new THREE.Vector3(0.768, -0.105, 0.632).normalize(), KEY = new THREE.Vector3(-0.35, 0.62, -0.7).normalize();
 
 const GHOST = normalizeSpec({
   palette: { fog: "#05060c", deep: "#010103", glow: "#3a4466", accent: "#59648a" },
@@ -458,6 +463,16 @@ export class World {
       uPulse: { value: 0 }, // 0..1: the nebula on a song's beat, as it lands (a plugin's doing, each frame: see main.js)
       uChan: { value: new Float32Array(18).fill(0.5) },
       uRainbowAll: { value: 0 }, // 0..1: the whole void taken over by the running rainbow (a plugin's doing)
+      // 0..1: how far the pieces are pale solid blocks lit from the eye, not dark ones drawn by their lit edges,
+      // with the haze far off and the little lamps among the motes (the void's look, and a dimension's that
+      // asks for it: see enter)
+      uSolid: { value: 1 },
+      uHazeDir: { value: HAZE.clone() }, uKeyLight: { value: KEY.clone() }, // (where the glow is; the light the blocks have)
+      // the blocks far off in the sky: how many (x1; a dimension's spec.blocks), and how far a light show
+      // lights them (0..1; let go on leaving its dimension), its five groups of lights each as bright as it
+      // is and in its colour (a plugin's doing, each frame: see saber)
+      uBlocksMany: { value: 1 }, uBlocksLit: { value: 0 },
+      uBlocksLights: { value: new Float32Array(5) }, uBlocksColours: { value: Array.from({ length: 5 }, () => new THREE.Color()) },
       uMote: { value: new THREE.Color() }, // motes in the air's colours (see spec.air)
       uFogColor: { value: new THREE.Color(ORIGIN.palette.fog) }, uFogDensity: { value: 0.0022 / SIGHT },
       uDeep: { value: new THREE.Color(ORIGIN.palette.deep) }, uGlow: { value: new THREE.Color(ORIGIN.palette.glow) },
@@ -510,6 +525,7 @@ export class World {
     }));
     this.dust.frustumCulled = false;
     scene.add(this.dust);
+    this.worms = new Worms(this); // (the light worms: see worms.js)
   }
 
   key(x, y, z) {
@@ -521,6 +537,8 @@ export class World {
     for (const cell of this.cells.values()) cell.dispose();
     this.cells.clear();
     this.realm = realm;
+    this.G.uBlocksLit.value = 0;
+    // the pale blocks, the haze and the little lamps are the void's; the other dimensions keep their own look
     this.currentKey = null;
     this.currentSpec = undefined;
     this.light = 1;
@@ -624,7 +642,7 @@ export class World {
     return impact;
   }
 
-  enter(spec) {
+  enter(spec, quiet = false) {
     this.currentSpec = spec;
     const s = spec ?? GHOST;
     // The void keeps one look everywhere: the fog, the far sky and how far you can see are the
@@ -635,9 +653,24 @@ export class World {
     this.target.deep.set(air.palette.deep);
     this.target.glow.set(air.palette.glow);
     this.target.accent.set(air.palette.accent);
+    // (unless an admin lets each sector's own colours into the air, some of the way: see look.js)
+    if (spec && air !== s && look.sectorColours > 0) {
+      const k = look.sectorColours;
+      this.target.fog.lerp(tint.set(s.palette.fog), k);
+      this.target.deep.lerp(tint.set(s.palette.deep), k);
+      this.target.glow.lerp(tint.set(s.palette.glow), k);
+      this.target.accent.lerp(tint.set(s.palette.accent), k);
+    }
     this.target.density = (0.0017 + air.fogDensity * 0.003) / SIGHT;
-    if (spec && !spec.partial) this.sky.setField(spec.fieldGlsl);
-    this.onSector(spec, s, this.currentKey);
+    // the void's look (pale blocks, the haze, the blocks far off in the sky), and a dimension's that asks
+    // for it (spec.solid), its glow where it says (spec.haze) and the light on the blocks turned with it
+    this.G.uSolid.value = this.realm === "void" || air.solid ? 1 : 0;
+    this.G.uBlocksMany.value = air.blocks;
+    const haze = this.G.uHazeDir.value.copy(air.haze ? dummy.position.fromArray(air.haze) : HAZE);
+    this.G.uKeyLight.value.copy(KEY).applyAxisAngle(dummy.up, Math.atan2(haze.x, haze.z) - Math.atan2(HAZE.x, HAZE.z));
+    // each sector its own nebula, or the hub's (the dimension's) everywhere: an admin's (see look.js)
+    if (spec && !spec.partial) this.sky.setField(look.sectorSky >= 0.5 ? spec.fieldGlsl : air.fieldGlsl);
+    if (!quiet) this.onSector(spec, s, this.currentKey);
   }
 
   // What is drawn round the eye, the sky and the dust, put round this camera for the picture: the idle
@@ -703,7 +736,10 @@ export class World {
     }
 
     // the air of one sector into the next's: slowly, over seconds, never a step
-    const ease = 1 - Math.exp(-dt * 0.4);
+    // (an admin turning how a sector's air and sky are taken: the one you are in taken again at once)
+    const taken = `${look.sectorSky}|${look.sectorColours}`;
+    if (taken !== this.taken) { if (this.taken !== undefined && this.currentKey) this.enter(this.currentSpec, true); this.taken = taken; }
+    const ease = 1 - Math.exp(-dt * look.airEase); // (how fast: an admin's, see look.js)
     G.uFogColor.value.lerp(this.target.fog, ease);
     G.uDeep.value.lerp(this.target.deep, ease);
     G.uGlow.value.lerp(this.target.glow, ease);
@@ -712,6 +748,7 @@ export class World {
     G.uFogDensity.value += (this.target.density * this.fogBoost - G.uFogDensity.value) * ease;
     G.uLight.value += (this.light - G.uLight.value) * (1 - Math.exp(-dt * 0.6));
     this.sky.update(dt, camera);
+    this.worms.update(dt, camera);
     this.dust.material.uniforms.uCam.value.copy(camera.position);
   }
 }
