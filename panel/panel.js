@@ -187,8 +187,29 @@ async function poll() {
 document.addEventListener("visibilitychange", () => !document.hidden && token && poll());
 const time = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 function showVvoid() {
-  const v = vvoid, s = v.state;
-  $("#vvoid .dot").className = `dot ${s}`;
+  const v = vvoid, s = v.state, sd = v.systemd;
+  $("#vvoid .dot").className = `dot ${s === "stopping" ? "starting" : s}`;
+  // (under systemd: its unit, as systemctl has it)
+  if (sd) {
+    $("#vvoid-state").textContent = sd.error ? `${sd.unit}: ${sd.error}`
+      : sd.loaded === "not-found" ? `${sd.unit}: no such unit${sd.user ? " (a user's)" : ""}`
+      : {
+        running: `${sd.unit} · running · pid ${v.pid}${v.startedAt ? ` · since ${time(v.startedAt)}` : ""}`,
+        starting: `${sd.unit} · ${sd.active === "active" ? "started, not answering yet" : "starting…"}`,
+        stopping: `${sd.unit} · stopping…`,
+        stopped: `${sd.unit} · ${sd.active}${v.ended?.code && v.ended.code !== "success" ? ` (${v.ended.code})` : ""}${v.ended?.at ? ` since ${time(v.ended.at)}` : ""}`,
+      }[s];
+    const open = $("#vvoid-open");
+    open.hidden = s !== "running";
+    open.href = v.url ?? "#";
+    for (const b of document.querySelectorAll("[data-act]")) {
+      b.disabled = busy || !!sd.error || sd.loaded === "not-found" || (b.dataset.act === "start" ? s !== "stopped" : s === "stopped");
+      b.title = `systemctl ${sd.user ? "--user " : ""}${b.dataset.act} ${sd.unit}`;
+    }
+    $("#stale").hidden = !v.stale;
+    $("#log-where").textContent = `What vvoid writes, from ${sd.unit}'s journal (journalctl), as it writes it (the last 3000 lines).`;
+    return;
+  }
   $("#vvoid-state").textContent = {
     running: `running · pid ${v.pid} · since ${time(v.startedAt)}`,
     starting: "starting…",
@@ -215,7 +236,7 @@ for (const b of document.querySelectorAll("[data-act]")) {
     showVvoid();
     try {
       vvoid = await api(`vvoid/${b.dataset.act}`, { method: "POST" });
-      toast({ start: "vvoid started", stop: "vvoid stopped", restart: "vvoid restarted" }[b.dataset.act]);
+      toast({ start: "vvoid started", stop: "vvoid stopped", restart: "vvoid restarted" }[b.dataset.act] + (vvoid?.systemd ? ` (${vvoid.systemd.unit})` : ""));
     } catch (err) {
       toast(err.message, true);
     }

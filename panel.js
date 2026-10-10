@@ -2,7 +2,8 @@
 // where what vvoid is set by is turned. Its settings and its plugins' (.env, each as its README describes
 // it, or the whole file as it is), which plugins are on, the void's look (see public/src/look.js), and vvoid
 // itself: started, stopped and restarted from here (it reads its settings once, as it starts), and what it
-// writes, read here as it writes it.
+// writes, read here as it writes it; or, where systemd runs it (VVOID_PANEL_SYSTEMD), its unit started, stopped
+// and restarted, and its journal read here.
 // The way in: a passkey (WebAuthn), and nothing else (see "the way in", below). VVOID_PANEL_KEY (in .env;
 // unset, a new key every time the panel starts, in the link it prints) makes the first one, while there is
 // none, and does nothing more. A passkey taken is given a session (in memory: the panel restarting lets
@@ -239,6 +240,67 @@ const HOST = effective("VVOID_PANEL_HOST", startEnv) || "127.0.0.1";
 const KEY = effective("VVOID_PANEL_KEY", startEnv) || randomBytes(18).toString("base64url");
 const MADE_KEY = !effective("VVOID_PANEL_KEY", startEnv);
 
+// ---- vvoid under systemd (VVOID_PANEL_SYSTEMD: its unit; VVOID_PANEL_SYSTEMD_USER=1: one of a user's own):
+// the panel starts, stops and restarts the unit (systemctl, never a shell; a system unit as this user, through
+// polkit, else sudo -n where sudoers lets it), shows its state, and reads its journal as vvoid's log. It never
+// starts a vvoid of its own then ----
+const SERVICE = (() => {
+  const u = String(effective("VVOID_PANEL_SYSTEMD", startEnv) ?? "").trim();
+  if (!u) return null;
+  if (!/^[\w@.:-]{1,120}$/.test(u)) { console.error(`[panel] VVOID_PANEL_SYSTEMD: a unit's name (vvoid, vvoid.service), not ${u}`); return null; }
+  return /\.(service|target|scope)$/.test(u) ? u : `${u}.service`;
+})();
+const SERVICE_USER = /^(1|on|yes|true)$/i.test(effective("VVOID_PANEL_SYSTEMD_USER", startEnv) ?? "");
+// a command run, its words as they are (no shell): { code, out, err }
+function runs(cmd, args, timeout = 60_000) {
+  return new Promise((resolve) => {
+    let out = "", err = "";
+    const p = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, SYSTEMD_PAGER: "", SYSTEMD_COLORS: "0" } });
+    const kill = setTimeout(() => p.kill("SIGKILL"), timeout);
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => (err += d));
+    p.on("error", (e) => (clearTimeout(kill), resolve({ code: -1, out, err: e.code === "ENOENT" ? `${cmd} is not here` : e.message })));
+    p.on("close", (code) => (clearTimeout(kill), resolve({ code, out, err })));
+  });
+}
+async function systemctl(...args) {
+  const r = await runs("systemctl", [...(SERVICE_USER ? ["--user"] : []), "--no-ask-password", ...args]);
+  // (a system unit, refused to this user: through sudo, if sudoers lets it, without asking for a password)
+  if (r.code !== 0 && !SERVICE_USER && /access denied|interactive authentication|not permitted|permission|polkit/i.test(r.err)) {
+    const s = await runs("sudo", ["-n", "systemctl", "--no-ask-password", ...args]);
+    if (s.code === 0) return s;
+    return { ...r, refused: true, err: `${r.err.trim()} (and through sudo: ${s.err.trim() || `code ${s.code}`})` };
+  }
+  return r;
+}
+// the unit as it is now: { active (active, activating, deactivating, inactive, failed), sub, pid, since, result, loaded }
+let unitSeen = { at: 0, v: null };
+async function unitState() {
+  if (Date.now() - unitSeen.at < 1500 && unitSeen.v) return unitSeen.v;
+  const r = await systemctl("show", SERVICE, "--property=LoadState,ActiveState,SubState,MainPID,ActiveEnterTimestamp,InactiveEnterTimestamp,Result");
+  const kv = Object.fromEntries(r.out.split("\n").map((l) => l.match(/^(\w+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2]]));
+  const when = (t) => (t && !/^n\/a$/.test(t) ? Date.parse(t.replace(/^\w+ /, "").replace(/ (\w+)$/, "")) || null : null);
+  const v = r.code === 0 ? {
+    loaded: kv.LoadState, active: kv.ActiveState, sub: kv.SubState, pid: Number(kv.MainPID) || null, result: kv.Result,
+    since: when(kv.ActiveEnterTimestamp), ended: when(kv.InactiveEnterTimestamp),
+  } : { loaded: "unknown", active: "unknown", error: r.err.trim() };
+  unitSeen = { at: Date.now(), v };
+  return v;
+}
+// its journal, as vvoid's log (followed while the panel runs; again a while after it stops, as when it is refused)
+function followJournal() {
+  const args = [...(SERVICE_USER ? ["--user", "--user-unit", SERVICE] : ["-u", SERVICE]), "-f", "-n", "200", "-o", "cat", "--no-pager"];
+  const j = spawn("journalctl", args, { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, SYSTEMD_COLORS: "0" } });
+  note(`── ${SERVICE}'s journal (journalctl ${args.join(" ")}) ──`);
+  lines(j.stdout, false);
+  lines(j.stderr, true);
+  j.on("error", (e) => note(`── its journal could not be read: ${e.message} ──`, true));
+  j.on("exit", (code) => {
+    note(`── ${SERVICE}'s journal ended (code ${code})${SERVICE_USER ? "" : ": the panel's user may need to be in the systemd-journal group to read it"}; again in a minute ──`, true);
+    setTimeout(followJournal, 60_000);
+  });
+}
+
 // ---- vvoid itself: started from here (and stopped with the panel), or found running elsewhere ----
 let child = null, startedWith = null, startedAt = 0, ended = null, stopping = null;
 const log = []; // { n, at, text, err } (the last LOG lines vvoid wrote, and what the panel said of it)
@@ -304,6 +366,18 @@ async function probe(set) {
 }
 async function vvoidState() {
   const text = await readEnv(), set = settingsOf(parse(text)), { up, base, port } = await probe(set);
+  if (SERVICE) {
+    const u = await unitState();
+    const changed = await fs.stat(ENV_FILE).then((st) => st.mtimeMs, () => 0);
+    return {
+      state: u.active === "active" ? (up ? "running" : "starting") : u.active === "activating" || u.active === "reloading" ? "starting" : u.active === "deactivating" ? "stopping" : "stopped",
+      pid: u.pid, startedAt: u.since, port,
+      ended: u.active === "failed" || u.active === "inactive" ? { at: u.ended, code: u.result, signal: null } : null,
+      stale: u.active === "active" && !!u.since && changed > u.since, // (.env changed since the unit started: a restart takes it up)
+      systemd: { unit: SERVICE, user: SERVICE_USER, active: u.active, sub: u.sub, loaded: u.loaded, error: u.error ?? null },
+      base, url: base?.replace(/\/\/(127\.0\.0\.1|\[::1\])/, "//localhost"),
+    };
+  }
   return {
     state: child ? (up ? "running" : "starting") : up ? "elsewhere" : "stopped",
     pid: child?.pid ?? null, startedAt: child ? startedAt : null, ended, port,
@@ -798,6 +872,17 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { vvoid: await vvoidState(), log: log.filter((l) => l.n > since), logged });
     }
     const act = p.match(/^\/api\/vvoid\/(start|stop|restart)$/)?.[1];
+    if (act && m === "POST" && SERVICE) {
+      const r = await systemctl(act, SERVICE);
+      unitSeen.at = 0; probed.at = 0;
+      if (r.code !== 0) {
+        const how = r.refused ? ` Let this user do it: in sudoers (visudo), ${process.env.USER ?? "<the panel's user>"} ALL=(root) NOPASSWD: /usr/bin/systemctl ${act} ${SERVICE}` : "";
+        note(`── systemctl ${act} ${SERVICE} failed: ${r.err.trim()} ──`, true);
+        return send(res, r.refused ? 403 : 500, { error: `systemctl ${act} ${SERVICE}: ${r.err.trim() || `code ${r.code}`}.${how}` });
+      }
+      note(`── systemctl ${act} ${SERVICE} (from the panel) ──`);
+      return send(res, 200, await vvoidState());
+    }
     if (act && m === "POST") {
       if (act !== "stop" && !child && (await probe(settingsOf(parse(await readEnv())))).up) {
         return send(res, 409, { error: "vvoid is running already, started elsewhere: stop it there first" });
@@ -908,7 +993,11 @@ server.listen(PORT, HOST, async () => {
   if (n === 0) console.log(`[panel] no passkey yet: make the first at any of those with ${MADE_KEY ? `the key, #key=${KEY} after the address  (a key for this run only: VVOID_PANEL_KEY sets one that stays)` : "VVOID_PANEL_KEY"}`);
   else if (n) console.log(`[panel] ${n} passkey${n === 1 ? "" : "s"} in ${PASSKEYS_SHOWN}: the key opens nothing (every one lost: delete the file, and the key makes one again)`);
   if (!/^(127\.|::1$|localhost$)/.test(HOST)) console.warn("[panel] open to more than this machine: put it behind https, or what is typed into it (keys and all) goes over the wire as it is");
-  if (/^(1|on|yes|true)$/i.test(effective("VVOID_PANEL_START", startEnv) ?? "")) {
+  if (SERVICE) {
+    const u = await unitState();
+    console.log(`[panel] vvoid runs under systemd: ${SERVICE}${SERVICE_USER ? " (a user's)" : ""}, ${u.active}${u.error ? ` (${u.error})` : ""}`);
+    followJournal();
+  } else if (/^(1|on|yes|true)$/i.test(effective("VVOID_PANEL_START", startEnv) ?? "")) {
     if ((await probe(startEnv)).up) console.log("[panel] vvoid is running already (started elsewhere)");
     else await start(), console.log("[panel] vvoid started");
   }

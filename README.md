@@ -97,6 +97,8 @@ with it; one started elsewhere (`npm start`) is seen, but stopped and started wh
 | `VVOID_PANEL_ORIGIN` | none | the panel's addresses as the browser shows them, besides `http://localhost:<port>` (always one), split by commas (`https://panel.example.org` behind a proxy): a passkey is made for one of them, and taken there only |
 | `VVOID_PANEL_PASSKEYS` | `.cache/panel-passkeys.json` | where its passkeys are kept (delete it, and the key makes one again) |
 | `VVOID_PANEL_START` | off | `1`: start vvoid as the panel starts |
+| `VVOID_PANEL_SYSTEMD` | none | the systemd unit vvoid runs as (`vvoid`, `vvoid.service`): the panel's start, stop and restart are that unit's (`systemctl`), its state is shown, and its journal is the log; the panel starts no vvoid of its own then. A system unit, as the panel's user: through polkit, else `sudo -n` (a sudoers line such as `kibi ALL=(root) NOPASSWD: /usr/bin/systemctl restart vvoid.service`, one for each of start, stop and restart wanted); its journal, the panel's user in `systemd-journal` |
+| `VVOID_PANEL_SYSTEMD_USER` | off | `1`: that unit is one of the panel's user's own (`systemctl --user`) |
 
 ## Other doors
 
