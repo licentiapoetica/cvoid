@@ -6,7 +6,7 @@
 
 // saber's cinematic shots (see SHOTS in plugins/saber/public/client.js, by the same names), each with a chance of
 // its own on the look page: 0 never, 1 as often as any, 2 twice as often. Numbered, for "only one shot"
-export const CINE_SHOTS = ["low dolly", "orbit", "crane", "facing them", "wide", "down the track", "over the shoulder", "from the floor", "vertigo", "spiral up", "dutch close", "side profile", "sweep", "among the notes", "rising behind", "top down", "far tele", "the void", "first person"];
+export const CINE_SHOTS = ["low dolly", "orbit", "crane", "facing them", "over the shoulder", "from the floor", "vertigo", "spiral up", "dutch close", "side profile", "sweep", "rising behind", "top down", "far tele", "the void", "first person"];
 export const shotKey = (name) => `shot_${name.replace(/[^a-z0-9]+/g, "_")}`;
 
 export const LOOK = [
