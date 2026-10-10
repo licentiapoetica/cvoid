@@ -6,7 +6,7 @@
 
 // saber's cinematic shots (see SHOTS in plugins/saber/public/client.js, by the same names), each with a chance of
 // its own on the look page: 0 never, 1 as often as any, 2 twice as often. Numbered, for "only one shot"
-export const CINE_SHOTS = ["low dolly", "orbit", "crane", "facing them", "wide", "down the track", "over the shoulder", "from the floor", "vertigo", "spiral up", "dutch close", "side profile", "sweep", "among the notes", "rising behind", "top down", "far tele", "the void", "their eyes", "eyes, close", "action cam", "helmet cam", "eyes, leaning"];
+export const CINE_SHOTS = ["low dolly", "orbit", "crane", "facing them", "wide", "down the track", "over the shoulder", "from the floor", "vertigo", "spiral up", "dutch close", "side profile", "sweep", "among the notes", "rising behind", "top down", "far tele", "the void", "first person"];
 export const shotKey = (name) => `shot_${name.replace(/[^a-z0-9]+/g, "_")}`;
 
 export const LOOK = [
@@ -128,6 +128,31 @@ export const LOOK = [
   { key: "twerkShimmy", group: "saber twerk", label: "shimmy in a stream (degrees)", min: 0, max: 12, step: 0.25, value: 5 },
   { key: "twerkWander", group: "saber twerk", label: "moves about (x)", min: 0, max: 3, step: 0.05, value: 1.2 },
   { key: "twerkTurn", group: "saber twerk", label: "turns about, up to (degrees)", min: 0, max: 45, step: 1, value: 25 },
+  // saber's avatar, vibing to the song (see vibe in plugins/saber/public/avatar.js): its knees giving into each beat, its
+  // weight from foot to foot, the hips and the chest against each other; how smooth its springs, how the song moves it
+  { key: "vibeBounce", group: "saber vibe", label: "knees give each beat (metres)", min: 0, max: 0.12, step: 0.005, value: 0.035 },
+  { key: "vibeSink", group: "saber vibe", label: "knees bent, always (metres)", min: 0, max: 0.12, step: 0.005, value: 0.025 },
+  { key: "vibeShift", group: "saber vibe", label: "weight foot to foot (metres)", min: 0, max: 0.15, step: 0.005, value: 0.045 },
+  { key: "vibeHeel", group: "saber vibe", label: "free heel up (metres)", min: 0, max: 0.12, step: 0.005, value: 0.045 },
+  { key: "vibeWide", group: "saber vibe", label: "feet apart (x)", min: 0.8, max: 2, step: 0.05, value: 1.15 },
+  { key: "vibeHike", group: "saber vibe", label: "hips hiked over the weight (degrees)", min: 0, max: 20, step: 0.5, value: 6 },
+  { key: "vibeTwist", group: "saber vibe", label: "hips turned (degrees)", min: 0, max: 25, step: 0.5, value: 7 },
+  { key: "vibeCounter", group: "saber vibe", label: "chest against the hips (x)", min: 0, max: 2.5, step: 0.05, value: 1.3 },
+  { key: "vibeNod", group: "saber vibe", label: "chest nods into each beat (degrees)", min: 0, max: 15, step: 0.5, value: 4 },
+  { key: "vibeShoulders", group: "saber vibe", label: "shoulders drop each beat (degrees)", min: 0, max: 15, step: 0.5, value: 4 },
+  { key: "vibeNudge", group: "saber vibe", label: "lean towards the notes' side (degrees)", min: 0, max: 15, step: 0.5, value: 3 },
+  { key: "vibeAccent", group: "saber vibe", label: "notes nudge the bounce (x)", min: 0, max: 3, step: 0.05, value: 1 },
+  { key: "vibeBig", group: "saber vibe", label: "dip on the light show's big moments (x)", min: 0, max: 3, step: 0.05, value: 1 },
+  { key: "vibeCalm", group: "saber vibe", label: "how big, calm", min: 0, max: 2, step: 0.01, value: 0.65 },
+  { key: "vibeLively", group: "saber vibe", label: "how big, lively", min: 0, max: 2, step: 0.01, value: 1.05 },
+  { key: "vibeHard", group: "saber vibe", label: "in a drop: bigger by (x)", min: 0, max: 2, step: 0.05, value: 0.45 },
+  { key: "vibeHardAt", group: "saber vibe", label: "a drop: the song this much busier than usual (x)", min: 1.1, max: 4, step: 0.05, value: 1.6 },
+  { key: "vibeFastest", group: "saber vibe", label: "bounces a second, at most", min: 0.5, max: 4, step: 0.05, value: 2.2 },
+  { key: "vibeFastestHard", group: "saber vibe", label: "bounces a second at most, in a drop", min: 0.5, max: 5, step: 0.05, value: 2.8 },
+  { key: "vibeSpring", group: "saber vibe", label: "spring speed (Hz)", min: 1, max: 10, step: 0.1, value: 4 },
+  { key: "vibeSoft", group: "saber vibe", label: "spring damping (higher: smoother)", min: 0.2, max: 1, step: 0.01, value: 0.6 },
+  { key: "vibeWander", group: "saber vibe", label: "moves about (x)", min: 0, max: 3, step: 0.05, value: 0.7 },
+  { key: "vibeTurn", group: "saber vibe", label: "turns about, up to (degrees)", min: 0, max: 45, step: 1, value: 15 },
   // saber's avatar, line dancing to the song (see line in plugins/saber/public/avatar.js): its 32 counts, a count a
   // beat (half time when the song is fast); how big its steps and kicks, how much it bounces and swings its hips
   { key: "lineStep", group: "saber line dance", label: "step size (x)", min: 0, max: 2, step: 0.05, value: 1 },

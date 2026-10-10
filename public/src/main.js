@@ -17,6 +17,7 @@ import { Lasers } from "./laser.js";
 import { Goo } from "./goo.js";
 import { Forming } from "./forming.js";
 import { Grey } from "./grey.js";
+import { Abouts } from "./about.js";
 import { PadMap } from "./pad.js";
 import { SPAWN, setPortals, hubSlot, portalNames, PORTAL_SEEN, PORTAL_FORMS_ITSELF } from "./constants.js";
 import { draggablePanels } from "./panels.js";
@@ -76,6 +77,30 @@ const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), BLOOM, 0.6, 0.55);
 composer.addPass(bloom);
 // the glow is added to the colour only: over such a hole it glows, without filling it
 Object.assign(bloom.blendMaterial, { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });
+// A dimension whose picture is never a window onto the page behind it (a plugin's opaque hook: saber's,
+// whose maps' Unity shaders write a glow's strength in their alpha, not how see-through they are): its
+// alpha made whole before it is shown, its colour untouched. Off, costing nothing, everywhere else
+const opaquePass = new (class extends Pass {
+  constructor() {
+    super();
+    this.needsSwap = false;
+    this.quad = new FullScreenQuad(new THREE.ShaderMaterial({
+      vertexShader: "void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }",
+      fragmentShader: "void main() { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); }",
+      depthTest: false, depthWrite: false,
+      blending: THREE.CustomBlending, blendSrc: THREE.ZeroFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.ZeroFactor,
+    }));
+  }
+  render(renderer, writeBuffer, readBuffer) {
+    const clears = renderer.autoClear;
+    renderer.autoClear = false; // (drawn over the picture, never cleared first)
+    renderer.setRenderTarget(this.renderToScreen ? null : readBuffer);
+    this.quad.render(renderer);
+    renderer.autoClear = clears;
+  }
+})();
+opaquePass.enabled = false;
+composer.addPass(opaquePass);
 composer.addPass(new OutputPass());
 const screen = screenPass(); // the glass it is all seen through (Tab panel: screen)
 composer.addPass(screen.pass);
@@ -239,16 +264,18 @@ function face(toYaw, toPitch) {
   yaw = viewYaw + Math.atan2(Math.sin(toYaw - viewYaw), Math.cos(toYaw - viewYaw));
   pitch = viewPitch + Math.atan2(Math.sin(toPitch - viewPitch), Math.cos(toPitch - viewPitch));
 }
-// coming out of a portal (or sitting down somewhere): face this way and lose most of your speed
-function arrive(toYaw, toPitch) {
+// coming out of a portal (or sitting down somewhere): face this way and lose most of your speed (keep: how
+// much of it is kept, a tenth unless said; none, for a place you are put down in to stay, as saber's platform)
+function arrive(toYaw, toPitch, keep = 0.1) {
   face(toYaw, toPitch);
-  velocity.multiplyScalar(0.1);
+  velocity.multiplyScalar(keep);
 }
 const meteors = new Meteors({ scene, world }); // now and then a shooting star, far out in the void
 const lasers = new Lasers({ scene, world });   // yours (a portal clicked, V) and, with the together plugin, the others'
 const forming = new Forming({ scene, world }); // the portals round the clock whose plugins are still on their way
 const grey = new Grey({ scene, world, known: () => forming.known, forming: (name) => forming.rings.get(name)?.group }); // and those whose source does not answer, grey
 forming.unreachable = (name) => grey.has(name); // (formed on, grey, not given up on)
+const abouts = new Abouts({ scene, world, camera, nameOf: (name) => PORTAL_NAMES[name] ?? name, ownerOf: (realm) => realmOwner[realm], exits: () => hook("exit") }); // and what each is, inside it beside its way back (see about.js)
 const goo = new Goo({ scene, world, storeEl: $("gooStore"), muzzle: (camera) => lasers.muzzle(camera) }); // J: shot at the post looked at (see goo.js)
 // V (or the laser button on a touch screen): a shot straight ahead, into the dark
 function fireLaser() {
@@ -282,6 +309,7 @@ const back = new Back({ scene, world, textEl: $("irrlicht"), toOrigin: stored("i
 // each frame, seated or not) · draw(renderer, dt): true when it drew the frame itself (a headset's picture),
 // vvoid's own drawing left out · posting() / post(renderer, write, read): a pass of its own over the picture
 // (read: the scene drawn; write: where it goes), after the scene and before the glow, while posting() says ·
+// opaque(): true while its picture is never a window onto the page behind it (its alpha made whole) ·
 // far(): how far at least the view must reach, while a plugin's world is larger than vvoid's far plane ·
 // near(): where the view may begin, further out than vvoid's own (a world kilometres wide keeps its depth
 // sharp far off only so: with a centimetre's near plane, what lies on what fights through it)
@@ -807,6 +835,38 @@ async function comeShared(place) {
   if (lockedOut(place.realm, land)) return arrival.leave(); // (its password first: the portal let go meanwhile)
   land();
 }
+// A portal's own word, its quick access (an admin's, on vvoid's panel: see VANITY in server.js): /<word> comes
+// here as /?p=<its name>; whoever opens it starts in the hub a little before that portal, facing it, and once its
+// ring has formed is flown straight in (as a double click flies), its password asked at its ring as ever. Out of
+// the address bar once taken: a reload starts as ever.
+const PORTAL_ASKED = "p", PORTAL_QUICK = 1400; // (how far before it you start)
+const portalAsked = (() => {
+  const name = new URLSearchParams(location.search).get(PORTAL_ASKED);
+  return !sharedAt && name && /^[\w-]+$/.test(name) ? name : null;
+})();
+if (portalAsked) $("sharedTo").textContent = `a way to ${portalAsked}`;
+async function comePortal(name) {
+  const url = new URL(location.href);
+  url.searchParams.delete(PORTAL_ASKED);
+  history.replaceState(history.state, "", url);
+  if (!xr?.on && !standalone()) arrival.form(`a way to ${name}`);
+  await pluginsIn;
+  if (!portalNames().includes(name)) {
+    arrival.leave();
+    return note(`this vvoid has no portal called ${name}`);
+  }
+  const slot = hubSlot(name), at = new THREE.Vector3(...slot.at), from = at.clone().addScaledVector(new THREE.Vector3(...slot.in), PORTAL_QUICK);
+  stopFlying();
+  teleport("void", from.x, from.y, from.z);
+  const to = at.clone().sub(from);
+  face(Math.atan2(-to.x, -to.z), 0);
+  const into = () => note(`into ${PORTAL_NAMES[name] ?? name}`);
+  if (arrival.open(() => { audio.sting(); into(); })) veil = 0; // (the jump hidden in the portal's dark, not the veil's)
+  else into();
+  // (its ring formed first, a few seconds at most: unreachable, it says so, and you are left before it)
+  for (let waited = 0; forming.has(name) && waited < 8000; waited += 100) await new Promise((done) => setTimeout(done, 100));
+  if (world.realm === "void") flyIntoPortal({ name, at }, true);
+}
 // the Tab panel's share: a link to here (the dimension, the room in it, where you are and which way you
 // face), copied (on a touch screen, handed to its own sharing)
 async function shareHere() {
@@ -839,6 +899,7 @@ function start() {
   // a place shared with you (see comeShared); else a chosen place to start, set on the map; else right where
   // the start screen's turning view is, as it is (no jump: you simply take over), in the hub, looking at the clock
   if (sharedAt) comeShared(sharedAt);
+  else if (portalAsked) comePortal(portalAsked);
   else if (map.spawn) teleport(map.spawn.realm, map.spawn.x, map.spawn.y, map.spawn.z);
   map.visit(world.currentKey); // where you begin counts as explored
   voice.arrived(); // (someone it knows, it greets)
@@ -1743,7 +1804,7 @@ function frame(now) {
   const heard = audio.features(dt);
   world.G.uBass.value = heard.bass; world.G.uMid.value = heard.mid; world.G.uHigh.value = heard.high; world.G.uBeat.value = heard.beat;
   world.G.uPulse.value = 0; // (a plugin keeping the nebula on its song's beat sets it again, in its update: see saber)
-  world.update(dt, camera);
+  world.update(dt, camera, pluginDraws); // (as last frame had it: see the draw hook below)
   meteors.update(dt, camera); // (behind the start screen too)
   lasers.update(dt);
   goo.update(dt, camera);
@@ -1773,6 +1834,7 @@ function frame(now) {
   }
   forming.update(dt, camera, started); // (after the plugins: their rings, come, open out where they stand this frame)
   grey.update(dt);
+  abouts.update(dt);
   veil = Math.max(0, veil - dt / 1.9);
   fadeEl.style.opacity = Math.max(Math.min(1, veil), back.fade, ...plugins.map((p) => p.fade ?? 0)).toFixed(3); // the dark at any door
   arrival.update(dt);
@@ -1799,6 +1861,7 @@ function frame(now) {
   screen.update(dt);
   drawn(camera, true, hook("far"), hook("near"));
   pluginPass.enabled = started && !!hook("posting"); // (a plugin's own pass, while it has one to draw)
+  opaquePass.enabled = started && !!hook("opaque"); // (a dimension never seen through: see opaquePass)
   composer.render(dt);
   drawn(camera, false);
   if (shooting) cinema.restore(camera, back);
@@ -1939,9 +2002,14 @@ function installStyled(install) {
   });
   return result;
 }
-// the plugins this vvoid has: first, where their portals stand round the clock (evenly, see hubSlot), then each
-const [pluginUrls] = await Promise.all([fetch("/api/plugins").then((r) => (r.ok ? r.json() : [])).catch(() => []), locksKnown]);
-setPortals(pluginUrls.map((url) => url.match(/\/plugins\/([^/]+)\//)?.[1]).filter(Boolean));
+// the plugins this vvoid has: first, where their portals stand round the clock (evenly, or where an admin
+// has placed them: see hubSlot), then each
+const [pluginUrls, portalPlaces] = await Promise.all([
+  fetch("/api/plugins").then((r) => (r.ok ? r.json() : [])).catch(() => []),
+  fetch("/api/portals", { cache: "no-store" }).then((r) => (r.ok ? r.json() : {})).then((d) => d.places ?? {}, () => ({})),
+  locksKnown,
+]);
+setPortals(pluginUrls.map((url) => url.match(/\/plugins\/([^/]+)\//)?.[1]).filter(Boolean), portalPlaces);
 forming.start(portalNames()); // (each forming in its place until its ring is there: see forming.js)
 for (const url of pluginUrls) {
   const name = url.match(/\/plugins\/([^/]+)\//)?.[1];

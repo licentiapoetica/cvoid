@@ -654,6 +654,48 @@ const vvoidOwns = (req, pathname) => (pathname === "/" ? req.headers["sec-fetch-
 // stay open without one. And reach(ok): whether its source answers (a site it reads, an instance it
 // passes through), said as it hears from it or fails to; while it does not, its portal is drawn grey.
 const PLUGINS = path.join(here, "plugins");
+// where a plugin's portal stands, if an admin has said: VVOID_<NAME>_PORTAL, "angle,distance,height" (the angle
+// in degrees round the clock, 0 straight ahead as you arrive and 90 a quarter turn right; the distance from
+// the clock, the circle's own unless given; the height over it, 0 unless given). Unset: where it would stand
+// (see hubSlot in constants.js). The page is told with the rest of the portals' state (/api/portals).
+const PORTAL_PLACES = {};
+function portalPlace(text) {
+  const [angle, ring, height] = String(text ?? "").split(",").map((v) => (v.trim() === "" ? NaN : Number(v)));
+  if (!Number.isFinite(angle)) return null;
+  return {
+    angle: Math.round((((angle % 360) + 360) % 360) * 1000) / 1000,
+    ...(Number.isFinite(ring) && { ring: Math.min(Math.max(ring, 0), 60_000) }),
+    ...(Number.isFinite(height) && { height: Math.min(Math.max(height, -20_000), 20_000) }),
+  };
+}
+// what each portal is, in an admin's words (vvoid's panel, its plugins page: see panel.js): { about: { name:
+// its words }, vanity: { name: its word } }, in VVOID_PORTALS (.cache/portals.json). Read again whenever it has
+// changed (looked at once a second at most), so what is written there is seen without vvoid restarting (the page
+// asks now and then: see about.js).
+const PORTALS_FILE = path.resolve(here, process.env.VVOID_PORTALS ?? path.join(".cache", "portals.json"));
+const ABOUT_MAX = 2000; // characters, at most, a portal's words
+// a portal's own word (its quick access): /<word> on vvoid's address goes straight to it (see the server, below,
+// and portalAsked in main.js). Lower case; never one of vvoid's own first steps (the panel refuses those too)
+const VANITY = /^[a-z0-9][a-z0-9-]{0,39}$/, VANITY_TAKEN = new Set(["api", "src", "vendor", "plugins", "index", "panel", "admin"]);
+let portalsKept = { at: -1, looked: 0, about: {}, vanity: {}, to: new Map() };
+async function portalsRead() {
+  if (Date.now() - portalsKept.looked < 1000) return portalsKept;
+  const at = await fs.stat(PORTALS_FILE).then((s) => s.mtimeMs, () => 0);
+  portalsKept.looked = Date.now();
+  if (at === portalsKept.at) return portalsKept;
+  const about = {}, vanity = {}, to = new Map();
+  try {
+    const kept = JSON.parse(await fs.readFile(PORTALS_FILE, "utf8")) ?? {};
+    for (const [name, text] of Object.entries(kept.about ?? {})) if (/^[\w-]+$/.test(name) && typeof text === "string" && text.trim()) about[name] = text.slice(0, ABOUT_MAX);
+    for (const [name, word] of Object.entries(kept.vanity ?? {})) {
+      const w = typeof word === "string" ? word.trim().toLowerCase() : "";
+      if (/^[\w-]+$/.test(name) && VANITY.test(w) && !VANITY_TAKEN.has(w) && !to.has(w)) { vanity[name] = w; to.set(w, name); }
+    }
+  } catch {} // (none yet, or not readable: none)
+  portalsKept = { at, looked: portalsKept.looked, about, vanity, to };
+  return portalsKept;
+}
+const portalAbouts = async () => (await portalsRead()).about;
 // the ones left where they are and not loaded: VVOID_PLUGINS_OFF, their folders' names, split by commas
 const PLUGINS_OFF = new Set((process.env.VVOID_PLUGINS_OFF ?? "").split(",").map((n) => n.trim()).filter(Boolean));
 // Claude, for a plugin that has someone speak: ask(params, who) with the model and its settings filled
@@ -694,6 +736,8 @@ for (const entry of (await fs.readdir(PLUGINS, { withFileTypes: true }).catch(()
   const dir = path.join(PLUGINS, entry.name);
   try {
     const lock = makeLock(entry.name, { here, send, readBody, whoIs, admin });
+    const place = portalPlace(process.env[`VVOID_${entry.name.toUpperCase().replace(/-/g, "_")}_PORTAL`]);
+    if (place) PORTAL_PLACES[entry.name] = place;
     if (lock.set) locks.set(entry.name, lock);
     if (existsSync(path.join(dir, "server.js"))) {
       const reach = (ok) => {
@@ -707,7 +751,7 @@ for (const entry of (await fs.readdir(PLUGINS, { withFileTypes: true }).catch(()
       lock.unlocked = made?.unlocked ?? [];
     }
     if (existsSync(path.join(dir, "public", "client.js"))) clientPlugins.push(`/plugins/${entry.name}/client.js`);
-    console.log(`[vvoid] plugin: ${entry.name}`);
+    console.log(`[vvoid] plugin: ${entry.name}${place ? ` (its portal placed: ${place.angle}°${place.ring !== undefined ? `, ${place.ring} out` : ""}${place.height ? `, ${place.height} up` : ""})` : ""}`);
   } catch (err) {
     console.warn(`[vvoid] the plugin ${entry.name} could not be loaded: ${err.message}`);
   }
@@ -724,10 +768,22 @@ const server = http.createServer(async (req, res) => {
     const ofLocked = url.pathname.match(/^\/plugins\/([\w-]+)\/(.*)$/), ofApi = url.pathname.match(/^\/api\/([\w-]+)(\/.*)?$/);
     const lock = locks.get(ofLocked?.[1] ?? ofApi?.[1]);
     if (lock && (await lock.guard(req, res, ofLocked ? decodeURIComponent(ofLocked[2]) : `/api${url.pathname.slice(4)}`, (rel) => (ofLocked ? publicFile(lock.name, rel) : false)))) return;
+    // a portal's own word (see VANITY): /<word>, straight to it (/?p=<its name>, the rest of the address kept). Before
+    // the plugins, so one passing a whole other site through on vvoid's address does not take it; never a framed page's
+    const word = (req.method === "GET" || req.method === "HEAD") && req.headers["sec-fetch-dest"] !== "iframe" && url.pathname.match(/^\/([a-z0-9][a-z0-9-]{0,39})\/?$/i);
+    if (word) {
+      const name = (await portalsRead()).to.get(word[1].toLowerCase());
+      if (name && clientPlugins.includes(`/plugins/${name}/client.js`)) {
+        const to = new URLSearchParams(url.search);
+        to.set("p", name);
+        res.writeHead(302, { location: `/?${to}`, "cache-control": "no-store" });
+        return res.end();
+      }
+    }
     for (const plugin of serverPlugins) if (await plugin.handle?.(req, res, url)) return;
     if (url.pathname === "/api/plugins") return send(res, 200, clientPlugins);
     if (url.pathname === "/api/locks") return send(res, 200, [...locks.keys()]); // (the plugins behind a password)
-    if (url.pathname === "/api/portals") return send(res, 200, { unreachable: [...unreachable] }); // (drawn grey: see grey.js)
+    if (url.pathname === "/api/portals") return send(res, 200, { unreachable: [...unreachable], places: PORTAL_PLACES, about: await portalAbouts(), vanity: (await portalsRead()).vanity }); // (drawn grey: see grey.js; where an admin has placed them; what each is, see about.js; and each one's own word, its quick access)
     if (slots.handle(req, res, url, send)) return; // (who is in, and the line to come in)
     if (await admin.handle(req, res, url)) return;
     // the void's look: anyone may see it, an admin may turn it (the Tab panel's look page)

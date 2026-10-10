@@ -173,7 +173,7 @@ const current = (name) => pending.get(name) ?? entry(name);
 let openGroups = new Set(JSON.parse(store.get("vvoid-panel-open") ?? '["vvoid"]'));
 async function loadSettings() {
   try {
-    settings = await api("settings");
+    [settings, described] = await Promise.all([api("settings"), api("about").catch(() => described)]);
     renderSettings();
     renderPlugins();
   } catch (err) {
@@ -238,7 +238,7 @@ function row(e) {
   function edit() {
     propose(e.name, { value: value.value, on: on.checked, remove: removing });
     sync();
-    if (e.name === "VVOID_PLUGINS_OFF" || e.name.endsWith("_PASSWORD")) renderPlugins();
+    if (e.name === "VVOID_PLUGINS_OFF" || /_(PASSWORD|PORTAL)$/.test(e.name)) renderPlugins();
   }
   value.addEventListener("input", () => {
     if (!e.exists && !touched) on.checked = value.value !== ""; // (an unset one typed into is on)
@@ -305,19 +305,24 @@ function renderPlugins() {
   box.replaceChildren();
   if (!settings.plugins.length) return box.append(el("p", { class: "empty" }, "No plugins: plugins/ is empty (see the README)."));
   const off = new Set(offList()), changed = pending.has("VVOID_PLUGINS_OFF");
+  placeBoxes.clear();
+  renderMap();
   for (const p of settings.plugins) {
     const isOff = off.has(p.name);
     const toggle = el("input", { type: "checkbox", checked: !isOff, "aria-label": `${p.name} on`, onchange: () => {
       const list = offList().filter((n) => n !== p.name);
       setOff(toggle.checked ? list : [...list, p.name]);
     } });
-    box.append(el("div", { class: `plugin${isOff ? " off" : ""}${changed && isOff !== p.off ? " dirty" : ""}` },
+    box.append(el("div", { class: `plugin${isOff ? " off" : ""}${changed && isOff !== p.off ? " dirty" : ""}${chosen === p.name ? " selected" : ""}`, id: `plugin-${p.name}` },
       el("div", { class: "top" }, el("strong", {}, p.name), el("label", {}, toggle, isOff ? "off" : "on")),
       p.about && el("p", {}, p.about),
       el("div", { class: "tags" },
         p.server && el("span", {}, "server"),
         p.page && el("span", {}, "page")),
       password(p),
+      placeBox(p),
+      describeBox(p),
+      vanityBox(p),
       el("a", { tabindex: 0, onclick: () => {
         openGroups.add(`plugin:${p.name}`);
         $("#filter").value = "";
@@ -363,6 +368,306 @@ function password(p) {
     sync();
     renderSettings();
   });
+  sync();
+  return box;
+}
+
+// ---- portals: where each stands round the clock (VVOID_<NAME>_PORTAL; unset, auto: where vvoid lays it) ----
+const portalEnv = (name) => `VVOID_${name.toUpperCase().replace(/-/g, "_")}_PORTAL`;
+// "angle,distance,height", as vvoid reads it (see portalPlace in server.js), or null
+function parsePlace(text) {
+  const [a, r, h] = String(text ?? "").split(",").map((v) => (v.trim() === "" ? NaN : Number(v)));
+  if (!Number.isFinite(a)) return null;
+  return { angle: ((a % 360) + 360) % 360, ring: Number.isFinite(r) ? Math.min(Math.max(r, 0), 60_000) : settings.ring.radius, height: Number.isFinite(h) ? h : 0 };
+}
+const placeText = (p) => `${+p.angle.toFixed(1)},${Math.round(p.ring)},${Math.round(p.height)}`;
+// the portals vvoid will have, as it will be saved: those of the circle's order with a page, and on
+function ringNames() {
+  const off = new Set(offList());
+  return settings.ring.order.filter((n) => settings.plugins.find((p) => p.name === n)?.page && !off.has(n));
+}
+// where one stands: placed, or auto (as hubSlot lays them: evenly round the circle, in its order)
+function placeOf(name) {
+  const now = current(portalEnv(name));
+  const own = now && !now.remove && now.on ? parsePlace(now.value) : null;
+  const names = ringNames(), i = names.indexOf(name);
+  if (own) return { ...own, auto: false, standing: i >= 0 };
+  return { angle: (Math.max(0, i) / Math.max(1, names.length)) * 360, ring: settings.ring.radius, height: 0, auto: true, standing: i >= 0 };
+}
+// placed (null: auto again; its line commented out, kept in .env for later, as a password emptied)
+function setPlace(name, place) {
+  const env = portalEnv(name), e = entry(env);
+  if (place) propose(env, { value: placeText(place), on: true });
+  else if (e?.exists && e.on) propose(env, { value: e.value, on: false });
+  else propose(env, { value: e?.value ?? "", on: false });
+}
+
+const SVG = "http://www.w3.org/2000/svg";
+function svg(tag, attrs = {}, ...kids) {
+  const e = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  e.append(...kids);
+  return e;
+}
+let chosen = null, dragging = null, extent = 0;
+// the map's view: centred where, reaching how far (r null: fitted to every portal; scrolled, pinched or dragged,
+// its own, until fit)
+const view = { x: 0, y: 0, r: null };
+const NEAREST = 400, FURTHEST = 120_000;
+const placeBoxes = new Map(); // name -> its card's sync
+const xyOf = (p) => [Math.sin((p.angle / 180) * Math.PI) * p.ring, -Math.cos((p.angle / 180) * Math.PI) * p.ring];
+function renderMap() {
+  const box = $("#portal-map"), { radius, cell, reach } = settings.ring, names = ringNames();
+  $("#portals").hidden = !names.length;
+  if (!dragging) extent = view.r ?? Math.max(cell * 2.3, ...names.map((n) => placeOf(n).ring * 1.15));
+  const cx = view.r === null ? 0 : view.x, cy = view.r === null ? 0 : view.y;
+  const map = svg("svg", { viewBox: `${cx - extent} ${cy - extent} ${extent * 2} ${extent * 2}`, class: "map", "font-size": extent * 0.034, role: "group", "aria-label": "the portals round the clock, seen from above" });
+  // (where places may stand: the middle of every sector, a cell apart, the hub's in the middle; those in view,
+  // and none once so far out that they would only be a grey haze)
+  if (extent / cell < 16) {
+    const range = (c) => [Math.floor((c - extent - reach) / cell), Math.ceil((c + extent + reach) / cell)];
+    const [i0, i1] = range(cx), [j0, j1] = range(cy);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+      map.append(svg("rect", { class: i || j ? "place" : "place hub", x: i * cell - reach, y: j * cell - reach, width: reach * 2, height: reach * 2 }));
+    }
+  }
+  map.append(svg("circle", { class: "ring", r: radius }), svg("circle", { class: "clock", r: extent * 0.012 }));
+  map.append(svg("text", { class: "ahead", x: cx, y: cy - extent * 0.92 }, "↑ ahead as you arrive"));
+  for (const name of names) map.append(dot(map, name));
+  box.replaceChildren(map);
+}
+function dot(map, name) {
+  const p = placeOf(name), [x, y] = xyOf(p);
+  const g = svg("g", {
+    class: `dot${p.auto ? " auto" : ""}${pending.has(portalEnv(name)) ? " dirty" : ""}${chosen === name ? " selected" : ""}`,
+    transform: `translate(${x} ${y})`, tabindex: 0, role: "button", "data-name": name,
+    "aria-label": `${name}'s portal: ${p.auto ? "auto" : "placed"}, ${Math.round(p.angle)}°, ${Math.round(p.ring)} out`,
+  }, svg("circle", { r: extent * 0.024 }), svg("text", { y: -extent * 0.04 }, name));
+  const toMap = (ev) => new DOMPoint(ev.clientX, ev.clientY).matrixTransform(map.getScreenCTM().inverse());
+  let from = null;
+  g.addEventListener("pointerdown", (ev) => {
+    g.setPointerCapture(ev.pointerId);
+    from = { x: ev.clientX, y: ev.clientY };
+    choose(name, false);
+  });
+  g.addEventListener("pointermove", (ev) => {
+    if (!from || (!dragging && Math.hypot(ev.clientX - from.x, ev.clientY - from.y) < 4)) return;
+    dragging = name;
+    g.classList.add("dragging");
+    const at = toMap(ev), step = ev.shiftKey ? [5, 100] : [0.5, 10];
+    const angle = (((Math.atan2(at.x, -at.y) * 180) / Math.PI) + 360) % 360, ring = Math.hypot(at.x, at.y);
+    const place = { angle: (Math.round(angle / step[0]) * step[0]) % 360, ring: Math.round(ring / step[1]) * step[1], height: placeOf(name).height };
+    setPlace(name, place);
+    const [x, y] = xyOf(place);
+    g.setAttribute("transform", `translate(${x} ${y})`);
+    g.classList.remove("auto");
+    placeBoxes.get(name)?.();
+  });
+  const end = () => {
+    if (!from) return;
+    from = null;
+    if (dragging) {
+      dragging = null;
+      renderMap();
+      renderSettings();
+    } else choose(name); // (a click: its card shown)
+  };
+  g.addEventListener("pointerup", end);
+  g.addEventListener("pointercancel", end);
+  g.addEventListener("keydown", (ev) => {
+    const big = ev.shiftKey, p = placeOf(name);
+    const by = { ArrowLeft: [-(big ? 5 : 1), 0], ArrowRight: [big ? 5 : 1, 0], ArrowUp: [0, big ? 500 : 100], ArrowDown: [0, -(big ? 500 : 100)] }[ev.key];
+    if (!by) return;
+    ev.preventDefault();
+    setPlace(name, { angle: (((p.angle + by[0]) % 360) + 360) % 360, ring: Math.max(0, p.ring + by[1]), height: p.height });
+    chosen = name;
+    renderPlugins();
+    renderSettings();
+    $("#portal-map .dot.selected")?.focus();
+  });
+  return g;
+}
+// in and out (scrolled, pinched, its buttons: about a point of the map, which stays where it is on the
+// screen), and about (dragged in the dark between the portals)
+const mapBox = $("#portal-map");
+let redraw = 0;
+const soon = () => { if (!redraw) redraw = requestAnimationFrame(() => { redraw = 0; if (settings) renderMap(); }); };
+// (a point on the screen, on the map; the map's units to a pixel)
+const onMap = (x, y) => new DOMPoint(x, y).matrixTransform(mapBox.querySelector("svg").getScreenCTM().inverse());
+const perPixel = () => (extent * 2) / (mapBox.clientWidth || 1);
+function own() { if (view.r === null) Object.assign(view, { x: 0, y: 0, r: extent }); }
+function zoomAt(factor, at) {
+  own();
+  const r = Math.min(FURTHEST, Math.max(NEAREST, view.r * factor)), k = r / view.r;
+  view.x = at.x + (view.x - at.x) * k;
+  view.y = at.y + (view.y - at.y) * k;
+  view.r = extent = r;
+  soon();
+}
+mapBox.addEventListener("wheel", (ev) => {
+  if (dragging || !settings) return;
+  ev.preventDefault();
+  const lines = ev.deltaMode === 1 ? 33 : ev.deltaMode === 2 ? 400 : 1;
+  zoomAt(Math.exp(ev.deltaY * lines * 0.0015), onMap(ev.clientX, ev.clientY));
+}, { passive: false });
+const fingers = new Map(); // pointer -> where it is on the screen
+const middle = () => { let x = 0, y = 0; for (const f of fingers.values()) { x += f.x; y += f.y; } return { x: x / fingers.size, y: y / fingers.size }; };
+const spread = (c) => { let d = 0; for (const f of fingers.values()) d += Math.hypot(f.x - c.x, f.y - c.y); return d / fingers.size; };
+mapBox.addEventListener("pointerdown", (ev) => {
+  if (ev.target.closest?.(".dot") || ev.button > 0) return; // (a portal: placed, see dot)
+  mapBox.setPointerCapture(ev.pointerId);
+  fingers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  mapBox.classList.add("panning");
+});
+mapBox.addEventListener("pointermove", (ev) => {
+  if (!fingers.has(ev.pointerId)) return;
+  const was = middle(), wasSpread = spread(was);
+  fingers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  const now = middle(), u = perPixel();
+  own();
+  view.x -= (now.x - was.x) * u;
+  view.y -= (now.y - was.y) * u;
+  // (two fingers: closer as they part, further as they close)
+  if (fingers.size > 1 && wasSpread > 0) zoomAt(wasSpread / Math.max(1, spread(now)), onMap(now.x, now.y));
+  soon();
+});
+const lift = (ev) => {
+  fingers.delete(ev.pointerId);
+  if (!fingers.size) mapBox.classList.remove("panning");
+};
+mapBox.addEventListener("pointerup", lift);
+mapBox.addEventListener("pointercancel", lift);
+mapBox.addEventListener("dblclick", (ev) => {
+  if (ev.target.closest?.(".dot")) return;
+  view.r = null;
+  renderMap();
+});
+for (const b of document.querySelectorAll(".map-tools [data-zoom]")) {
+  b.addEventListener("click", () => {
+    if (b.dataset.zoom === "fit") view.r = null, renderMap();
+    else zoomAt(b.dataset.zoom === "in" ? 1 / 1.4 : 1.4, { x: view.r === null ? 0 : view.x, y: view.r === null ? 0 : view.y }), renderMap();
+  });
+}
+
+// one chosen: its dot and its card marked (and its card shown)
+function choose(name, scroll = true) {
+  chosen = name;
+  for (const d of document.querySelectorAll("#portal-map .dot")) d.classList.toggle("selected", d.dataset.name === name);
+  for (const c of document.querySelectorAll("#plugins .plugin")) c.classList.toggle("selected", c.id === `plugin-${name}`);
+  if (scroll) $(`#plugin-${CSS.escape(name)}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+// a card's place: its numbers, and auto
+function placeBox(p) {
+  if (!p.portal) return null;
+  const name = p.name, env = portalEnv(name);
+  const field = (key, label, step) => el("label", {}, label, el("input", { type: "number", step, "data-key": key, "aria-label": `${name}'s portal ${label}` }));
+  const fields = [field("angle", "angle °", "any"), field("ring", "distance", "any"), field("height", "height", "any")];
+  const inputs = fields.map((f) => f.querySelector("input"));
+  const auto = el("button", { type: "button", title: "in its place on the circle again, as vvoid lays them" }, "auto");
+  const state = el("span", { class: "placestate" });
+  const box = el("div", { class: "place" }, el("div", { class: "fields" }, fields, auto), state);
+  const sync = () => {
+    const pl = placeOf(name);
+    for (const i of inputs) if (i !== document.activeElement) i.value = String(+pl[i.dataset.key].toFixed(i.dataset.key === "angle" ? 1 : 0));
+    box.className = `place${pl.auto ? " auto" : ""}${pending.has(env) ? " dirty" : ""}`;
+    auto.disabled = pl.auto;
+    state.className = `placestate${pl.auto ? "" : " own"}`;
+    state.textContent = !pl.standing ? "its portal: not in the void while it is off" : pl.auto ? "its portal: auto, in its place on the circle" : "its portal: placed";
+  };
+  for (const i of inputs) {
+    i.addEventListener("input", () => {
+      const [angle, ring, height] = inputs.map((x) => Number(x.value));
+      if (![angle, ring, height].every(Number.isFinite) || inputs.some((x) => x.value === "")) return;
+      setPlace(name, { angle: ((angle % 360) + 360) % 360, ring: Math.max(0, ring), height });
+      sync();
+      renderMap();
+      renderSettings();
+    });
+    i.addEventListener("focus", () => choose(name, false));
+  }
+  auto.addEventListener("click", () => {
+    setPlace(name, null);
+    renderPlugins();
+    renderSettings();
+  });
+  placeBoxes.set(name, sync);
+  sync();
+  return box;
+}
+
+// ---- what each portal is: its words, on a pane inside it, beside its way back (see about.js). Kept at once, apart from
+// .env (in VVOID_PORTALS), and seen in the void within half a minute, vvoid not restarted ----
+let described = { about: {}, vanity: {}, max: 2000 };
+const drafts = new Map(); // name -> its words as typed, not yet kept (kept over the cards drawn again)
+function describeBox(p) {
+  if (!p.portal) return null;
+  const kept = () => described.about[p.name] ?? "";
+  const area = el("textarea", {
+    rows: 4, maxLength: described.max, value: drafts.get(p.name) ?? kept(), spellcheck: true,
+    placeholder: "what it is, on a pane inside it, beside its way back to the hub (none: no pane)", "aria-label": `${p.name}'s description`,
+  });
+  const count = el("span", { class: "count" });
+  const save = el("button", { type: "button", class: "primary" }, "keep");
+  const box = el("div", { class: "describe" }, el("label", {}, "description, inside it", area), el("div", { class: "describe-bar" }, count, save));
+  const sync = () => {
+    const dirty = area.value !== kept();
+    dirty ? drafts.set(p.name, area.value) : drafts.delete(p.name);
+    box.classList.toggle("dirty", dirty);
+    save.disabled = !dirty;
+    count.textContent = `${area.value.length} / ${described.max}`;
+  };
+  area.addEventListener("input", sync);
+  save.addEventListener("click", async () => {
+    save.disabled = true;
+    try {
+      described = await api("about", { method: "PUT", body: { name: p.name, text: area.value } });
+      const running = vvoid?.state === "running" || vvoid?.state === "elsewhere";
+      toast(`${p.name}: ${area.value.trim() ? "its words kept" : "its pane taken away"}${running ? ", seen in the void within half a minute" : ""}`);
+    } catch (err) {
+      toast(err.message, true);
+    }
+    sync();
+  });
+  sync();
+  return box;
+}
+
+// ---- each portal's own word, its quick access: /<word> on vvoid's address, straight to it (started before it in
+// the hub and flown in). Kept beside its words, at once, and seen by vvoid within a second, not restarted ----
+const wordDrafts = new Map(); // name -> its word as typed, not yet kept
+function vanityBox(p) {
+  if (!p.portal) return null;
+  const kept = () => described.vanity?.[p.name] ?? "";
+  const input = el("input", {
+    type: "text", maxLength: 40, value: wordDrafts.get(p.name) ?? kept(), spellcheck: false, autocomplete: "off",
+    placeholder: "none", "aria-label": `${p.name}'s quick access word`,
+  });
+  const save = el("button", { type: "button", class: "primary" }, "keep");
+  const box = el("div", { class: "describe vanity" },
+    el("label", {}, "quick access, straight to it", el("div", { class: "vanity-word" }, el("span", {}, "/"), input, save)));
+  const clean = () => input.value.trim().toLowerCase().replace(/^\/+|\/+$/g, "");
+  const sync = () => {
+    const dirty = clean() !== kept();
+    dirty ? wordDrafts.set(p.name, input.value) : wordDrafts.delete(p.name);
+    box.classList.toggle("dirty", dirty);
+    save.disabled = !dirty;
+  };
+  const keep = async () => {
+    if (save.disabled) return;
+    save.disabled = true;
+    try {
+      described = await api("vanity", { method: "PUT", body: { name: p.name, word: clean() } });
+      wordDrafts.delete(p.name);
+      input.value = kept();
+      toast(`${p.name}: ${kept() ? `/${kept()} goes straight to it` : "its quick access taken away"}`);
+    } catch (err) {
+      toast(err.message, true);
+    }
+    sync();
+  };
+  input.addEventListener("input", sync);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") keep(); });
+  save.addEventListener("click", keep);
   sync();
   return box;
 }
@@ -511,7 +816,7 @@ $("#env-save").addEventListener("click", async () => {
 });
 
 // ---- leaving with something unsaved ----
-const unsaved = () => pending.size > 0 || envDirty || (lookData && Object.keys(lookEdit).length > 0);
+const unsaved = () => pending.size > 0 || drafts.size > 0 || envDirty || (lookData && Object.keys(lookEdit).length > 0);
 addEventListener("beforeunload", (ev) => {
   if (unsaved()) ev.preventDefault();
 });

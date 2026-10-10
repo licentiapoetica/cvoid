@@ -33,6 +33,7 @@ export class VoidXR {
     this.store = store;
     this.settings = { size: "person", turn: "snap", comfort: true, sharpness: 0.85, ...stored("xr", {}) };
     this.session = null;
+    this.wanted = this.asked = null; // (the frame rate a plugin asks for, and the one asked of the headset: see rate)
     this.pretending = false; // (tests: on, without a headset, its poses set by hand)
     this.rig = new THREE.Group(); // (the play space in the void: see place)
     scene.add(this.rig);
@@ -66,6 +67,7 @@ export class VoidXR {
     xr.setFramebufferScaleFactor(this.settings.sharpness);
     session.addEventListener("end", () => {
       this.session = null;
+      viewScale = viewScaled = 1;
       xr.enabled = false;
       xr.cameraAutoUpdate = true;
       this.depth = [0, 0];
@@ -80,13 +82,34 @@ export class VoidXR {
       throw err;
     }
     xr.setFoveation(1);
-    // (as fast as the headset offers: a Quest 2 begins at 72 a second, and can do 90)
-    try { const rates = session.supportedFrameRates; if (rates?.length) session.updateTargetFrameRate(Math.min(90, Math.max(...rates))).catch(() => {}); } catch { /* not offered */ }
     this.session = session;
+    this.asked = null;
+    this.rate(this.wanted);
+    scaleViews();
     this.onChange?.(true);
     return true;
   }
   exit() { this.session?.end().catch(() => {}); }
+  // How many frames a second: as fast as the headset offers, up to 90 (a Quest 2 begins at 72), or, while a
+  // plugin asks for more (saber's songs: see its pace.js), up to that; null gives it back. The rates offered
+  // are the headset's (a Quest 2's 120 only once it is turned on in its own settings).
+  rate(most = null) {
+    this.wanted = most;
+    const s = this.session, rates = s?.supportedFrameRates;
+    if (!rates?.length || !s.updateTargetFrameRate) return;
+    const fit = [...rates].filter((r) => r <= (most ?? 90) + 0.5), hz = fit.length ? Math.max(...fit) : Math.min(...rates);
+    if (hz === this.asked) return;
+    this.asked = hz;
+    try { s.updateTargetFrameRate(hz).catch(() => {}); } catch { /* not offered */ }
+  }
+  get rates() { return [...(this.session?.supportedFrameRates ?? [])]; }
+  get frameRate() { return this.session?.frameRate ?? this.asked ?? null; }
+  // How much of each eye's picture is drawn (1: all of it; less: smaller, and stretched to fill it), changed
+  // from one frame to the next as the headset itself allows (its picture's own size cannot change while it
+  // is on); false where it does not (see scaleViews)
+  get scalable() { return VIEW_SCALE; }
+  get viewScale() { return viewScale; }
+  set viewScale(k) { viewScale = Math.max(0.2, Math.min(1, k)); }
   pretend(on) { this.pretending = on; this.lastHead = null; this.onChange?.(on); }
 
   // each frame, before anything uses them: the head and the hands as they are now
@@ -203,6 +226,22 @@ export class VoidXR {
   draw(scene, far) {
     this.render(scene, { at: this.rig.position, turn: this.body, scale: this.scale, near: 0.05 * this.scale, far });
   }
+}
+
+// Each eye's picture drawn smaller (see viewScale): asked of each of its views as three.js takes them from
+// the frame, before it asks where in the picture each is drawn (the headset gives a smaller part then). Put
+// in once, the first time the headset is put on.
+const VIEW_SCALE = typeof XRView !== "undefined" && "requestViewportScale" in XRView.prototype;
+let viewScale = 1, viewScaled = 1;
+function scaleViews() {
+  if (!VIEW_SCALE || scaleViews.done) return;
+  scaleViews.done = true;
+  const pose = XRFrame.prototype.getViewerPose;
+  XRFrame.prototype.getViewerPose = function (space) {
+    const p = pose.call(this, space);
+    if (p && (viewScale !== 1 || viewScaled !== 1)) { for (const v of p.views) v.requestViewportScale(viewScale); viewScaled = viewScale; }
+    return p;
+  };
 }
 
 // One camera that sees what both eyes see (for what is left undrawn as out of sight), as three.js makes it

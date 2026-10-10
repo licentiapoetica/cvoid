@@ -9,10 +9,11 @@ export const SIGHT = CELL / 600; // how much further everything is than when sec
 // out, alone in the dark between the places round the hub (they begin about 4680 out along each axis and
 // end about 5720, the next ones about 9880 to 10920): as they are laid (18 of them), none nearer any place
 // than about 1020. hubPortal(angle): where one stands at that angle round the circle (0 straight ahead as
-// you arrive, a quarter turn to the right, and so on), and which way is in (towards the clock)
+// you arrive, a quarter turn to the right, and so on), and which way is in (towards the clock); further
+// out or nearer than the circle (ring), and above or below it (height), for one an admin has placed
 export const PORTAL_RING = 8800;
-export const hubPortal = (angle, ring = PORTAL_RING) => ({
-  at: [Math.sin(angle) * ring, 0, -Math.cos(angle) * ring],
+export const hubPortal = (angle, ring = PORTAL_RING, height = 0) => ({
+  at: [Math.sin(angle) * ring, height, -Math.cos(angle) * ring],
   in: [-Math.sin(angle), 0, Math.cos(angle)],
 });
 // how far off a portal is seen (further while zoomed in, and coming into being as it comes into that
@@ -22,14 +23,19 @@ export const PORTAL_SEEN = 7000;
 export const PORTAL_FORMS_ITSELF = new Set(["pt"]);
 // Who stands where on that circle: these, in this order round it (f0ck's straight ahead), each the same
 // way from the next, as many as there are (setPortals: the plugins this vvoid has), so the circle is
-// always evenly kept, however many there are. hubSlot(name): where that one stands.
+// always evenly kept, however many there are. hubSlot(name): where that one stands. Unless an admin has
+// placed it (VVOID_<NAME>_PORTAL, see server.js: { angle in degrees, ring, height }): there, the others
+// standing where they would have stood all the same.
 export const PORTAL_ORDER = ["f0ck", "z0r", "gumo", "somafm", "player", "files", "marderchen", "chan", "shorts", "tiktok", "redgifs", "discord", "watch", "zone", "bhop", "mania", "saber", "edge", "pt"];
-let portals = PORTAL_ORDER;
-export function setPortals(plugins) {
+let portals = PORTAL_ORDER, placed = {};
+export function setPortals(plugins, places = {}) {
   portals = PORTAL_ORDER.filter((name) => plugins.includes(name));
+  placed = places ?? {};
 }
 export const portalNames = () => portals;
 export const hubSlot = (name) => {
+  const own = placed[name];
+  if (own && Number.isFinite(own.angle)) return hubPortal((own.angle / 180) * Math.PI, own.ring ?? PORTAL_RING, own.height ?? 0);
   return hubPortal((Math.max(0, portals.indexOf(name)) / portals.length) * Math.PI * 2);
 };
 // where everyone starts, unless they have chosen a place on the map (and where its origin button takes

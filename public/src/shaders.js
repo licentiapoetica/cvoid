@@ -152,9 +152,10 @@ vec3 farBlocks(vec3 d, vec3 sky){
       // (lit through by the sky a little while near, so their dark sides are never holes in it; far off,
       // they are what darkens it)
       vec3 lit = (stone * lamp + uFogColor * near) * uLight + sky * 0.6 * near;
-      // a light show (saber's) brings them up out of the haze and glows in them, the near ones most
+      // a light show (saber's) brings them up out of the haze and glows in them, the near ones most: in its
+      // lights' colours, or as far as the look's colour overrides theirs, in that
       float show = uBlocksLit * uBlocksLights[group] * (0.35 + 0.65 * (1. - smoothstep(BLOCKS_FROM, BLOCKS_TO * 0.8, dist)));
-      lit += uBlocksColours[group] * show * (0.45 + 0.55 * up) * LOOK_BLOCKS_SHOW_GLOW;
+      lit += mix(uBlocksColours[group], LOOK_BLOCKS_COLOUR, LOOK_BLOCKS_COLOUR_MIX) * show * (0.45 + 0.55 * up) * LOOK_BLOCKS_SHOW_GLOW;
       return mix(sky, lit, min(seen * (1. + show * LOOK_BLOCKS_SHOW_OPACITY), 0.97));
     }
     cell += next * stp;

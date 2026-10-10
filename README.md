@@ -59,6 +59,7 @@ the menu's origin takes you out of them. The saber plugin is made for it.
 | `VVOID_MAX_SLOTS` | none | how many may be in the void at once; the rest wait in line on the start screen |
 | `VVOID_ADMIN_KEY` | none | open vvoid once as `/?admin=<key>`: that browser is admin for a year, straight in past the line (taking no slot) and through every portal without its password; `/?admin=` lets it go |
 | `VVOID_LOOK` | `.cache/look.json` | where the void's look is kept (as an admin turns it: `Tab`, then look) |
+| `VVOID_PORTALS` | `.cache/portals.json` | what each portal is, in your words, on a pane inside it, beside its way back; and each one's quick access, a word of its own: `/<word>` on vvoid's address starts you before that portal and flies you in (both written from the panel's plugins page; seen without a restart) |
 | `VVOID_PLUGINS_OFF` | none | plugins left in `plugins/` but not loaded: their folders' names, split by commas |
 
 Behind nginx on the same machine, let it say who is asking (for the logs, and so that wrong passwords
@@ -97,6 +98,13 @@ repository. What a plugin is given and the hooks it answers are written down in 
 `VVOID_PASSWORD` in `.env` for all of them, `VVOID_<NAME>_PASSWORD` for one, over it; asked every time,
 unless `VVOID_REMEMBER` (or `VVOID_<NAME>_REMEMBER`: `30d`, `12h`) says how long to remember it (see `locks.js`).
 None is locked unless a password is set.
+
+Each portal stands in its place on the circle round the clock, the circle shared evenly among them. One can
+be placed elsewhere: `VVOID_<NAME>_PORTAL` is `angle,distance,height`, the angle in degrees round the clock
+(0 straight ahead as you arrive, 90 a quarter turn to the right), the distance from it (`8800`, the circle's),
+and the height over it (`0`); the others stay where they stood. The panel's plugins page has them on a map,
+to be dragged where they should stand, and `auto` puts one back. And a few words for each, what it is: inside
+it, on a pane of dark glass beside its way back to the hub, turned to you as you come near (none written, none there).
 
 ## Made with
 

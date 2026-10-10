@@ -681,7 +681,9 @@ export class World {
     this.dust.material.uniforms.uCam.value.copy(camera.position);
   }
 
-  update(dt, camera) {
+  // (unseen: a plugin draws the picture itself, the headset's (see saber): the worms, seen by nobody, left as
+  // they are, and put round you again when they are seen)
+  update(dt, camera, unseen = false) {
     const G = this.G;
     G.uTime.value += dt;
     const cx = Math.round(camera.position.x / CELL), cy = Math.round(camera.position.y / CELL), cz = Math.round(camera.position.z / CELL);
@@ -748,7 +750,8 @@ export class World {
     G.uFogDensity.value += (this.target.density * this.fogBoost - G.uFogDensity.value) * ease;
     G.uLight.value += (this.light - G.uLight.value) * (1 - Math.exp(-dt * 0.6));
     this.sky.update(dt, camera);
-    this.worms.update(dt, camera);
+    if (unseen) this.worms.placed = false;
+    else this.worms.update(dt, camera);
     this.dust.material.uniforms.uCam.value.copy(camera.position);
   }
 }

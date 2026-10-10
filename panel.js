@@ -17,6 +17,7 @@ import { spawn } from "node:child_process";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { LOOK, cleanLooks } from "./public/src/look.js";
+import { CELL, REACH, UNIT, PORTAL_ORDER, PORTAL_RING } from "./public/src/constants.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ENV_FILE = path.join(here, ".env");
@@ -183,9 +184,10 @@ async function catalogue() {
     const docs = docsIn(text);
     const names = new Set([...(await namesIn(await codeOf(dir))), ...[...docs.keys()].filter((n) => n === env || n.startsWith(`${env}_`))]);
     names.add(`${env}_PASSWORD`).add(`${env}_REMEMBER`); // (its lock: any plugin may have one)
+    if (PORTAL_ORDER.includes(name)) names.add(`${env}_PORTAL`); // (and its portal's place, if it has one on the circle)
     found.push({ name, env, docs, names });
     const first = text.replace(/^#.*$/gm, "").split(/\n\s*\n/).map(strip).find(Boolean) ?? "";
-    plugins.push({ name, about: abouts.get(name) ?? first, server: existsSync(path.join(dir, "server.js")), page: existsSync(path.join(dir, "public", "client.js")) });
+    plugins.push({ name, about: abouts.get(name) ?? first, server: existsSync(path.join(dir, "server.js")), page: existsSync(path.join(dir, "public", "client.js")), portal: PORTAL_ORDER.includes(name) });
   }
   // (a name read by more than one plugin is the one's whose it is by its name, else the first's)
   for (const { name, env, docs, names } of found) {
@@ -197,6 +199,7 @@ async function catalogue() {
         name: n, ...docs.get(n),
         ...(n === `${env}_PASSWORD` && !docs.has(n) && { about: "a password at its ring (empty: open, whatever VVOID_PASSWORD says)" }),
         ...(n === `${env}_REMEMBER` && !docs.has(n) && { about: "how long its password is remembered: 30d, 12h (over VVOID_REMEMBER)" }),
+        ...(n === `${env}_PORTAL` && !docs.has(n) && { default: "auto", about: "where its portal stands: angle,distance,height (degrees round the clock, 0 ahead as you arrive, 90 to the right; unset: in its place on the circle)" }),
       });
     }
     groups.push({ id: `plugin:${name}`, title: name, plugin: name, entries });
@@ -221,7 +224,9 @@ async function settings() {
     const env = `VVOID_${p.name.toUpperCase().replace(/-/g, "_")}`;
     Object.assign(p, { off: off.has(p.name), locked: !!(effective(`${env}_PASSWORD`, set) ?? effective("VVOID_PASSWORD", set)) });
   }
-  return { version: versionOf(text), groups, plugins };
+  // (the circle of portals, for the plugins page's map: see hubSlot in constants.js)
+  const ring = { order: PORTAL_ORDER, radius: PORTAL_RING, cell: CELL, reach: REACH * UNIT };
+  return { version: versionOf(text), groups, plugins, ring };
 }
 
 // ---- the panel's own settings, as it starts ----
@@ -314,6 +319,45 @@ async function look() {
   }
   return { fields, looks: await lookFile(set), live: false };
 }
+// ---- what each portal is, beside it in the hub (see about.js): its words, in VVOID_PORTALS; vvoid reads the
+// file again as it changes, so they are seen without it restarting ----
+const ABOUT_MAX = 2000; // (as server.js keeps them)
+const portalsPath = (set) => path.resolve(here, effective("VVOID_PORTALS", set) ?? path.join(".cache", "portals.json"));
+async function portalsFile(set) {
+  try {
+    const kept = JSON.parse(await fs.readFile(portalsPath(set), "utf8"));
+    return kept && typeof kept === "object" ? kept : {};
+  } catch {
+    return {};
+  }
+}
+async function setAbout(name, text) {
+  const set = settingsOf(parse(await readEnv())), file = portalsPath(set), kept = await portalsFile(set);
+  const about = { ...(kept.about ?? {}) };
+  if (text.trim()) about[name] = text.slice(0, ABOUT_MAX);
+  else delete about[name];
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const tmp = `${file}.panel-${process.pid}`;
+  await fs.writeFile(tmp, JSON.stringify({ ...kept, about }, null, 2));
+  await fs.rename(tmp, file);
+  return about;
+}
+
+// and each portal's own word, its quick access (/<word> on vvoid's address goes straight to it: see VANITY in
+// server.js), kept beside its words: lower case, never one of vvoid's own first steps, never another portal's
+const VANITY = /^[a-z0-9][a-z0-9-]{0,39}$/, VANITY_TAKEN = new Set(["api", "src", "vendor", "plugins", "index", "panel", "admin"]);
+async function setVanity(name, word) {
+  const set = settingsOf(parse(await readEnv())), file = portalsPath(set), kept = await portalsFile(set);
+  const vanity = { ...(kept.vanity ?? {}) };
+  if (word) vanity[name] = word;
+  else delete vanity[name];
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const tmp = `${file}.panel-${process.pid}`;
+  await fs.writeFile(tmp, JSON.stringify({ ...kept, vanity }, null, 2));
+  await fs.rename(tmp, file);
+  return vanity;
+}
+
 const lookPath = (set) => path.resolve(here, effective("VVOID_LOOK", set) ?? path.join(".cache", "look.json"));
 async function lookFile(set) {
   try {
@@ -461,6 +505,31 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { version: versionOf(now), text: now });
     }
 
+    if (p === "/api/about" && m === "GET") {
+      const kept = await portalsFile(settingsOf(parse(await readEnv())));
+      return send(res, 200, { about: kept.about ?? {}, vanity: kept.vanity ?? {}, max: ABOUT_MAX });
+    }
+    if (p === "/api/vanity" && m === "PUT") {
+      const { name, word: given } = await body(req, 4 * 1024);
+      if (typeof name !== "string" || !/^[\w-]+$/.test(name) || typeof given !== "string") return send(res, 400, { error: "bad request" });
+      const word = given.trim().toLowerCase().replace(/^\/+|\/+$/g, "");
+      if (word && !VANITY.test(word)) return send(res, 400, { error: "a word of letters, digits and dashes, 40 at most, not starting with a dash" });
+      if (VANITY_TAKEN.has(word)) return send(res, 400, { error: `/${word} is vvoid's own` });
+      const kept = await portalsFile(settingsOf(parse(await readEnv())));
+      const other = Object.entries(kept.vanity ?? {}).find(([n, w]) => n !== name && w === word);
+      if (word && other) return send(res, 409, { error: `/${word} is ${other[0]}'s already` });
+      const vanity = await setVanity(name, word);
+      console.log(`[panel] ${name}: its quick access ${word ? `/${word}` : "taken away"}`);
+      return send(res, 200, { about: kept.about ?? {}, vanity, max: ABOUT_MAX });
+    }
+    if (p === "/api/about" && m === "PUT") {
+      const { name, text } = await body(req, 64 * 1024);
+      if (typeof name !== "string" || !/^[\w-]+$/.test(name) || typeof text !== "string") return send(res, 400, { error: "bad request" });
+      if (text.length > ABOUT_MAX) return send(res, 400, { error: `at most ${ABOUT_MAX} characters` });
+      const about = await setAbout(name, text);
+      console.log(`[panel] ${name}: its portal's words ${text.trim() ? "written" : "taken away"}`);
+      return send(res, 200, { about, vanity: (await portalsFile(settingsOf(parse(await readEnv())))).vanity ?? {}, max: ABOUT_MAX });
+    }
     if (p === "/api/look" && m === "GET") return send(res, 200, await look());
     if (p === "/api/look" && m === "PUT") {
       const given = await body(req, 512 * 1024).catch(() => null);
